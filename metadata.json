@@ -1,0 +1,6 @@
+{
+  "name": "Global Pathways Portal",
+  "description": "Overseas recruitment operations platform with client status tracking, medical and interview scheduling, and staff-admin management dashboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
