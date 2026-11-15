@@ -27,9 +27,9 @@ import type {
   UserRole,
 } from '../types';
 import { APP_IMAGES } from './assets';
+import { validateStrongPassword } from './passwordPolicy';
 import { normalizeSiteSettings } from './siteDefaults';
 import {
-  createEphemeralSupabaseClient,
   getSupabaseConfigError,
   isSupabaseConfigured,
   supabase,
@@ -165,6 +165,56 @@ async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
     ) {
       throw new ConflictError(errMsg);
     }
+    throw new Error(errMsg);
+  }
+
+  return data as T;
+}
+
+async function supabaseAdminApiFetch<T>(
+  url: string,
+  options: RequestInit = {}
+): Promise<T> {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) {
+    throw new Error('Active administrator session required.');
+  }
+
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.headers as Record<string, string> | undefined),
+    },
+  });
+
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  const text = await res.text();
+  if (contentType.includes('text/html') || text.trimStart().toLowerCase().startsWith('<!doctype')) {
+    throw new Error(
+      'Server-side Supabase Admin API (/api/supabase-admin/users) is unavailable. Deploy with the Express server enabled and SUPABASE_SERVICE_ROLE_KEY set in server secrets.'
+    );
+  }
+
+  let data: unknown = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { error: text };
+    }
+  }
+
+  if (!res.ok) {
+    const errMsg =
+      data && typeof data === 'object' && 'error' in data
+        ? String((data as { error: unknown }).error)
+        : `Request failed (${res.status})`;
     throw new Error(errMsg);
   }
 
@@ -822,11 +872,17 @@ export const api = {
 
   lookupClient: async (phone: string): Promise<ClientLookupResponse> => {
     assertProductionBackend();
+    const clean = phone.trim();
+    if (!clean) {
+      throw new Error('Please enter a complete registered phone number.');
+    }
+    const digits = clean.replace(/\D/g, '');
+    const normalizedDigits = digits.startsWith('880') && digits.length >= 13 ? digits.slice(2) : digits;
+    if (normalizedDigits.length < 10 || normalizedDigits.length > 15) {
+      throw new Error('Please enter a valid complete phone number (at least 10 digits).');
+    }
+
     if (supabase) {
-      const clean = phone.trim();
-      if (!clean) {
-        throw new Error('Please enter a phone number.');
-      }
       const { data, error } = await withRetry(async () =>
         supabase!.rpc('lookup_client_by_phone', { p_phone: clean })
       );
@@ -847,7 +903,7 @@ export const api = {
     }
 
     return apiFetch<ClientLookupResponse>(
-      `/api/client-lookup?phone=${encodeURIComponent(phone)}`
+      `/api/client-lookup?phone=${encodeURIComponent(clean)}`
     );
   },
 
@@ -913,10 +969,14 @@ export const api = {
 
   register: async (payload: RegisterPayload): Promise<RegisterResult> => {
     assertProductionBackend();
+    const pwErr = validateStrongPassword(payload.password, 'Password');
+    if (pwErr) {
+      throw new Error(pwErr);
+    }
     if (supabase) {
       const { data, error } = await supabase.auth.signUp({
         email: payload.email.trim(),
-        password: payload.password,
+        password: payload.password.trim(),
         options: {
           data: {
             name: payload.name.trim(),
@@ -1206,64 +1266,46 @@ export const api = {
     expectedVersion?: number;
   }): Promise<{ user: PublicUser }> => {
     assertProductionBackend();
+    const trimmedPass = payload.newPassword?.trim();
+    if (trimmedPass) {
+      const pwErr = validateStrongPassword(trimmedPass, 'New password');
+      if (pwErr) {
+        throw new Error(pwErr);
+      }
+    }
+
     if (supabase) {
       const current = await getCurrentSupabaseUser();
       const nextUserId = payload.userId?.trim();
-      const nextPass = payload.newPassword?.trim();
 
-      if (nextPass && nextPass.length < 4) {
-        throw new Error('New password must be at least 4 characters.');
+      if (nextUserId && nextUserId !== current.userId && current.role !== 'admin') {
+        throw new Error('Only administrators can change their own login User ID.');
       }
 
-      if ((nextUserId && nextUserId !== current.userId) || nextPass) {
-        const { error: rpcErr } = await supabase.rpc('update_own_credentials', {
-          p_new_user_id: nextUserId && nextUserId !== current.userId ? nextUserId : null,
-          p_new_password: nextPass || null,
+      if (trimmedPass) {
+        const { error: passErr } = await supabase.auth.updateUser({
+          password: trimmedPass,
         });
-
-        if (rpcErr) {
-          const isMissingRpc =
-            rpcErr.code === 'PGRST202' ||
-            rpcErr.code === '42883' ||
-            rpcErr.message.toLowerCase().includes('update_own_credentials');
-          if (!isMissingRpc) {
-            throw new Error(rpcErr.message);
-          }
-
-          // Fallback when credential RPC migration hasn't been run yet
-          if (nextPass) {
-            if (nextPass.length < 6) {
-              throw new Error(
-                'Password must be at least 6 characters (or run supabase/migrations/20261116_admin_seed_and_credentials.sql).'
-              );
-            }
-            const { error: passErr } = await supabase.auth.updateUser({
-              password: nextPass,
-            });
-            if (passErr) throw new Error(passErr.message);
-          }
-          if (nextUserId && nextUserId !== current.userId) {
-            const { error: uidErr } = await supabase
-              .from('profiles')
-              .update({ user_id: nextUserId })
-              .eq('id', current.id);
-            if (uidErr) throw new Error(uidErr.message);
-          }
-        }
+        if (passErr) throw new Error(passErr.message);
       }
 
       const data = await withRetry(async () => {
+        const updatePayload: Record<string, unknown> = {
+          name: payload.name ?? current.name,
+          designation: payload.designation ?? current.designation,
+          phone: payload.phone ?? current.phone,
+          whatsapp: payload.whatsapp ?? current.whatsapp,
+          social_link: payload.socialLink ?? current.socialLink,
+          photo_url: payload.photoUrl ?? current.photoUrl,
+          cover_url: payload.coverUrl ?? current.coverUrl,
+        };
+        if (nextUserId && nextUserId !== current.userId && current.role === 'admin') {
+          updatePayload.user_id = nextUserId;
+        }
+
         let query = supabase!
           .from('profiles')
-          .update({
-            name: payload.name ?? current.name,
-            designation: payload.designation ?? current.designation,
-            phone: payload.phone ?? current.phone,
-            whatsapp: payload.whatsapp ?? current.whatsapp,
-            social_link: payload.socialLink ?? current.socialLink,
-            photo_url: payload.photoUrl ?? current.photoUrl,
-            cover_url: payload.coverUrl ?? current.coverUrl,
-          })
+          .update(updatePayload)
           .eq('id', current.id);
 
         if (payload.expectedVersion !== undefined) {
@@ -1271,7 +1313,12 @@ export const api = {
         }
 
         const { data: updatedRow, error } = await query.select('*').maybeSingle();
-        if (error) throw new Error(error.message);
+        if (error) {
+          if (error.code === '23505') {
+            throw new Error('Another account already uses this User ID.');
+          }
+          throw new Error(error.message);
+        }
         if (!updatedRow) {
           throw new ConflictError(
             'Your profile was updated elsewhere while you were editing. Reload the latest version before saving.'
@@ -1303,116 +1350,31 @@ export const api = {
     coverUrl?: string;
   }): Promise<{ staff: PublicUser }> => {
     assertProductionBackend();
+    const cleanUserId = payload.userId.trim();
+    const cleanPass = (payload.password || '').trim();
+    const cleanName = payload.name.trim();
+    if (!cleanUserId || !cleanName) {
+      throw new Error('Full Name and User ID are required.');
+    }
+    const pwErr = validateStrongPassword(cleanPass, 'Password');
+    if (pwErr) {
+      throw new Error(pwErr);
+    }
+
     if (supabase) {
-      const cleanUserId = payload.userId.trim();
-      const cleanPass = (payload.password || '').trim();
-      const cleanName = payload.name.trim();
-      const targetRole: 'staff' | 'accounts' = payload.role === 'accounts' ? 'accounts' : 'staff';
-      if (!cleanUserId || !cleanName || cleanPass.length < 4) {
-        throw new Error('Name, User ID, and Password (min 4 chars) are required.');
-      }
-
-      const safeSlug = cleanUserId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || targetRole;
-      const staffEmail =
-        (payload.email || '').trim() || `${safeSlug}@${targetRole}.globalpathways.local`;
-      const defaultDesig =
-        targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
-
-      // Prefer role-aware Admin RPC (supports both staff and accounts dashboards)
-      const { data: userRpcRow, error: userRpcErr } = await supabase.rpc(
-        'admin_create_user_account',
+      const res = await supabaseAdminApiFetch<{ profile: ProfileRow }>(
+        '/api/supabase-admin/users',
         {
-          p_user_id: cleanUserId,
-          p_password: cleanPass,
-          p_name: cleanName,
-          p_role: targetRole,
-          p_email: staffEmail,
-          p_designation: (payload.designation || defaultDesig).trim(),
-          p_phone: (payload.phone || '').trim(),
-          p_whatsapp: (payload.whatsapp || payload.phone || '').trim(),
-          p_social_link: (payload.socialLink || '').trim(),
-          p_photo_url: (payload.photoUrl || '').trim(),
-          p_cover_url: (payload.coverUrl || '').trim(),
+          method: 'POST',
+          body: JSON.stringify({
+            ...payload,
+            userId: cleanUserId,
+            password: cleanPass,
+            name: cleanName,
+          }),
         }
       );
-
-      if (!userRpcErr && userRpcRow) {
-        return { staff: mapProfileRow(userRpcRow as ProfileRow) };
-      }
-
-      if (userRpcErr && !isMissingSupabaseSchemaError(userRpcErr)) {
-        throw new Error(userRpcErr.message);
-      }
-
-      if (targetRole === 'accounts') {
-        throw new Error(
-          'Accounts Dashboard SQL setup is needed. Run supabase/migrations/20261118_accounts_role_and_ledger.sql (or supabase/setup_all.sql) in your Supabase Dashboard → SQL Editor.'
-        );
-      }
-
-      // Fallback to legacy staff-only RPC if only 20261116 was run
-      const { data: rpcRow, error: rpcErr } = await supabase.rpc('admin_create_staff_account', {
-        p_user_id: cleanUserId,
-        p_password: cleanPass,
-        p_name: cleanName,
-        p_email: staffEmail,
-        p_designation: (payload.designation || defaultDesig).trim(),
-        p_phone: (payload.phone || '').trim(),
-        p_whatsapp: (payload.whatsapp || payload.phone || '').trim(),
-        p_social_link: (payload.socialLink || '').trim(),
-        p_photo_url: (payload.photoUrl || '').trim(),
-        p_cover_url: (payload.coverUrl || '').trim(),
-      });
-
-      if (!rpcErr && rpcRow) {
-        return { staff: mapProfileRow(rpcRow as ProfileRow) };
-      }
-
-      if (rpcErr && !isMissingSupabaseSchemaError(rpcErr)) {
-        throw new Error(rpcErr.message);
-      }
-
-      // Fallback to ephemeral Auth signUp if migration RPC isn't installed yet
-      if (cleanPass.length < 6) {
-        throw new Error('Password must be at least 6 characters.');
-      }
-
-      const ephemeral = createEphemeralSupabaseClient();
-      const { data: signUpData, error: signUpErr } = await ephemeral.auth.signUp({
-        email: staffEmail,
-        password: cleanPass,
-        options: {
-          data: {
-            user_id: cleanUserId,
-            name: cleanName,
-            designation: (payload.designation || defaultDesig).trim(),
-            phone: (payload.phone || '').trim(),
-            whatsapp: (payload.whatsapp || payload.phone || '').trim(),
-            social_link: (payload.socialLink || '').trim(),
-            photo_url: (payload.photoUrl || '').trim(),
-            cover_url: (payload.coverUrl || '').trim(),
-          },
-        },
-      });
-      if (signUpErr) throw new Error(signUpErr.message);
-      if (!signUpData.user) {
-        throw new Error('Staff account could not be created.');
-      }
-
-      const { data: profileRow, error: fetchErr } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', signUpData.user.id)
-        .maybeSingle();
-
-      if (fetchErr) throw new Error(fetchErr.message);
-      if (!profileRow) {
-        throw new Error(
-          'Staff auth user created, waiting for profile sync. Run supabase/setup_all.sql to enable instant staff creation.'
-        );
-      }
-
-      return { staff: mapProfileRow(profileRow as ProfileRow) };
+      return { staff: mapProfileRow(res.profile) };
     }
 
     return apiFetch<{ staff: PublicUser }>('/api/staff', {
@@ -1437,51 +1399,26 @@ export const api = {
     }
   ): Promise<{ staff: PublicUser }> => {
     assertProductionBackend();
+    const nextPass = payload.password?.trim();
+    if (nextPass) {
+      const pwErr = validateStrongPassword(nextPass, 'New password');
+      if (pwErr) {
+        throw new Error(pwErr);
+      }
+    }
+
     if (supabase) {
-      const nextPass = payload.password?.trim();
-      const nextUid = payload.userId?.trim();
-      if (nextPass && nextPass.length < 4) {
-        throw new Error('Password must be at least 4 characters.');
-      }
-
-      if (nextUid || nextPass) {
-        const { error: credErr } = await supabase.rpc('admin_update_staff_credentials', {
-          p_staff_id: id,
-          p_user_id: nextUid || null,
-          p_new_password: nextPass || null,
-        });
-        if (credErr) {
-          const isMissingRpc =
-            credErr.code === 'PGRST202' ||
-            credErr.code === '42883' ||
-            credErr.message.toLowerCase().includes('admin_update_staff_credentials');
-          if (!isMissingRpc) {
-            throw new Error(credErr.message);
-          }
-          if (nextPass) {
-            throw new Error(
-              'To reset staff passwords from Admin Dashboard in Supabase, run supabase/migrations/20261116_admin_seed_and_credentials.sql in SQL Editor.'
-            );
-          }
+      const res = await supabaseAdminApiFetch<{ profile: ProfileRow }>(
+        `/api/supabase-admin/users/${encodeURIComponent(id)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            ...payload,
+            password: nextPass || undefined,
+          }),
         }
-      }
-
-      const updateBody: Record<string, unknown> = {};
-      if (payload.userId !== undefined) updateBody.user_id = payload.userId;
-      if (payload.name !== undefined) updateBody.name = payload.name;
-      if (payload.designation !== undefined) updateBody.designation = payload.designation;
-      if (payload.phone !== undefined) updateBody.phone = payload.phone;
-      if (payload.whatsapp !== undefined) updateBody.whatsapp = payload.whatsapp;
-      if (payload.socialLink !== undefined) updateBody.social_link = payload.socialLink;
-      if (payload.photoUrl !== undefined) updateBody.photo_url = payload.photoUrl;
-      if (payload.coverUrl !== undefined) updateBody.cover_url = payload.coverUrl;
-
-      const { data, error } = await withRetry(async () =>
-        supabase!.from('profiles').update(updateBody).eq('id', id).select('*').single()
       );
-
-      if (error) throw new Error(error.message);
-      return { staff: mapProfileRow(data as ProfileRow) };
+      return { staff: mapProfileRow(res.profile) };
     }
 
     return apiFetch<{ staff: PublicUser }>(`/api/staff/${encodeURIComponent(id)}`, {
@@ -1493,9 +1430,12 @@ export const api = {
   deleteStaff: async (id: string): Promise<{ ok: boolean }> => {
     assertProductionBackend();
     if (supabase) {
-      const { error } = await supabase.from('profiles').delete().eq('id', id);
-      if (error) throw new Error(error.message);
-      return { ok: true };
+      return supabaseAdminApiFetch<{ ok: boolean }>(
+        `/api/supabase-admin/users/${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+        }
+      );
     }
 
     return apiFetch<{ ok: boolean }>(`/api/staff/${encodeURIComponent(id)}`, {

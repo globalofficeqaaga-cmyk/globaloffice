@@ -22,6 +22,7 @@ import {
   getCurrentLocalTimeStr,
   getTodayLocalDateStr,
 } from '../lib/api';
+import { validateStrongPassword } from '../lib/passwordPolicy';
 import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type {
   DashboardData,
@@ -166,6 +167,13 @@ export function AccountsDashboard({
     setProfMessage('');
     setProfError('');
     setProfConflict(false);
+    if (profPassword.trim()) {
+      const pwErr = validateStrongPassword(profPassword, 'New password');
+      if (pwErr) {
+        setProfError(pwErr);
+        return;
+      }
+    }
     setProfSaving(true);
     try {
       await api.updateOwnProfile({
@@ -785,7 +793,7 @@ export function AccountsDashboard({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Change Password (Optional)
+                  Change Password (Optional, min. 12 chars)
                 </label>
                 <input
                   type="password"

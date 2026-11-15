@@ -6,21 +6,20 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  FileCheck2,
   MapPin,
   MessageCircle,
   Pause,
   Phone,
   Play,
+  RefreshCw,
   Search,
+  ShieldCheck,
   Stethoscope,
-  Wallet,
   X,
 } from 'lucide-react';
 import {
   api,
   buildWhatsAppUrl,
-  formatBDT,
   formatDateOnly,
   formatDateTime,
 } from '../lib/api';
@@ -32,12 +31,27 @@ interface LandingPageProps {
   siteSettings: SiteSettings;
 }
 
+function createVerificationChallenge() {
+  const a = Math.floor(Math.random() * 8) + 2;
+  const b = Math.floor(Math.random() * 8) + 1;
+  return { a, b, answer: a + b };
+}
+
+function normalizePhoneInput(input: string): string {
+  const digits = input.replace(/\D/g, '');
+  if (digits.startsWith('880') && digits.length >= 13) {
+    return digits.slice(2);
+  }
+  return digits;
+}
+
 export function LandingPage({ siteSettings }: LandingPageProps) {
   const [phone, setPhone] = useState('');
+  const [challenge, setChallenge] = useState(() => createVerificationChallenge());
+  const [challengeInput, setChallengeInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ClientLookupResponse | null>(null);
-  const [previewImage, setPreviewImage] = useState<{ title: string; url: string } | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
 
   const posters = siteSettings.posters;
@@ -77,7 +91,19 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
   async function runLookup(targetPhone: string) {
     const clean = targetPhone.trim();
     if (!clean) {
-      setError('Please enter your registered phone number.');
+      setError('Please enter your complete registered phone number.');
+      return;
+    }
+
+    const normalized = normalizePhoneInput(clean);
+    if (normalized.length < 10 || normalized.length > 15) {
+      setError('Please enter your complete phone number (at least 10 digits). Partial numbers are not accepted.');
+      return;
+    }
+
+    const parsedChallenge = Number.parseInt(challengeInput.trim(), 10);
+    if (Number.isNaN(parsedChallenge) || parsedChallenge !== challenge.answer) {
+      setError('Please solve the quick verification check correctly before searching.');
       return;
     }
 
@@ -86,11 +112,15 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
     try {
       const data = await api.lookupClient(clean);
       setResult(data);
+      setChallenge(createVerificationChallenge());
+      setChallengeInput('');
       setTimeout(() => {
         resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 60);
     } catch (err) {
       setResult(null);
+      setChallenge(createVerificationChallenge());
+      setChallengeInput('');
       setError(
         err instanceof Error
           ? err.message
@@ -105,10 +135,6 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
     e.preventDefault();
     runLookup(phone);
   }
-
-  const dueAmount = result
-    ? Math.max(0, (result.client.totalPayable || 0) - (result.client.totalPaid || 0))
-    : 0;
 
   const hasTracker = siteSettings.showTracker;
   const hasSlider = siteSettings.showPosterSlider && posters.length > 0;
@@ -174,6 +200,39 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                           {loading ? 'Checking...' : siteSettings.trackerButtonLabel || 'See Update'}
                         </span>
                       </button>
+                    </div>
+
+                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                      <label htmlFor="client-verify-input" className="inline-flex items-center gap-1.5 font-medium">
+                        <ShieldCheck className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                        <span>
+                          Verify: {challenge.a} + {challenge.b} =
+                        </span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          id="client-verify-input"
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={3}
+                          value={challengeInput}
+                          onChange={(e) => setChallengeInput(e.target.value)}
+                          placeholder="?"
+                          className="w-16 px-2.5 py-1.5 text-center font-mono text-sm bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setChallenge(createVerificationChallenge());
+                            setChallengeInput('');
+                          }}
+                          aria-label="Refresh verification question"
+                          className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-200/70 rounded-lg cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
 
                     {error && (
@@ -346,8 +405,6 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                   <span>{result.client.trade || 'Trade Pending'}</span>
                   <span aria-hidden="true">·</span>
                   <span>{result.client.destinationCountry || 'TBD'}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{result.client.expectedSalary || 'As per contract'}</span>
                 </div>
               </div>
               <div className="flex items-center justify-between sm:justify-start gap-2.5">
@@ -368,190 +425,41 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
             </div>
 
             <div className="mt-6 sm:mt-8 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
-              {/* Left 8 Columns: Full Client Details, Financials, Documents, Medical, Schedules */}
+              {/* Left 8 Columns: Minimal Non-Sensitive Visa & Medical Status */}
               <div className="lg:col-span-8 space-y-5 sm:space-y-6">
-                {/* Profile & Financial Snapshot */}
+                {/* Visa & Medical Status Snapshot */}
                 <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
                   <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 mb-3.5 sm:mb-4">
-                    Candidate Profile &amp; Financial Summary
+                    Visa &amp; Medical Status Summary
                   </h3>
 
-                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-4 sm:pb-6 border-b border-slate-100 text-xs sm:text-sm">
-                    <div className="col-span-2 lg:col-span-1">
-                      <p className="text-xs text-slate-500">Address</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 pb-4 sm:pb-5 border-b border-slate-100 text-xs sm:text-sm">
+                    <div>
+                      <p className="text-xs text-slate-500">Visa Processing Stage</p>
+                      <p className="font-semibold text-blue-700 mt-0.5">{result.client.status}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Medical Status</p>
                       <p className="font-medium text-slate-900 mt-0.5">
-                        {result.client.address || 'Not provided'}
+                        {result.client.medicalDone ? 'Completed' : 'Pending'} · {result.client.medicalStatus}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Passport No</p>
-                      <p className="font-mono font-medium text-slate-900 mt-0.5">
-                        {result.client.passportNumber || 'Pending'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Medical</p>
-                      <p className="font-medium text-slate-900 mt-0.5">
-                        {result.client.medicalDone ? 'Yes' : 'No'} · {result.client.medicalStatus}
+                      <p className="text-xs text-slate-500">Last Updated</p>
+                      <p className="font-mono text-xs text-slate-700 mt-1">
+                        {formatDateOnly(result.client.updatedAt)}
                       </p>
                     </div>
                   </div>
 
-                  {/* Financial Totals */}
-                  <div className="mt-4 sm:mt-5 grid grid-cols-3 gap-2.5 sm:gap-4">
-                    <div className="p-2.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                      <p className="text-[11px] sm:text-xs text-slate-500 truncate">Total</p>
-                      <p className="font-mono text-sm sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5 sm:mt-1 truncate">
-                        {formatBDT(result.client.totalPayable)}
-                      </p>
-                    </div>
-                    <div className="p-2.5 sm:p-4 bg-emerald-50/70 border border-emerald-200 rounded-lg">
-                      <p className="text-[11px] sm:text-xs text-emerald-800 truncate">Paid</p>
-                      <p className="font-mono text-sm sm:text-xl font-bold text-emerald-700 tabular-nums mt-0.5 sm:mt-1 truncate">
-                        {formatBDT(result.client.totalPaid)}
-                      </p>
-                    </div>
-                    <div className="p-2.5 sm:p-4 bg-amber-50/70 border border-amber-200 rounded-lg">
-                      <p className="text-[11px] sm:text-xs text-amber-800 truncate">Due</p>
-                      <p className="font-mono text-sm sm:text-xl font-bold text-amber-700 tabular-nums mt-0.5 sm:mt-1 truncate">
-                        {formatBDT(dueAmount)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Remaining Items */}
-                  <div className="mt-5 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                    <p className="text-xs font-semibold text-slate-700">
-                      Remaining Steps & Pending Requirements
-                    </p>
-                    <p className="text-sm text-slate-800 mt-1">
-                      {result.client.pendingItems || 'All required documents and steps are up to date.'}
+                  <div className="mt-4 p-3.5 bg-slate-50 border border-slate-200 rounded-lg flex items-start gap-2.5 text-xs text-slate-600">
+                    <ShieldCheck className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                    <p>
+                      For privacy protection, passport numbers, home addresses, uploaded documents,
+                      payment history, and internal notes are hidden on public status lookup. Contact
+                      your assigned coordinator for private file details.
                     </p>
                   </div>
-                </div>
-
-                {/* Documents Submitted */}
-                <div className="bg-white border border-slate-200 rounded-xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-                      <FileCheck2 className="w-4 h-4 text-blue-700" />
-                      <span>Submitted Documents & Checklist</span>
-                    </h3>
-                    <span className="text-xs text-slate-500 font-mono tabular-nums">
-                      {result.client.documents.length} items
-                    </span>
-                  </div>
-
-                  {result.client.documents.length === 0 ? (
-                    <p className="text-sm text-slate-500">
-                      No documents logged yet. Please submit your passport and NID to your coordinator.
-                    </p>
-                  ) : (
-                    <div className="divide-y divide-slate-100">
-                      {result.client.documents.map((doc) => (
-                        <div
-                          key={doc.id}
-                          className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                        >
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">{doc.name}</p>
-                            {doc.note && <p className="text-xs text-slate-500 mt-0.5">{doc.note}</p>}
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0">
-                            {doc.fileDataUrl ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setPreviewImage({ title: doc.name, url: doc.fileDataUrl! })
-                                }
-                                className="text-xs font-medium text-blue-700 hover:underline cursor-pointer"
-                              >
-                                View Copy
-                              </button>
-                            ) : doc.storagePath ? (
-                              <span className="text-xs text-slate-500">On File (Private)</span>
-                            ) : null}
-                            <span
-                              className={`text-xs font-semibold ${
-                                doc.status === 'Verified'
-                                  ? 'text-emerald-700'
-                                  : doc.status === 'Submitted'
-                                  ? 'text-blue-700'
-                                  : 'text-amber-700'
-                              }`}
-                            >
-                              {doc.status}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Payment History */}
-                <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
-                  <div className="flex items-center justify-between mb-3.5 sm:mb-4">
-                    <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-blue-700" />
-                      <span>Payment History</span>
-                    </h3>
-                    <span className="text-xs text-slate-500 font-mono tabular-nums">
-                      {result.client.payments.length} items
-                    </span>
-                  </div>
-
-                  {result.client.payments.length === 0 ? (
-                    <p className="text-sm text-slate-500">No payment receipts logged yet.</p>
-                  ) : (
-                    <>
-                      {/* Mobile Stacked Payment Rows */}
-                      <div className="sm:hidden divide-y divide-slate-100">
-                        {result.client.payments.map((pay) => (
-                          <div key={pay.id} className="py-2.5 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-slate-900">{pay.purpose}</p>
-                              <p className="text-xs text-slate-500 font-mono mt-0.5">
-                                {formatDateOnly(pay.date)}
-                                {pay.note ? ` · ${pay.note}` : ''}
-                              </p>
-                            </div>
-                            <span className="font-mono text-sm font-semibold text-emerald-700 tabular-nums shrink-0">
-                              {formatBDT(pay.amount)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Desktop Payment Table */}
-                      <div className="hidden sm:block overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                          <thead>
-                            <tr className="border-b border-slate-200 text-xs text-slate-500">
-                              <th className="pb-2 font-medium">Date</th>
-                              <th className="pb-2 font-medium">Purpose</th>
-                              <th className="pb-2 font-medium">Note</th>
-                              <th className="pb-2 font-medium text-right">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {result.client.payments.map((pay) => (
-                              <tr key={pay.id}>
-                                <td className="py-2.5 text-slate-600 font-mono text-xs whitespace-nowrap">
-                                  {formatDateOnly(pay.date)}
-                                </td>
-                                <td className="py-2.5 font-medium text-slate-900">{pay.purpose}</td>
-                                <td className="py-2.5 text-slate-500">{pay.note || '—'}</td>
-                                <td className="py-2.5 text-right font-mono font-semibold text-emerald-700 tabular-nums">
-                                  {formatBDT(pay.amount)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  )}
                 </div>
 
                 {/* Medical, Meetings & Interviews */}
@@ -586,7 +494,7 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                                 {med.medicalCenter} — {med.medicalLocation}
                               </p>
                               <p className="text-xs text-slate-500">
-                                {formatDateOnly(med.testDate)} · Purpose: {med.paymentPurpose || 'Medical Test'}
+                                Test Date: {formatDateOnly(med.testDate)}
                               </p>
                             </div>
                             <div className="text-right">
@@ -601,9 +509,6 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                               >
                                 Result: {med.result}
                               </span>
-                              <p className="text-xs font-mono text-slate-600 tabular-nums">
-                                Paid {formatBDT(med.amountPaid)} · Due {formatBDT(med.amountReceivable)}
-                              </p>
                             </div>
                           </div>
                         ))}
@@ -686,15 +591,6 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                 ) : (
                   <div className="bg-white border border-slate-200 rounded-xl p-6 text-sm text-slate-600">
                     Coordinator details unavailable. Please contact our Dhaka front desk.
-                  </div>
-                )}
-
-                {result.client.notes && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-5">
-                    <p className="text-xs font-semibold text-slate-500">Coordinator Remarks</p>
-                    <p className="text-sm text-slate-800 mt-1.5 leading-relaxed">
-                      {result.client.notes}
-                    </p>
                   </div>
                 )}
               </div>
@@ -818,38 +714,6 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
         </div>
       </footer>
 
-      {/* Document Copy Preview Modal */}
-      {previewImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4"
-          onClick={() => setPreviewImage(null)}
-        >
-          <div
-            className="max-w-2xl w-full bg-white rounded-xl overflow-hidden shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
-              <p className="font-display font-semibold text-slate-900 text-sm">
-                {previewImage.title}
-              </p>
-              <button
-                type="button"
-                onClick={() => setPreviewImage(null)}
-                className="text-xs font-medium text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded bg-slate-100 cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-            <div className="p-4 bg-slate-100 flex items-center justify-center max-h-[75vh] overflow-auto">
-              <img
-                src={previewImage.url}
-                alt={previewImage.title}
-                className="max-w-full max-h-[65vh] object-contain rounded"
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </main>
   );
 }

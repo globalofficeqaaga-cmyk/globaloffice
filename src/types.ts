@@ -271,12 +271,63 @@ export interface DashboardData {
   auditLogs?: AuditLogEntry[];
 }
 
+export interface PublicTrackedClient {
+  id: string;
+  name: string;
+  phone: string;
+  trade: string;
+  destinationCountry: string;
+  status: ClientStage;
+  medicalDone: boolean;
+  medicalStatus: MedicalOutcome;
+  medicalCenter: string;
+  medicalLocation: string;
+  updatedAt: string;
+}
+
+export interface PublicTrackedStaff {
+  id: string;
+  name: string;
+  designation: string;
+  phone: string;
+  whatsapp: string;
+  socialLink: string;
+  photoUrl: string;
+  coverUrl: string;
+}
+
+export interface PublicTrackedMeeting {
+  id: string;
+  meetingWith: string;
+  location: string;
+  dateTime: string;
+  status: MeetingStatus;
+}
+
+export interface PublicTrackedMedical {
+  id: string;
+  medicalCenter: string;
+  medicalLocation: string;
+  testDate: string;
+  result: MedicalRecordResult;
+}
+
+export interface PublicTrackedInterview {
+  id: string;
+  interviewerOrCompany: string;
+  trade: string;
+  interviewDate: string;
+  interviewTime: string;
+  location: string;
+  status: InterviewStatus;
+}
+
 export interface ClientLookupResponse {
-  client: ClientProfile;
-  staff: PublicUser | null;
-  meetings: MeetingRecord[];
-  medicals: MedicalRecord[];
-  interviews: InterviewRecord[];
+  client: PublicTrackedClient;
+  staff: PublicTrackedStaff | null;
+  meetings: PublicTrackedMeeting[];
+  medicals: PublicTrackedMedical[];
+  interviews: PublicTrackedInterview[];
 }
 
 export interface SitePosterSlide {

@@ -139,7 +139,7 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
               <ol className="text-xs text-amber-950 space-y-1 pl-4 list-decimal">
                 <li>Click <strong>Copy Setup SQL</strong> below.</li>
                 <li>Click <strong>Open SQL Editor</strong>, paste the SQL, and click <strong>Run</strong>.</li>
-                <li>Create your admin user in <strong>Authentication → Users</strong> with a strong password and run the promotion query at the bottom of the SQL script.</li>
+                <li>Create your admin user in <strong>Authentication → Users</strong> with a strong password (min. 12 characters) and run the promotion query at the bottom of the SQL script.</li>
               </ol>
 
               <div className="flex flex-wrap items-center gap-2 pt-1">

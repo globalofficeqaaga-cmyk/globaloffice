@@ -1,10 +1,10 @@
 import { ExternalLink, MessageCircle, Phone, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { buildWhatsAppUrl } from '../lib/api';
-import type { PublicUser } from '../types';
+import type { PublicTrackedStaff, PublicUser } from '../types';
 
 interface StaffContactCardProps {
-  staff: PublicUser;
+  staff: PublicTrackedStaff | PublicUser;
   heading?: string;
 }
 

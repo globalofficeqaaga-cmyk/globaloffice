@@ -35,6 +35,7 @@ import {
   getCurrentLocalTimeStr,
   getTodayLocalDateStr,
 } from '../lib/api';
+import { validateStrongPassword } from '../lib/passwordPolicy';
 import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type {
   AccountLedgerEntry,
@@ -140,8 +141,9 @@ export function AdminDashboard({
       return;
     }
     if (adminNewPassword.trim()) {
-      if (adminNewPassword.trim().length < 4) {
-        setSettingsError('New password must be at least 4 characters.');
+      const pwErr = validateStrongPassword(adminNewPassword, 'New password');
+      if (pwErr) {
+        setSettingsError(pwErr);
         return;
       }
       if (adminNewPassword.trim() !== adminConfirmPassword.trim()) {
@@ -2853,8 +2855,8 @@ export function AdminDashboard({
                 Admin Login User ID & Password
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Change your Admin User ID (default: admin) or update your login password. Changes take
-                effect immediately on your next sign-in.
+                Change your Admin User ID or set a strong login password (min. 12 characters).
+                Changes take effect immediately on your next sign-in.
               </p>
             </div>
 
@@ -2913,7 +2915,7 @@ export function AdminDashboard({
                   htmlFor="admin-newpass-input"
                   className="block text-xs font-semibold text-slate-700 mb-1"
                 >
-                  New Password (min. 4 characters)
+                  New Password (min. 12 characters)
                 </label>
                 <div className="relative">
                   <input

@@ -1,8 +1,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { validateStrongPassword } from './src/lib/passwordPolicy.ts';
 
 const envLocalPath = path.resolve(process.cwd(), '.env.local');
 if (fs.existsSync(envLocalPath)) {
@@ -21,6 +23,8 @@ import type {
   InterviewRecord,
   MedicalRecord,
   MeetingRecord,
+  PublicTrackedClient,
+  PublicTrackedStaff,
   PublicUser,
   SiteSettings,
   StaffAttendanceRecord,
@@ -95,11 +99,28 @@ function toPublicUser(u: StoredUser): PublicUser {
   return pub;
 }
 
+function generateStrongBootstrapPassword(): string {
+  return `${crypto.randomBytes(12).toString('base64url')}!A9x`;
+}
+
 function createInitialData(): DatabaseSchema {
   const now = new Date().toISOString();
   const adminId = 'usr_admin_01';
   const staff1Id = 'usr_staff_rafiq';
   const staff2Id = 'usr_staff_nusrat';
+
+  const envAdminPass = (process.env.BOOTSTRAP_ADMIN_PASSWORD || '').trim();
+  const envAdminPassError = envAdminPass
+    ? validateStrongPassword(envAdminPass, 'BOOTSTRAP_ADMIN_PASSWORD')
+    : 'missing';
+  const adminBootstrapPassword =
+    !envAdminPassError ? envAdminPass : generateStrongBootstrapPassword();
+
+  if (envAdminPassError) {
+    console.warn(
+      '[Global Pathways] Local Express store initialized with a generated strong admin password (configure BOOTSTRAP_ADMIN_PASSWORD >= 12 chars or use Supabase Auth).'
+    );
+  }
 
   const client1Id = 'cli_1001';
   const client2Id = 'cli_1002';
@@ -120,7 +141,7 @@ function createInitialData(): DatabaseSchema {
         photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
         coverUrl: '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
         createdAt: now,
-        passwordHash: hashPassword('admin'),
+        passwordHash: hashPassword(adminBootstrapPassword),
       },
       {
         id: staff1Id,
@@ -134,7 +155,7 @@ function createInitialData(): DatabaseSchema {
         photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
         coverUrl: '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
         createdAt: now,
-        passwordHash: hashPassword('staff123'),
+        passwordHash: hashPassword(generateStrongBootstrapPassword()),
       },
       {
         id: staff2Id,
@@ -148,7 +169,7 @@ function createInitialData(): DatabaseSchema {
         photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
         coverUrl: '/src/assets/images/service_medical_center_1794656908059.jpg',
         createdAt: now,
-        passwordHash: hashPassword('staff123'),
+        passwordHash: hashPassword(generateStrongBootstrapPassword()),
       },
     ],
     clients: [
@@ -602,28 +623,340 @@ async function startServer() {
     res.json({ siteSettings: updated });
   });
 
-  // Public Client Lookup by phone number (Landing Page "See Update")
+  // Rate-limiting buckets for public endpoints
+  const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+  function checkExpressRateLimit(key: string, windowMs: number, maxAttempts: number): boolean {
+    const nowMs = Date.now();
+    const existing = rateBuckets.get(key);
+    if (!existing || nowMs >= existing.resetAt) {
+      rateBuckets.set(key, { count: 1, resetAt: nowMs + windowMs });
+      return true;
+    }
+    if (existing.count >= maxAttempts) {
+      return false;
+    }
+    existing.count += 1;
+    return true;
+  }
+
+  function getClientIp(req: Request): string {
+    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return forwarded || req.ip || 'unknown';
+  }
+
+  function getSupabaseAdminClient(): SupabaseClient {
+    const supabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
+    const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    if (!supabaseUrl || !serviceRoleKey) {
+      throw new Error(
+        'Server-side Supabase Auth Admin API is not configured. Add server-only SUPABASE_SERVICE_ROLE_KEY in your server environment secrets (never in VITE_*).'
+      );
+    }
+    return createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+  }
+
+  interface SupabaseAdminRequest extends Request {
+    supabaseAdmin?: SupabaseClient;
+    adminProfileId?: string;
+  }
+
+  async function requireSupabaseAdmin(
+    req: SupabaseAdminRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    let adminClient: SupabaseClient;
+    try {
+      adminClient = getSupabaseAdminClient();
+    } catch (err) {
+      res.status(503).json({
+        error: err instanceof Error ? err.message : 'Supabase Admin API is not configured.',
+      });
+      return;
+    }
+
+    const header = req.headers.authorization || '';
+    const jwt = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    if (!jwt) {
+      res.status(401).json({ error: 'Authentication required.' });
+      return;
+    }
+
+    const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
+    if (userErr || !userData?.user) {
+      res.status(401).json({ error: 'Invalid or expired Supabase session.' });
+      return;
+    }
+
+    const { data: profile, error: profErr } = await adminClient
+      .from('profiles')
+      .select('id, role')
+      .eq('id', userData.user.id)
+      .maybeSingle();
+
+    if (profErr || !profile || profile.role !== 'admin') {
+      res.status(403).json({ error: 'Administrator privileges required.' });
+      return;
+    }
+
+    req.supabaseAdmin = adminClient;
+    req.adminProfileId = profile.id;
+    next();
+  }
+
+  // Server-side Supabase Auth Admin API: Create Staff or Accounts User
+  app.post('/api/supabase-admin/users', requireSupabaseAdmin, async (req: SupabaseAdminRequest, res) => {
+    const adminClient = req.supabaseAdmin!;
+    const body = req.body || {};
+    const cleanUserId = String(body.userId || '').trim();
+    const cleanPass = String(body.password || '').trim();
+    const cleanName = String(body.name || '').trim();
+    const targetRole: 'staff' | 'accounts' = body.role === 'accounts' ? 'accounts' : 'staff';
+
+    if (!cleanUserId || !cleanName) {
+      res.status(400).json({ error: 'Full Name and User ID are required.' });
+      return;
+    }
+    const pwErr = validateStrongPassword(cleanPass, 'Password');
+    if (pwErr) {
+      res.status(400).json({ error: pwErr });
+      return;
+    }
+
+    const { data: existingUid } = await adminClient
+      .from('profiles')
+      .select('id')
+      .ilike('user_id', cleanUserId)
+      .maybeSingle();
+    if (existingUid) {
+      res.status(409).json({ error: 'A user with this User ID already exists.' });
+      return;
+    }
+
+    const safeSlug = cleanUserId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || targetRole;
+    const email =
+      String(body.email || '').trim() || `${safeSlug}@${targetRole}.globalpathways.local`;
+    const defaultDesig =
+      targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
+    const designation = String(body.designation || defaultDesig).trim();
+    const phone = String(body.phone || '').trim();
+    const whatsapp = String(body.whatsapp || phone || '').trim();
+    const socialLink = String(body.socialLink || '').trim();
+    const photoUrl = String(body.photoUrl || '').trim();
+    const coverUrl = String(body.coverUrl || '').trim();
+
+    const { data: createdAuth, error: createErr } = await adminClient.auth.admin.createUser({
+      email,
+      password: cleanPass,
+      email_confirm: true,
+      user_metadata: {
+        user_id: cleanUserId,
+        name: cleanName,
+        designation,
+        phone,
+        whatsapp,
+        social_link: socialLink,
+        photo_url: photoUrl,
+        cover_url: coverUrl,
+      },
+    });
+
+    if (createErr || !createdAuth?.user) {
+      res.status(400).json({ error: createErr?.message || 'Unable to create Supabase user.' });
+      return;
+    }
+
+    const { data: profileRow, error: upsertErr } = await adminClient
+      .from('profiles')
+      .upsert(
+        {
+          id: createdAuth.user.id,
+          user_id: cleanUserId,
+          email,
+          role: targetRole,
+          name: cleanName,
+          designation,
+          phone,
+          whatsapp,
+          social_link: socialLink,
+          photo_url: photoUrl,
+          cover_url: coverUrl,
+        },
+        { onConflict: 'id' }
+      )
+      .select('*')
+      .single();
+
+    if (upsertErr || !profileRow) {
+      await adminClient.auth.admin.deleteUser(createdAuth.user.id);
+      res.status(500).json({ error: upsertErr?.message || 'Unable to save user profile.' });
+      return;
+    }
+
+    res.status(201).json({ profile: profileRow });
+  });
+
+  // Server-side Supabase Auth Admin API: Update Staff/Accounts Credentials & Profile
+  app.put('/api/supabase-admin/users/:id', requireSupabaseAdmin, async (req: SupabaseAdminRequest, res) => {
+    const adminClient = req.supabaseAdmin!;
+    const targetId = String(req.params.id || '').trim();
+    const body = req.body || {};
+
+    const { data: targetProfile, error: findErr } = await adminClient
+      .from('profiles')
+      .select('*')
+      .eq('id', targetId)
+      .maybeSingle();
+
+    if (findErr || !targetProfile) {
+      res.status(404).json({ error: 'User account not found.' });
+      return;
+    }
+    if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
+      res.status(403).json({ error: 'Only Staff or Accounts accounts can be managed here.' });
+      return;
+    }
+
+    const nextPass = typeof body.password === 'string' ? body.password.trim() : '';
+    if (nextPass) {
+      const pwErr = validateStrongPassword(nextPass, 'New password');
+      if (pwErr) {
+        res.status(400).json({ error: pwErr });
+        return;
+      }
+      const { error: authUpdErr } = await adminClient.auth.admin.updateUserById(targetId, {
+        password: nextPass,
+      });
+      if (authUpdErr) {
+        res.status(400).json({ error: authUpdErr.message });
+        return;
+      }
+    }
+
+    const nextUid = typeof body.userId === 'string' ? body.userId.trim() : '';
+    if (nextUid && nextUid.toLowerCase() !== String(targetProfile.user_id || '').toLowerCase()) {
+      const { data: collision } = await adminClient
+        .from('profiles')
+        .select('id')
+        .ilike('user_id', nextUid)
+        .neq('id', targetId)
+        .maybeSingle();
+      if (collision) {
+        res.status(409).json({ error: 'Another account already uses this User ID.' });
+        return;
+      }
+    }
+
+    const updateBody: Record<string, unknown> = {};
+    if (nextUid) updateBody.user_id = nextUid;
+    if (body.name !== undefined) updateBody.name = String(body.name).trim();
+    if (body.designation !== undefined) updateBody.designation = String(body.designation).trim();
+    if (body.phone !== undefined) updateBody.phone = String(body.phone).trim();
+    if (body.whatsapp !== undefined) updateBody.whatsapp = String(body.whatsapp).trim();
+    if (body.socialLink !== undefined) updateBody.social_link = String(body.socialLink).trim();
+    if (body.photoUrl !== undefined) updateBody.photo_url = String(body.photoUrl).trim();
+    if (body.coverUrl !== undefined) updateBody.cover_url = String(body.coverUrl).trim();
+
+    const { data: updatedProfile, error: profUpdErr } = await adminClient
+      .from('profiles')
+      .update(updateBody)
+      .eq('id', targetId)
+      .select('*')
+      .single();
+
+    if (profUpdErr || !updatedProfile) {
+      res.status(400).json({ error: profUpdErr?.message || 'Failed to update profile.' });
+      return;
+    }
+
+    res.json({ profile: updatedProfile });
+  });
+
+  // Server-side Supabase Auth Admin API: Delete Staff/Accounts User cleanly
+  app.delete('/api/supabase-admin/users/:id', requireSupabaseAdmin, async (req: SupabaseAdminRequest, res) => {
+    const adminClient = req.supabaseAdmin!;
+    const adminId = req.adminProfileId!;
+    const targetId = String(req.params.id || '').trim();
+
+    if (!targetId || targetId === adminId) {
+      res.status(400).json({ error: 'Cannot delete your active administrator account.' });
+      return;
+    }
+
+    const { data: targetProfile, error: findErr } = await adminClient
+      .from('profiles')
+      .select('id, role')
+      .eq('id', targetId)
+      .maybeSingle();
+
+    if (findErr || !targetProfile) {
+      res.status(404).json({ error: 'User account not found.' });
+      return;
+    }
+    if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
+      res.status(403).json({ error: 'Administrator accounts cannot be deleted via this endpoint.' });
+      return;
+    }
+
+    // Reassign records to administrator so foreign key RESTRICT rules never fail and records remain preserved
+    await Promise.all([
+      adminClient.from('clients').update({ staff_id: adminId }).eq('staff_id', targetId),
+      adminClient.from('meetings').update({ staff_id: adminId }).eq('staff_id', targetId),
+      adminClient.from('medicals').update({ staff_id: adminId }).eq('staff_id', targetId),
+      adminClient.from('interviews').update({ staff_id: adminId }).eq('staff_id', targetId),
+      adminClient.from('account_ledger').update({ account_owner_id: adminId }).eq('account_owner_id', targetId),
+      adminClient.from('staff_attendance').update({ staff_id: adminId }).eq('staff_id', targetId),
+      adminClient.from('staff_daily_logs').update({ staff_id: adminId }).eq('staff_id', targetId),
+    ]);
+
+    const { error: delErr } = await adminClient.auth.admin.deleteUser(targetId);
+    if (delErr) {
+      res.status(400).json({ error: delErr.message });
+      return;
+    }
+
+    res.json({ ok: true });
+  });
+
+  // Public Client Lookup by exact normalized phone number (Minimal Non-Sensitive Status Only)
   app.get('/api/client-lookup', (req, res) => {
+    const ip = getClientIp(req);
+    if (!checkExpressRateLimit(`lookup_ip:${ip}`, 15 * 60 * 1000, 15)) {
+      res.status(429).json({
+        error: 'Too many tracking requests. Please wait a few minutes before trying again.',
+      });
+      return;
+    }
+
     const phoneQuery = String(req.query.phone || '').trim();
     if (!phoneQuery) {
-      res.status(400).json({ error: 'Please enter a phone number.' });
+      res.status(400).json({ error: 'Please enter a complete phone number.' });
       return;
     }
     const normalizedQuery = normalizePhone(phoneQuery);
-    if (normalizedQuery.length < 6) {
-      res.status(400).json({ error: 'Please enter a valid phone number.' });
+    if (normalizedQuery.length < 10 || normalizedQuery.length > 15) {
+      res.status(400).json({
+        error: 'Please enter a valid complete phone number (at least 10 digits).',
+      });
+      return;
+    }
+
+    if (!checkExpressRateLimit(`lookup_phone:${normalizedQuery}`, 5 * 60 * 1000, 5)) {
+      res.status(429).json({
+        error: 'Too many tracking attempts for this number. Please wait 5 minutes and try again.',
+      });
       return;
     }
 
     const db = loadDb();
     const client = db.clients.find((c) => {
       if (c.deletedAt) return false;
-      const normalizedClient = normalizePhone(c.phone);
-      return (
-        normalizedClient === normalizedQuery ||
-        normalizedClient.endsWith(normalizedQuery) ||
-        normalizedQuery.endsWith(normalizedClient)
-      );
+      return normalizePhone(c.phone) === normalizedQuery;
     });
 
     if (!client) {
@@ -634,26 +967,74 @@ async function startServer() {
     }
 
     const assignedStaff = db.users.find((u) => u.id === client.staffId);
-    const meetings = db.meetings.filter(
-      (m) =>
-        !m.deletedAt &&
-        (m.clientId === client.id || normalizePhone(m.clientPhone) === normalizePhone(client.phone))
-    );
-    const medicals = db.medicals.filter(
-      (m) =>
-        !m.deletedAt &&
-        (m.clientId === client.id || normalizePhone(m.candidatePhone) === normalizePhone(client.phone))
-    );
-    const interviews = db.interviews.filter(
-      (i) =>
-        !i.deletedAt &&
-        (i.clientId === client.id ||
-          i.candidateNames.toLowerCase().includes(client.name.toLowerCase()))
-    );
+    const meetings = db.meetings
+      .filter(
+        (m) =>
+          !m.deletedAt &&
+          (m.clientId === client.id || normalizePhone(m.clientPhone) === normalizedQuery)
+      )
+      .map((m) => ({
+        id: m.id,
+        meetingWith: m.meetingWith,
+        location: m.location,
+        dateTime: m.dateTime,
+        status: m.status,
+      }));
+    const medicals = db.medicals
+      .filter(
+        (m) =>
+          !m.deletedAt &&
+          (m.clientId === client.id || normalizePhone(m.candidatePhone) === normalizedQuery)
+      )
+      .map((m) => ({
+        id: m.id,
+        medicalCenter: m.medicalCenter,
+        medicalLocation: m.medicalLocation,
+        testDate: m.testDate,
+        result: m.result,
+      }));
+    const interviews = db.interviews
+      .filter((i) => !i.deletedAt && i.clientId === client.id)
+      .map((i) => ({
+        id: i.id,
+        interviewerOrCompany: i.interviewerOrCompany,
+        trade: i.trade,
+        interviewDate: i.interviewDate,
+        interviewTime: i.interviewTime,
+        location: i.location,
+        status: i.status,
+      }));
+
+    const publicClient: PublicTrackedClient = {
+      id: client.id,
+      name: client.name,
+      phone: client.phone,
+      trade: client.trade,
+      destinationCountry: client.destinationCountry,
+      status: client.status,
+      medicalDone: client.medicalDone,
+      medicalStatus: client.medicalStatus,
+      medicalCenter: client.medicalCenter,
+      medicalLocation: client.medicalLocation,
+      updatedAt: client.updatedAt,
+    };
+
+    const publicStaff: PublicTrackedStaff | null = assignedStaff
+      ? {
+          id: assignedStaff.id,
+          name: assignedStaff.name,
+          designation: assignedStaff.designation,
+          phone: assignedStaff.phone,
+          whatsapp: assignedStaff.whatsapp,
+          socialLink: assignedStaff.socialLink,
+          photoUrl: assignedStaff.photoUrl,
+          coverUrl: assignedStaff.coverUrl,
+        }
+      : null;
 
     const payload: ClientLookupResponse = {
-      client,
-      staff: assignedStaff ? toPublicUser(assignedStaff) : null,
+      client: publicClient,
+      staff: publicStaff,
       meetings,
       medicals,
       interviews,
@@ -664,6 +1045,14 @@ async function startServer() {
 
   // Login with User ID & Password
   app.post('/api/auth/login', (req, res) => {
+    const ip = getClientIp(req);
+    if (!checkExpressRateLimit(`login_ip:${ip}`, 15 * 60 * 1000, 15)) {
+      res.status(429).json({
+        error: 'Too many sign-in attempts. Please wait a few minutes before trying again.',
+      });
+      return;
+    }
+
     const userId = String(req.body?.userId || '').trim();
     const password = String(req.body?.password || '');
 
@@ -759,8 +1148,9 @@ async function startServer() {
 
     let nextPasswordHash = existing.passwordHash;
     if (typeof newPassword === 'string' && newPassword.trim().length > 0) {
-      if (newPassword.trim().length < 4) {
-        res.status(400).json({ error: 'New password must be at least 4 characters.' });
+      const pwErr = validateStrongPassword(newPassword, 'New password');
+      if (pwErr) {
+        res.status(400).json({ error: pwErr });
         return;
       }
       nextPasswordHash = hashPassword(newPassword.trim());
@@ -906,6 +1296,11 @@ async function startServer() {
       res.status(400).json({ error: 'Name, User ID, and Password are required.' });
       return;
     }
+    const pwErr = validateStrongPassword(cleanPass, 'Password');
+    if (pwErr) {
+      res.status(400).json({ error: pwErr });
+      return;
+    }
 
     if (db.users.some((u) => u.userId.toLowerCase() === cleanUserId.toLowerCase())) {
       res.status(409).json({ error: 'A user with this User ID already exists.' });
@@ -971,6 +1366,16 @@ async function startServer() {
       existing.userId = nextId;
     }
 
+    let nextPasswordHash = existing.passwordHash;
+    if (typeof password === 'string' && password.trim().length > 0) {
+      const pwErr = validateStrongPassword(password, 'New password');
+      if (pwErr) {
+        res.status(400).json({ error: pwErr });
+        return;
+      }
+      nextPasswordHash = hashPassword(password.trim());
+    }
+
     const updated: StoredUser = {
       ...existing,
       name: typeof name === 'string' && name.trim() ? name.trim() : existing.name,
@@ -983,10 +1388,7 @@ async function startServer() {
       socialLink: typeof socialLink === 'string' ? socialLink.trim() : existing.socialLink,
       photoUrl: typeof photoUrl === 'string' && photoUrl.trim() ? photoUrl.trim() : existing.photoUrl,
       coverUrl: typeof coverUrl === 'string' && coverUrl.trim() ? coverUrl.trim() : existing.coverUrl,
-      passwordHash:
-        typeof password === 'string' && password.trim().length >= 3
-          ? hashPassword(password.trim())
-          : existing.passwordHash,
+      passwordHash: nextPasswordHash,
     };
 
     db.users[idx] = updated;

@@ -24,6 +24,7 @@ import {
   loadSafeDraft,
   saveSafeDraft,
 } from '../../lib/drafts';
+import { validateStrongPassword } from '../../lib/passwordPolicy';
 import { useUnsavedChangesWarning } from '../../lib/useUnsavedChanges';
 import type {
   AccountLedgerEntry,
@@ -2240,13 +2241,19 @@ export function StaffAccountModal({
       setError('Full Name and User ID are required.');
       return;
     }
-    if (!initial && password.trim().length < 4) {
-      setError('Password must be at least 4 characters.');
-      return;
+    if (!initial) {
+      const pwErr = validateStrongPassword(password, 'Password');
+      if (pwErr) {
+        setError(pwErr);
+        return;
+      }
     }
-    if (initial && password.trim().length > 0 && password.trim().length < 4) {
-      setError('New password must be at least 4 characters.');
-      return;
+    if (initial && password.trim().length > 0) {
+      const pwErr = validateStrongPassword(password, 'New password');
+      if (pwErr) {
+        setError(pwErr);
+        return;
+      }
     }
 
     setSaving(true);
@@ -2384,7 +2391,9 @@ export function StaffAccountModal({
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              {initial ? 'New Login Password (leave blank to keep current)' : 'Login Password (min. 4 chars) *'}
+              {initial
+                ? 'New Login Password (leave blank to keep current, min. 12 chars)'
+                : 'Login Password (min. 12 chars, letters + numbers/symbols) *'}
             </label>
             <input
               type="password"
