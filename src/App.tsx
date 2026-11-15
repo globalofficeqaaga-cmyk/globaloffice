@@ -7,7 +7,12 @@ import { StaffDashboard } from './components/StaffDashboard';
 import { TopBar } from './components/TopBar';
 import { api, getAuthToken, setAuthToken } from './lib/api';
 import { DEFAULT_SITE_SETTINGS } from './lib/siteDefaults';
-import { getSupabaseConfigError, isSupabaseConfigured, supabase } from './lib/supabase';
+import {
+  getSupabaseConfigError,
+  hasPartialOrInvalidSupabaseConfig,
+  isSupabaseConfigured,
+  supabase,
+} from './lib/supabase';
 import type { DashboardData, PublicUser, SiteSettings } from './types';
 
 export default function App() {
@@ -219,9 +224,12 @@ export default function App() {
         onGoHome={() => setView('landing')}
       />
 
-      {backendUnavailable && !isSupabaseConfigured && (
+      {(hasPartialOrInvalidSupabaseConfig || (backendUnavailable && !isSupabaseConfigured)) && (
         <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 text-center text-xs font-medium text-red-800">
-          Database configuration alert: {getSupabaseConfigError()} Permanent data saving is disabled until backend API or Vercel Environment Variables are configured.
+          Database configuration alert: {getSupabaseConfigError()} Configure{' '}
+          <span className="font-mono font-semibold">VITE_SUPABASE_URL</span> and{' '}
+          <span className="font-mono font-semibold">VITE_SUPABASE_PUBLISHABLE_KEY</span> in Google AI Studio Secrets or your root{' '}
+          <span className="font-mono font-semibold">.env.local</span> file.
         </div>
       )}
 

@@ -130,9 +130,8 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
                     One-Time Supabase Database Setup Required
                   </p>
                   <p className="text-xs text-amber-900/90 mt-1 leading-relaxed">
-                    Your website is connected to Supabase, but the login tables &amp; default{' '}
-                    <span className="font-mono font-semibold">admin / admin</span> account are not
-                    installed yet.
+                    Your website is connected to Supabase, but the required database tables and
+                    functions are not installed yet.
                   </p>
                 </div>
               </div>
@@ -140,7 +139,7 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
               <ol className="text-xs text-amber-950 space-y-1 pl-4 list-decimal">
                 <li>Click <strong>Copy Setup SQL</strong> below.</li>
                 <li>Click <strong>Open SQL Editor</strong>, paste the SQL, and click <strong>Run</strong>.</li>
-                <li>Come back here and click <strong>Sign In</strong> with <span className="font-mono font-semibold">admin / admin</span>.</li>
+                <li>Create your admin user in <strong>Authentication → Users</strong> with a strong password and run the promotion query at the bottom of the SQL script.</li>
               </ol>
 
               <div className="flex flex-wrap items-center gap-2 pt-1">

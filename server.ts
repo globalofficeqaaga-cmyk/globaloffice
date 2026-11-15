@@ -1,8 +1,14 @@
-import 'dotenv/config';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import dotenv from 'dotenv';
 import express, { type NextFunction, type Request, type Response } from 'express';
+
+const envLocalPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath });
+}
+dotenv.config();
 import { createServer as createViteServer } from 'vite';
 import type {
   AccountLedgerEntry,
@@ -2145,13 +2151,34 @@ async function startServer() {
       process.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
       ''
     ).trim();
+    const isSecretSupabaseKey = (key: string): boolean => {
+      if (!key) return false;
+      if (key.startsWith('sb_secret_')) return true;
+      const parts = key.split('.');
+      if (parts.length === 3) {
+        try {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+            role?: string;
+          };
+          if (payload?.role === 'service_role') return true;
+        } catch {
+          // Non-JWT key
+        }
+      }
+      return false;
+    };
+    const hasSafeRuntimeSupabase =
+      Boolean(runtimeSupabaseUrl && runtimeSupabaseKey) &&
+      !isSecretSupabaseKey(runtimeSupabaseKey) &&
+      !runtimeSupabaseUrl.includes('your-project-id') &&
+      !runtimeSupabaseKey.includes('your-supabase-publishable');
 
     const sendProdHtml = (_req: Request, res: Response) => {
       if (!fs.existsSync(indexPath)) {
         res.status(404).send('Build output not found.');
         return;
       }
-      if (runtimeSupabaseUrl && runtimeSupabaseKey) {
+      if (hasSafeRuntimeSupabase) {
         const html = fs.readFileSync(indexPath, 'utf-8');
         const safeConfig = JSON.stringify({
           supabaseUrl: runtimeSupabaseUrl,

@@ -1,6 +1,9 @@
 -- ============================================================================
--- Global Pathways / GlobalOffice — Supabase PostgreSQL Schema & RLS Policies
--- Run this script once in your Supabase Dashboard -> SQL Editor.
+-- Global Pathways / GlobalOffice — Complete Supabase Schema & RLS Setup
+-- Synchronized with supabase/setup_all.sql.
+-- Safe & Idempotent: Preserves all existing records, never drops tables.
+-- Security: Enforces RLS, blocks role self-escalation, and contains NO default
+--           admin/admin passwords.
 -- ============================================================================
 
 create extension if not exists pgcrypto;
@@ -11,8 +14,8 @@ create extension if not exists pgcrypto;
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   user_id text unique not null,
-  email text unique not null,
-  role text not null default 'staff' check (role in ('admin', 'staff')),
+  email text unique not null default '',
+  role text not null default 'staff' check (role in ('admin', 'staff', 'accounts')),
   name text not null,
   designation text not null default 'Visa & Recruitment Coordinator',
   phone text not null default '',
@@ -25,9 +28,37 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now()
 );
 
+alter table public.profiles add column if not exists user_id text;
+alter table public.profiles add column if not exists email text not null default '';
+alter table public.profiles add column if not exists role text not null default 'staff';
+alter table public.profiles add column if not exists name text not null default 'Staff Member';
+alter table public.profiles add column if not exists designation text not null default 'Visa & Recruitment Coordinator';
+alter table public.profiles add column if not exists phone text not null default '';
+alter table public.profiles add column if not exists whatsapp text not null default '';
+alter table public.profiles add column if not exists social_link text not null default '';
+alter table public.profiles add column if not exists photo_url text not null default '';
+alter table public.profiles add column if not exists cover_url text not null default '';
+alter table public.profiles add column if not exists version integer not null default 1;
+alter table public.profiles add column if not exists updated_at timestamptz not null default now();
+alter table public.profiles add column if not exists created_at timestamptz not null default now();
+
+update public.profiles
+set user_id = coalesce(
+  nullif(trim(user_id), ''),
+  nullif(split_part(coalesce(email, ''), '@', 1), ''),
+  'user'
+) || '_' || substr(id::text, 1, 4)
+where user_id is null or trim(user_id) = '';
+
+alter table public.profiles alter column user_id set not null;
+create unique index if not exists idx_profiles_user_id_unique on public.profiles(user_id);
+
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles
+  add constraint profiles_role_check check (role in ('admin', 'staff', 'accounts'));
+
 alter table public.profiles enable row level security;
 
--- Helper function: checks whether the current authenticated user is an admin
 create or replace function public.is_admin()
 returns boolean
 language sql
@@ -43,7 +74,21 @@ as $$
   );
 $$;
 
--- Prevent non-admin users from escalating their own role via UPDATE
+create or replace function public.is_admin_or_accounts()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid()
+      and role in ('admin', 'accounts')
+  );
+$$;
+
 create or replace function public.prevent_role_self_escalation()
 returns trigger
 language plpgsql
@@ -51,7 +96,12 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.role is distinct from old.role and not public.is_admin() then
+  if new.role is distinct from old.role
+     and not public.is_admin()
+     and (
+       auth.uid() is not null
+       or coalesce(current_setting('request.jwt.claim.role', true), '') in ('anon', 'authenticated')
+     ) then
     raise exception 'Only administrators can change user roles.';
   end if;
   return new;
@@ -64,7 +114,6 @@ create trigger trg_prevent_role_self_escalation
   for each row
   execute function public.prevent_role_self_escalation();
 
--- Automatically create a profile row whenever a user registers via Supabase Auth
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -83,6 +132,13 @@ begin
     nullif(trim(new.raw_user_meta_data ->> 'name'), ''),
     split_part(coalesce(new.email, 'User'), '@', 1)
   );
+
+  if exists (
+    select 1 from public.profiles
+    where lower(user_id) = lower(v_user_id) and id <> new.id
+  ) then
+    v_user_id := v_user_id || '_' || substr(new.id::text, 1, 4);
+  end if;
 
   insert into public.profiles (
     id,
@@ -105,7 +161,7 @@ begin
     v_name,
     coalesce(nullif(trim(new.raw_user_meta_data ->> 'designation'), ''), 'Visa & Recruitment Coordinator'),
     coalesce(trim(new.raw_user_meta_data ->> 'phone'), ''),
-    coalesce(trim(new.raw_user_meta_data ->> 'whatsapp'), coalesce(trim(new.raw_user_meta_data ->> 'phone'), '')),
+    coalesce(nullif(trim(new.raw_user_meta_data ->> 'whatsapp'), ''), coalesce(trim(new.raw_user_meta_data ->> 'phone'), '')),
     coalesce(trim(new.raw_user_meta_data ->> 'social_link'), ''),
     coalesce(trim(new.raw_user_meta_data ->> 'photo_url'), ''),
     coalesce(trim(new.raw_user_meta_data ->> 'cover_url'), '')
@@ -122,13 +178,13 @@ create trigger on_auth_user_created
   for each row
   execute function public.handle_new_user();
 
--- Profiles RLS Policies
 drop policy if exists "profiles_select_own_or_admin" on public.profiles;
-create policy "profiles_select_own_or_admin"
+drop policy if exists "profiles_select_own_or_admin_or_accounts" on public.profiles;
+create policy "profiles_select_own_or_admin_or_accounts"
   on public.profiles
   for select
   to authenticated
-  using (auth.uid() = id or public.is_admin());
+  using (auth.uid() = id or public.is_admin_or_accounts());
 
 drop policy if exists "profiles_insert_own_staff" on public.profiles;
 create policy "profiles_insert_own_staff"
@@ -185,6 +241,14 @@ create table if not exists public.clients (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.clients add column if not exists version integer not null default 1;
+alter table public.clients add column if not exists client_request_id text;
+alter table public.clients add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.clients add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.clients add column if not exists deleted_at timestamptz;
+alter table public.clients add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
+alter table public.clients add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists idx_clients_staff_id on public.clients(staff_id);
 create index if not exists idx_clients_phone on public.clients(phone);
@@ -246,6 +310,14 @@ create table if not exists public.meetings (
   deleted_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table public.meetings add column if not exists version integer not null default 1;
+alter table public.meetings add column if not exists client_request_id text;
+alter table public.meetings add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.meetings add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.meetings add column if not exists updated_at timestamptz not null default now();
+alter table public.meetings add column if not exists deleted_at timestamptz;
+alter table public.meetings add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
 
 create index if not exists idx_meetings_staff_id on public.meetings(staff_id);
 create index if not exists idx_meetings_deleted_at on public.meetings(deleted_at);
@@ -309,6 +381,14 @@ create table if not exists public.medicals (
   created_at timestamptz not null default now()
 );
 
+alter table public.medicals add column if not exists version integer not null default 1;
+alter table public.medicals add column if not exists client_request_id text;
+alter table public.medicals add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.medicals add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.medicals add column if not exists updated_at timestamptz not null default now();
+alter table public.medicals add column if not exists deleted_at timestamptz;
+alter table public.medicals add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
+
 create index if not exists idx_medicals_staff_id on public.medicals(staff_id);
 create index if not exists idx_medicals_deleted_at on public.medicals(deleted_at);
 create unique index if not exists idx_medicals_request_id on public.medicals(client_request_id) where client_request_id is not null;
@@ -370,6 +450,14 @@ create table if not exists public.interviews (
   created_at timestamptz not null default now()
 );
 
+alter table public.interviews add column if not exists version integer not null default 1;
+alter table public.interviews add column if not exists client_request_id text;
+alter table public.interviews add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.interviews add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.interviews add column if not exists updated_at timestamptz not null default now();
+alter table public.interviews add column if not exists deleted_at timestamptz;
+alter table public.interviews add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
+
 create index if not exists idx_interviews_staff_id on public.interviews(staff_id);
 create index if not exists idx_interviews_deleted_at on public.interviews(deleted_at);
 create unique index if not exists idx_interviews_request_id on public.interviews(client_request_id) where client_request_id is not null;
@@ -406,10 +494,466 @@ create policy "interviews_delete_owner_or_admin"
   using (auth.uid() = staff_id or public.is_admin());
 
 -- ----------------------------------------------------------------------------
--- 6. SECURE RPC FUNCTIONS
+-- 6. WEBSITE CMS SETTINGS TABLE
 -- ----------------------------------------------------------------------------
+create table if not exists public.site_settings (
+  id text primary key default 'default',
+  settings jsonb not null default '{}'::jsonb,
+  updated_by uuid references public.profiles(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
 
--- Normalize phone numbers consistently for client status lookup
+alter table public.site_settings enable row level security;
+
+drop policy if exists "site_settings_public_read" on public.site_settings;
+create policy "site_settings_public_read"
+  on public.site_settings
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "site_settings_admin_insert" on public.site_settings;
+create policy "site_settings_admin_insert"
+  on public.site_settings
+  for insert
+  to authenticated
+  with check (public.is_admin());
+
+drop policy if exists "site_settings_admin_update" on public.site_settings;
+create policy "site_settings_admin_update"
+  on public.site_settings
+  for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+insert into public.site_settings (id, settings)
+values ('default', '{}'::jsonb)
+on conflict (id) do nothing;
+
+-- ----------------------------------------------------------------------------
+-- 7. ACCOUNT LEDGER TABLE (Debit & Credit Entries)
+-- ----------------------------------------------------------------------------
+create table if not exists public.account_ledger (
+  id uuid primary key default gen_random_uuid(),
+  account_owner_id uuid not null references public.profiles(id) on delete restrict,
+  entry_type text not null check (entry_type in ('credit', 'debit')),
+  amount numeric(14, 2) not null check (amount >= 0),
+  title text not null,
+  category text not null default 'General',
+  party_name text not null default '',
+  reference_no text not null default '',
+  entry_date text not null,
+  payment_method text not null default 'Cash',
+  notes text not null default '',
+  created_by_name text not null default '',
+  version integer not null default 1,
+  client_request_id text,
+  created_by uuid references public.profiles(id) on delete set null,
+  updated_by uuid references public.profiles(id) on delete set null,
+  deleted_at timestamptz,
+  deleted_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_account_ledger_owner on public.account_ledger(account_owner_id);
+create index if not exists idx_account_ledger_type on public.account_ledger(entry_type);
+create index if not exists idx_account_ledger_date on public.account_ledger(entry_date desc);
+create index if not exists idx_account_ledger_deleted_at on public.account_ledger(deleted_at);
+create unique index if not exists idx_account_ledger_request_id on public.account_ledger(client_request_id) where client_request_id is not null;
+
+alter table public.account_ledger enable row level security;
+
+drop policy if exists "account_ledger_select_admin_or_accounts" on public.account_ledger;
+create policy "account_ledger_select_admin_or_accounts"
+  on public.account_ledger
+  for select
+  to authenticated
+  using (public.is_admin_or_accounts());
+
+drop policy if exists "account_ledger_insert_admin_or_accounts" on public.account_ledger;
+create policy "account_ledger_insert_admin_or_accounts"
+  on public.account_ledger
+  for insert
+  to authenticated
+  with check (
+    public.is_admin_or_accounts()
+    and (public.is_admin() or account_owner_id = auth.uid())
+  );
+
+drop policy if exists "account_ledger_update_admin_only" on public.account_ledger;
+create policy "account_ledger_update_admin_only"
+  on public.account_ledger
+  for update
+  to authenticated
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "account_ledger_delete_admin_only" on public.account_ledger;
+create policy "account_ledger_delete_admin_only"
+  on public.account_ledger
+  for delete
+  to authenticated
+  using (public.is_admin());
+
+-- ----------------------------------------------------------------------------
+-- 8. STAFF ATTENDANCE & DAILY CONVERSATION LOGS
+-- ----------------------------------------------------------------------------
+create table if not exists public.staff_attendance (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid not null references public.profiles(id) on delete cascade,
+  staff_name text not null default '',
+  staff_role text not null default 'staff',
+  attendance_date text not null,
+  status text not null default 'Present' check (status in ('Present', 'Late', 'Field Work', 'Half Day', 'Leave')),
+  check_in_time text not null default '',
+  check_out_time text not null default '',
+  work_location text not null default 'Office',
+  notes text not null default '',
+  version integer not null default 1,
+  client_request_id text,
+  created_by uuid references public.profiles(id) on delete set null,
+  updated_by uuid references public.profiles(id) on delete set null,
+  deleted_at timestamptz,
+  deleted_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_staff_attendance_staff_id on public.staff_attendance(staff_id);
+create index if not exists idx_staff_attendance_date on public.staff_attendance(attendance_date desc);
+create index if not exists idx_staff_attendance_deleted_at on public.staff_attendance(deleted_at);
+create unique index if not exists idx_staff_attendance_unique_day
+  on public.staff_attendance(staff_id, attendance_date)
+  where deleted_at is null;
+create unique index if not exists idx_staff_attendance_request_id
+  on public.staff_attendance(client_request_id)
+  where client_request_id is not null;
+
+alter table public.staff_attendance enable row level security;
+
+drop policy if exists "staff_attendance_select" on public.staff_attendance;
+create policy "staff_attendance_select"
+  on public.staff_attendance
+  for select
+  to authenticated
+  using (auth.uid() = staff_id or public.is_admin_or_accounts());
+
+drop policy if exists "staff_attendance_insert" on public.staff_attendance;
+create policy "staff_attendance_insert"
+  on public.staff_attendance
+  for insert
+  to authenticated
+  with check (auth.uid() = staff_id or public.is_admin());
+
+drop policy if exists "staff_attendance_update" on public.staff_attendance;
+create policy "staff_attendance_update"
+  on public.staff_attendance
+  for update
+  to authenticated
+  using (auth.uid() = staff_id or public.is_admin())
+  with check (auth.uid() = staff_id or public.is_admin());
+
+drop policy if exists "staff_attendance_delete_admin" on public.staff_attendance;
+create policy "staff_attendance_delete_admin"
+  on public.staff_attendance
+  for delete
+  to authenticated
+  using (public.is_admin());
+
+create table if not exists public.staff_daily_logs (
+  id uuid primary key default gen_random_uuid(),
+  staff_id uuid not null references public.profiles(id) on delete cascade,
+  staff_name text not null default '',
+  staff_role text not null default 'staff',
+  client_id uuid references public.clients(id) on delete set null,
+  log_date text not null,
+  log_time text not null default '',
+  contact_name text not null,
+  contact_phone text not null default '',
+  channel text not null default 'Phone Call' check (channel in ('Phone Call', 'WhatsApp', 'Office Visit', 'Video Call', 'Field Visit')),
+  topic text not null default '',
+  discussion_summary text not null default '',
+  outcome text not null default 'Follow Up Needed' check (outcome in ('Interested', 'Follow Up Needed', 'Document Promised', 'Payment Promised', 'Confirmed', 'Not Interested', 'Resolved')),
+  next_follow_up_date text not null default '',
+  version integer not null default 1,
+  client_request_id text,
+  created_by uuid references public.profiles(id) on delete set null,
+  updated_by uuid references public.profiles(id) on delete set null,
+  deleted_at timestamptz,
+  deleted_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_staff_daily_logs_staff_id on public.staff_daily_logs(staff_id);
+create index if not exists idx_staff_daily_logs_date on public.staff_daily_logs(log_date desc);
+create index if not exists idx_staff_daily_logs_deleted_at on public.staff_daily_logs(deleted_at);
+create unique index if not exists idx_staff_daily_logs_request_id
+  on public.staff_daily_logs(client_request_id)
+  where client_request_id is not null;
+
+alter table public.staff_daily_logs enable row level security;
+
+drop policy if exists "staff_daily_logs_select" on public.staff_daily_logs;
+create policy "staff_daily_logs_select"
+  on public.staff_daily_logs
+  for select
+  to authenticated
+  using (auth.uid() = staff_id or public.is_admin_or_accounts());
+
+drop policy if exists "staff_daily_logs_insert" on public.staff_daily_logs;
+create policy "staff_daily_logs_insert"
+  on public.staff_daily_logs
+  for insert
+  to authenticated
+  with check (auth.uid() = staff_id or public.is_admin());
+
+drop policy if exists "staff_daily_logs_update" on public.staff_daily_logs;
+create policy "staff_daily_logs_update"
+  on public.staff_daily_logs
+  for update
+  to authenticated
+  using (auth.uid() = staff_id or public.is_admin())
+  with check (auth.uid() = staff_id or public.is_admin());
+
+drop policy if exists "staff_daily_logs_delete_admin" on public.staff_daily_logs;
+create policy "staff_daily_logs_delete_admin"
+  on public.staff_daily_logs
+  for delete
+  to authenticated
+  using (public.is_admin());
+
+-- ----------------------------------------------------------------------------
+-- 9. AUDIT LOGS & VERSIONING TRIGGERS
+-- ----------------------------------------------------------------------------
+create table if not exists public.audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  table_name text not null,
+  record_id uuid not null,
+  action text not null check (action in ('INSERT', 'UPDATE', 'SOFT_DELETE', 'RESTORE')),
+  actor_id uuid references public.profiles(id) on delete set null,
+  actor_name text not null default '',
+  changed_fields jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_audit_logs_created_at on public.audit_logs(created_at desc);
+create index if not exists idx_audit_logs_record_id on public.audit_logs(record_id);
+
+alter table public.audit_logs enable row level security;
+
+drop policy if exists "audit_logs_select_admin_or_actor" on public.audit_logs;
+create policy "audit_logs_select_admin_or_actor"
+  on public.audit_logs
+  for select
+  to authenticated
+  using (public.is_admin() or actor_id = auth.uid());
+
+create or replace function public.bump_version_and_meta()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.version := coalesce(new.version, 1);
+    new.created_by := coalesce(new.created_by, auth.uid());
+    new.updated_by := coalesce(new.updated_by, auth.uid());
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    new.version := old.version + 1;
+    new.updated_at := now();
+    new.updated_by := coalesce(auth.uid(), old.updated_by);
+    return new;
+  end if;
+
+  return new;
+end;
+$$;
+
+create or replace function public.bump_profile_version()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.version := coalesce(old.version, 1) + 1;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+create or replace function public.record_audit_log()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor_id uuid;
+  v_actor_name text;
+  v_action text;
+  v_old jsonb;
+  v_new jsonb;
+  v_diff jsonb := '{}'::jsonb;
+  v_key text;
+begin
+  v_actor_id := auth.uid();
+  select name into v_actor_name from public.profiles where id = v_actor_id limit 1;
+  v_actor_name := coalesce(v_actor_name, 'System');
+
+  if tg_op = 'INSERT' then
+    v_action := 'INSERT';
+    v_new := to_jsonb(new);
+    v_diff := jsonb_build_object(
+      'summary', coalesce(
+        v_new ->> 'title',
+        v_new ->> 'contact_name',
+        v_new ->> 'attendance_date',
+        v_new ->> 'name',
+        v_new ->> 'candidate_name',
+        v_new ->> 'client_name',
+        v_new ->> 'candidate_names',
+        'New record'
+      )
+    );
+  elsif tg_op = 'UPDATE' then
+    v_old := to_jsonb(old);
+    v_new := to_jsonb(new);
+
+    if (v_old ->> 'deleted_at') is null and (v_new ->> 'deleted_at') is not null then
+      v_action := 'SOFT_DELETE';
+    elsif (v_old ->> 'deleted_at') is not null and (v_new ->> 'deleted_at') is null then
+      v_action := 'RESTORE';
+    else
+      v_action := 'UPDATE';
+    end if;
+
+    for v_key in select jsonb_object_keys(v_new)
+    loop
+      if v_key in ('version', 'updated_at', 'updated_by', 'client_request_id') then
+        continue;
+      end if;
+      if (v_old -> v_key) is distinct from (v_new -> v_key) then
+        if v_key in ('passport_number', 'documents') then
+          v_diff := v_diff || jsonb_build_object(v_key, jsonb_build_object('changed', true));
+        else
+          v_diff := v_diff || jsonb_build_object(v_key, jsonb_build_object('old', v_old -> v_key, 'new', v_new -> v_key));
+        end if;
+      end if;
+    end loop;
+
+    if v_diff = '{}'::jsonb then
+      return new;
+    end if;
+  end if;
+
+  insert into public.audit_logs (table_name, record_id, action, actor_id, actor_name, changed_fields)
+  values (tg_table_name, new.id, v_action, v_actor_id, v_actor_name, v_diff);
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_profiles_version on public.profiles;
+create trigger trg_profiles_version
+  before update on public.profiles
+  for each row
+  execute function public.bump_profile_version();
+
+drop trigger if exists trg_clients_version on public.clients;
+create trigger trg_clients_version
+  before insert or update on public.clients
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_meetings_version on public.meetings;
+create trigger trg_meetings_version
+  before insert or update on public.meetings
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_medicals_version on public.medicals;
+create trigger trg_medicals_version
+  before insert or update on public.medicals
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_interviews_version on public.interviews;
+create trigger trg_interviews_version
+  before insert or update on public.interviews
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_account_ledger_version on public.account_ledger;
+create trigger trg_account_ledger_version
+  before insert or update on public.account_ledger
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_staff_attendance_version on public.staff_attendance;
+create trigger trg_staff_attendance_version
+  before insert or update on public.staff_attendance
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_staff_daily_logs_version on public.staff_daily_logs;
+create trigger trg_staff_daily_logs_version
+  before insert or update on public.staff_daily_logs
+  for each row
+  execute function public.bump_version_and_meta();
+
+drop trigger if exists trg_clients_audit on public.clients;
+create trigger trg_clients_audit
+  after insert or update on public.clients
+  for each row
+  execute function public.record_audit_log();
+
+drop trigger if exists trg_meetings_audit on public.meetings;
+create trigger trg_meetings_audit
+  after insert or update on public.meetings
+  for each row
+  execute function public.record_audit_log();
+
+drop trigger if exists trg_medicals_audit on public.medicals;
+create trigger trg_medicals_audit
+  after insert or update on public.medicals
+  for each row
+  execute function public.record_audit_log();
+
+drop trigger if exists trg_interviews_audit on public.interviews;
+create trigger trg_interviews_audit
+  after insert or update on public.interviews
+  for each row
+  execute function public.record_audit_log();
+
+drop trigger if exists trg_account_ledger_audit on public.account_ledger;
+create trigger trg_account_ledger_audit
+  after insert or update on public.account_ledger
+  for each row
+  execute function public.record_audit_log();
+
+drop trigger if exists trg_staff_attendance_audit on public.staff_attendance;
+create trigger trg_staff_attendance_audit
+  after insert or update on public.staff_attendance
+  for each row
+  execute function public.record_audit_log();
+
+drop trigger if exists trg_staff_daily_logs_audit on public.staff_daily_logs;
+create trigger trg_staff_daily_logs_audit
+  after insert or update on public.staff_daily_logs
+  for each row
+  execute function public.record_audit_log();
+
+-- ----------------------------------------------------------------------------
+-- 10. SECURE RPC FUNCTIONS
+-- ----------------------------------------------------------------------------
 create or replace function public.normalize_phone(p_input text)
 returns text
 language plpgsql
@@ -426,7 +970,6 @@ begin
 end;
 $$;
 
--- Resolve a User ID (or email) to the auth email during sign-in without exposing profiles table
 create or replace function public.resolve_login_email(p_identifier text)
 returns text
 language sql
@@ -444,7 +987,6 @@ $$;
 revoke all on function public.resolve_login_email(text) from public;
 grant execute on function public.resolve_login_email(text) to anon, authenticated;
 
--- Public Client Status Lookup by Phone Number (returns ONLY the single matched client & coordinator contact)
 create or replace function public.lookup_client_by_phone(p_phone text)
 returns jsonb
 language plpgsql
@@ -605,188 +1147,356 @@ $$;
 revoke all on function public.lookup_client_by_phone(text) from public;
 grant execute on function public.lookup_client_by_phone(text) to anon, authenticated;
 
--- ----------------------------------------------------------------------------
--- 7. IMMUTABLE AUDIT LOGS, VERSIONING TRIGGERS & STORAGE BUCKETS
--- ----------------------------------------------------------------------------
-create table if not exists public.audit_logs (
-  id uuid primary key default gen_random_uuid(),
-  table_name text not null,
-  record_id uuid not null,
-  action text not null check (action in ('INSERT', 'UPDATE', 'SOFT_DELETE', 'RESTORE')),
-  actor_id uuid references public.profiles(id) on delete set null,
-  actor_name text not null default '',
-  changed_fields jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_audit_logs_created_at on public.audit_logs(created_at desc);
-create index if not exists idx_audit_logs_record_id on public.audit_logs(record_id);
-
-alter table public.audit_logs enable row level security;
-
-drop policy if exists "audit_logs_select_admin_or_actor" on public.audit_logs;
-create policy "audit_logs_select_admin_or_actor"
-  on public.audit_logs
-  for select
-  to authenticated
-  using (public.is_admin() or actor_id = auth.uid());
-
-create or replace function public.bump_version_and_meta()
-returns trigger
+create or replace function public.update_own_credentials(
+  p_new_user_id text default null,
+  p_new_password text default null
+)
+returns void
 language plpgsql
 security definer
-set search_path = public
-as $$
-begin
-  if tg_op = 'INSERT' then
-    new.version := coalesce(new.version, 1);
-    new.created_by := coalesce(new.created_by, auth.uid());
-    new.updated_by := coalesce(new.updated_by, auth.uid());
-    return new;
-  end if;
-
-  if tg_op = 'UPDATE' then
-    new.version := old.version + 1;
-    new.updated_at := now();
-    new.updated_by := coalesce(auth.uid(), old.updated_by);
-    return new;
-  end if;
-
-  return new;
-end;
-$$;
-
-create or replace function public.bump_profile_version()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-begin
-  new.version := coalesce(old.version, 1) + 1;
-  new.updated_at := now();
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_profiles_version on public.profiles;
-create trigger trg_profiles_version
-  before update on public.profiles
-  for each row
-  execute function public.bump_profile_version();
-
-drop trigger if exists trg_clients_version on public.clients;
-create trigger trg_clients_version
-  before insert or update on public.clients
-  for each row
-  execute function public.bump_version_and_meta();
-
-drop trigger if exists trg_meetings_version on public.meetings;
-create trigger trg_meetings_version
-  before insert or update on public.meetings
-  for each row
-  execute function public.bump_version_and_meta();
-
-drop trigger if exists trg_medicals_version on public.medicals;
-create trigger trg_medicals_version
-  before insert or update on public.medicals
-  for each row
-  execute function public.bump_version_and_meta();
-
-drop trigger if exists trg_interviews_version on public.interviews;
-create trigger trg_interviews_version
-  before insert or update on public.interviews
-  for each row
-  execute function public.bump_version_and_meta();
-
-create or replace function public.record_audit_log()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
+set search_path = public, auth, extensions
 as $$
 declare
-  v_actor_id uuid;
-  v_actor_name text;
-  v_action text;
-  v_old jsonb;
-  v_new jsonb;
-  v_diff jsonb := '{}'::jsonb;
-  v_key text;
+  v_uid uuid := auth.uid();
+  v_role text;
+  v_clean_uid text;
 begin
-  v_actor_id := auth.uid();
-  select name into v_actor_name from public.profiles where id = v_actor_id limit 1;
-  v_actor_name := coalesce(v_actor_name, 'System');
-
-  if tg_op = 'INSERT' then
-    v_action := 'INSERT';
-    v_new := to_jsonb(new);
-    v_diff := jsonb_build_object(
-      'summary', coalesce(v_new ->> 'name', v_new ->> 'candidate_name', v_new ->> 'client_name', v_new ->> 'candidate_names', 'New record')
-    );
-  elsif tg_op = 'UPDATE' then
-    v_old := to_jsonb(old);
-    v_new := to_jsonb(new);
-
-    if (v_old ->> 'deleted_at') is null and (v_new ->> 'deleted_at') is not null then
-      v_action := 'SOFT_DELETE';
-    elsif (v_old ->> 'deleted_at') is not null and (v_new ->> 'deleted_at') is null then
-      v_action := 'RESTORE';
-    else
-      v_action := 'UPDATE';
-    end if;
-
-    for v_key in select jsonb_object_keys(v_new)
-    loop
-      if v_key in ('version', 'updated_at', 'updated_by', 'client_request_id') then
-        continue;
-      end if;
-      if (v_old -> v_key) is distinct from (v_new -> v_key) then
-        if v_key in ('passport_number', 'documents') then
-          v_diff := v_diff || jsonb_build_object(v_key, jsonb_build_object('changed', true));
-        else
-          v_diff := v_diff || jsonb_build_object(v_key, jsonb_build_object('old', v_old -> v_key, 'new', v_new -> v_key));
-        end if;
-      end if;
-    end loop;
-
-    if v_diff = '{}'::jsonb then
-      return new;
-    end if;
+  if v_uid is null then
+    raise exception 'Authentication required.';
   end if;
 
-  insert into public.audit_logs (table_name, record_id, action, actor_id, actor_name, changed_fields)
-  values (tg_table_name, new.id, v_action, v_actor_id, v_actor_name, v_diff);
+  select role into v_role from public.profiles where id = v_uid;
+  if not found then
+    raise exception 'Profile not found.';
+  end if;
 
-  return new;
+  if p_new_user_id is not null and trim(p_new_user_id) <> '' then
+    v_clean_uid := trim(p_new_user_id);
+    if v_role <> 'admin' then
+      raise exception 'Only administrators can change their own login User ID.';
+    end if;
+    if exists (
+      select 1 from public.profiles
+      where id <> v_uid and lower(user_id) = lower(v_clean_uid)
+    ) then
+      raise exception 'Another account already uses this User ID.';
+    end if;
+
+    update public.profiles
+    set user_id = v_clean_uid
+    where id = v_uid;
+  end if;
+
+  if p_new_password is not null and trim(p_new_password) <> '' then
+    if length(trim(p_new_password)) < 4 then
+      raise exception 'New password must be at least 4 characters.';
+    end if;
+
+    update auth.users
+    set encrypted_password = crypt(trim(p_new_password), gen_salt('bf')),
+        updated_at = now()
+    where id = v_uid;
+  end if;
 end;
 $$;
 
-drop trigger if exists trg_clients_audit on public.clients;
-create trigger trg_clients_audit
-  after insert or update on public.clients
-  for each row
-  execute function public.record_audit_log();
+revoke all on function public.update_own_credentials(text, text) from public;
+grant execute on function public.update_own_credentials(text, text) to authenticated;
 
-drop trigger if exists trg_meetings_audit on public.meetings;
-create trigger trg_meetings_audit
-  after insert or update on public.meetings
-  for each row
-  execute function public.record_audit_log();
+create or replace function public.admin_create_user_account(
+  p_user_id text,
+  p_password text,
+  p_name text,
+  p_role text default 'staff',
+  p_email text default '',
+  p_designation text default 'Visa & Recruitment Coordinator',
+  p_phone text default '',
+  p_whatsapp text default '',
+  p_social_link text default '',
+  p_photo_url text default '',
+  p_cover_url text default ''
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+declare
+  v_clean_uid text := trim(coalesce(p_user_id, ''));
+  v_clean_pass text := trim(coalesce(p_password, ''));
+  v_clean_name text := trim(coalesce(p_name, ''));
+  v_clean_role text := lower(trim(coalesce(p_role, 'staff')));
+  v_clean_email text := trim(coalesce(p_email, ''));
+  v_default_desig text;
+  v_new_id uuid := gen_random_uuid();
+  v_profile public.profiles%rowtype;
+begin
+  if not public.is_admin() then
+    raise exception 'Only administrators can create user accounts.';
+  end if;
 
-drop trigger if exists trg_medicals_audit on public.medicals;
-create trigger trg_medicals_audit
-  after insert or update on public.medicals
-  for each row
-  execute function public.record_audit_log();
+  if v_clean_role not in ('staff', 'accounts') then
+    raise exception 'Role must be staff or accounts.';
+  end if;
 
-drop trigger if exists trg_interviews_audit on public.interviews;
-create trigger trg_interviews_audit
-  after insert or update on public.interviews
-  for each row
-  execute function public.record_audit_log();
+  if v_clean_uid = '' or v_clean_name = '' or length(v_clean_pass) < 4 then
+    raise exception 'Name, User ID, and Password (min 4 chars) are required.';
+  end if;
 
--- Private Storage Bucket for Client Documents & Attachments + Staff Media Bucket
+  if exists (select 1 from public.profiles where lower(user_id) = lower(v_clean_uid)) then
+    raise exception 'A user with this User ID already exists.';
+  end if;
+
+  if v_clean_email = '' then
+    v_clean_email := lower(regexp_replace(v_clean_uid, '[^a-zA-Z0-9._-]', '', 'g')) || '@' || v_clean_role || '.globalpathways.local';
+  end if;
+
+  if exists (select 1 from auth.users where lower(email) = lower(v_clean_email)) then
+    raise exception 'An account with this email already exists.';
+  end if;
+
+  v_default_desig := case
+    when v_clean_role = 'accounts' then 'Accounts & Finance Officer'
+    else 'Visa & Recruitment Coordinator'
+  end;
+
+  insert into auth.users (
+    instance_id,
+    id,
+    aud,
+    role,
+    email,
+    encrypted_password,
+    email_confirmed_at,
+    raw_app_meta_data,
+    raw_user_meta_data,
+    created_at,
+    updated_at,
+    confirmation_token,
+    email_change,
+    email_change_token_new,
+    recovery_token
+  )
+  values (
+    '00000000-0000-0000-0000-000000000000',
+    v_new_id,
+    'authenticated',
+    'authenticated',
+    v_clean_email,
+    crypt(v_clean_pass, gen_salt('bf')),
+    now(),
+    '{"provider":"email","providers":["email"]}'::jsonb,
+    jsonb_build_object(
+      'user_id', v_clean_uid,
+      'name', v_clean_name,
+      'designation', coalesce(nullif(trim(p_designation), ''), v_default_desig),
+      'phone', coalesce(trim(p_phone), ''),
+      'whatsapp', coalesce(nullif(trim(p_whatsapp), ''), coalesce(trim(p_phone), '')),
+      'social_link', coalesce(trim(p_social_link), ''),
+      'photo_url', coalesce(trim(p_photo_url), ''),
+      'cover_url', coalesce(trim(p_cover_url), '')
+    ),
+    now(),
+    now(),
+    '',
+    '',
+    '',
+    ''
+  );
+
+  insert into auth.identities (
+    id,
+    user_id,
+    provider_id,
+    identity_data,
+    provider,
+    last_sign_in_at,
+    created_at,
+    updated_at
+  )
+  values (
+    gen_random_uuid(),
+    v_new_id,
+    v_new_id::text,
+    jsonb_build_object('sub', v_new_id::text, 'email', v_clean_email, 'email_verified', true, 'phone_verified', false),
+    'email',
+    now(),
+    now(),
+    now()
+  )
+  on conflict do nothing;
+
+  insert into public.profiles (
+    id, user_id, email, role, name, designation, phone, whatsapp, social_link, photo_url, cover_url
+  )
+  values (
+    v_new_id,
+    v_clean_uid,
+    v_clean_email,
+    v_clean_role,
+    v_clean_name,
+    coalesce(nullif(trim(p_designation), ''), v_default_desig),
+    coalesce(trim(p_phone), ''),
+    coalesce(nullif(trim(p_whatsapp), ''), coalesce(trim(p_phone), '')),
+    coalesce(trim(p_social_link), ''),
+    coalesce(trim(p_photo_url), ''),
+    coalesce(trim(p_cover_url), '')
+  )
+  on conflict (id) do update
+    set role = excluded.role,
+        user_id = excluded.user_id,
+        name = excluded.name,
+        designation = excluded.designation,
+        phone = excluded.phone,
+        whatsapp = excluded.whatsapp,
+        social_link = excluded.social_link,
+        photo_url = excluded.photo_url,
+        cover_url = excluded.cover_url
+  returning * into v_profile;
+
+  return to_jsonb(v_profile);
+end;
+$$;
+
+revoke all on function public.admin_create_user_account(text, text, text, text, text, text, text, text, text, text, text) from public;
+grant execute on function public.admin_create_user_account(text, text, text, text, text, text, text, text, text, text, text) to authenticated;
+
+create or replace function public.admin_create_staff_account(
+  p_user_id text,
+  p_password text,
+  p_name text,
+  p_email text default '',
+  p_designation text default 'Visa & Recruitment Coordinator',
+  p_phone text default '',
+  p_whatsapp text default '',
+  p_social_link text default '',
+  p_photo_url text default '',
+  p_cover_url text default ''
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+begin
+  return public.admin_create_user_account(
+    p_user_id,
+    p_password,
+    p_name,
+    'staff',
+    p_email,
+    p_designation,
+    p_phone,
+    p_whatsapp,
+    p_social_link,
+    p_photo_url,
+    p_cover_url
+  );
+end;
+$$;
+
+revoke all on function public.admin_create_staff_account(text, text, text, text, text, text, text, text, text, text) from public;
+grant execute on function public.admin_create_staff_account(text, text, text, text, text, text, text, text, text, text) to authenticated;
+
+create or replace function public.admin_update_staff_credentials(
+  p_staff_id uuid,
+  p_user_id text default null,
+  p_new_password text default null
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, auth, extensions
+as $$
+declare
+  v_clean_uid text;
+begin
+  if not public.is_admin() then
+    raise exception 'Only administrators can reset user credentials.';
+  end if;
+
+  if not exists (select 1 from public.profiles where id = p_staff_id and role in ('staff', 'accounts')) then
+    raise exception 'User account not found.';
+  end if;
+
+  if p_user_id is not null and trim(p_user_id) <> '' then
+    v_clean_uid := trim(p_user_id);
+    if exists (
+      select 1 from public.profiles
+      where id <> p_staff_id and lower(user_id) = lower(v_clean_uid)
+    ) then
+      raise exception 'Another account already uses this User ID.';
+    end if;
+
+    update public.profiles
+    set user_id = v_clean_uid
+    where id = p_staff_id;
+  end if;
+
+  if p_new_password is not null and trim(p_new_password) <> '' then
+    if length(trim(p_new_password)) < 4 then
+      raise exception 'Password must be at least 4 characters.';
+    end if;
+
+    update auth.users
+    set encrypted_password = crypt(trim(p_new_password), gen_salt('bf')),
+        updated_at = now()
+    where id = p_staff_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.admin_update_staff_credentials(uuid, text, text) from public;
+grant execute on function public.admin_update_staff_credentials(uuid, text, text) to authenticated;
+
+drop function if exists public.get_daily_client_activity();
+create or replace function public.get_daily_client_activity()
+returns table (
+  client_id uuid,
+  staff_id uuid,
+  staff_name text,
+  client_name text,
+  phone text,
+  trade text,
+  destination_country text,
+  status text,
+  created_date text,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin_or_accounts() then
+    raise exception 'Only Administrator and Accounts roles can view cross-staff client activity.';
+  end if;
+
+  return query
+  select
+    c.id as client_id,
+    c.staff_id,
+    coalesce(p.name, 'Unassigned') as staff_name,
+    c.name as client_name,
+    c.phone,
+    c.trade,
+    c.destination_country,
+    c.status,
+    to_char((c.created_at at time zone 'Asia/Dhaka')::date, 'YYYY-MM-DD') as created_date,
+    c.created_at
+  from public.clients c
+  left join public.profiles p on p.id = c.staff_id
+  where c.deleted_at is null
+  order by c.created_at desc;
+end;
+$$;
+
+revoke all on function public.get_daily_client_activity() from public;
+grant execute on function public.get_daily_client_activity() to authenticated;
+
+-- ----------------------------------------------------------------------------
+-- 11. STORAGE BUCKETS & ACCESS POLICIES
+-- ----------------------------------------------------------------------------
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
   'client-documents',
@@ -848,7 +1558,20 @@ create policy "staff_media_owner_delete"
   using (bucket_id = 'staff-media' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
 
 -- ----------------------------------------------------------------------------
--- 8. ADMIN PROMOTION HELPER (Run manually in SQL Editor for your admin email)
+-- 12. ADMIN USER SETUP (NO DEFAULT PASSWORD SEEDED)
 -- ----------------------------------------------------------------------------
--- After registering your admin user via the Sign Up modal, run:
---   update public.profiles set role = 'admin', user_id = 'admin' where email = 'your-admin-email@example.com';
+-- After running this script:
+-- 1. Open Supabase Dashboard -> Authentication -> Users -> Add user -> Create new user
+--    with your real admin email and a strong password (enable "Auto Confirm User").
+-- 2. Run the query below in SQL Editor replacing 'your-admin-email@example.com':
+--
+--    update public.profiles
+--    set role = 'admin',
+--        user_id = 'admin',
+--        name = 'System Administrator',
+--        designation = 'Managing Director'
+--    where lower(email) = lower('your-admin-email@example.com');
+--
+-- 3. Sign in on your website with User ID 'admin' (or your email) and your strong password.
+
+notify pgrst, 'reload schema';

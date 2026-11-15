@@ -5,6 +5,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    envDir: __dirname,
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {

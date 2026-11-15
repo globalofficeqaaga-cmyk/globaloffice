@@ -863,8 +863,6 @@ export const api = {
       }
 
       let emailToUse = cleanIdentifier;
-      let missingSchemaRpc = false;
-      let unseededAdminAttempt = false;
 
       if (!cleanIdentifier.includes('@')) {
         const { data: resolvedEmail, error: resolveErr } = await supabase.rpc(
@@ -872,29 +870,24 @@ export const api = {
           { p_identifier: cleanIdentifier }
         );
         if (resolveErr) {
-          if (!isMissingSupabaseSchemaError(resolveErr)) {
-            throw new Error(resolveErr.message);
-          }
-
-          // Fallback email guesses in case user exists in auth.users while PostgREST schema cache is stale
-          missingSchemaRpc = true;
-          const slug = cleanIdentifier.toLowerCase().replace(/[^a-z0-9._-]/g, '');
-          emailToUse =
-            cleanIdentifier.toLowerCase() === 'admin'
-              ? 'admin@globalpathways.local'
-              : `${slug}@staff.globalpathways.local`;
-        } else if (!resolvedEmail) {
-          if (cleanIdentifier.toLowerCase() === 'admin') {
-            unseededAdminAttempt = true;
-            emailToUse = 'admin@globalpathways.local';
-          } else {
-            throw new Error(
-              'No account found for this User ID. Please check your User ID or verify the staff account exists.'
+          if (isMissingSupabaseSchemaError(resolveErr)) {
+            throw new DatabaseSetupError(
+              'Supabase database setup is incomplete. Click "Copy Setup SQL" below, run it once in your Supabase Dashboard → SQL Editor, then create & promote your Admin account.'
             );
           }
-        } else {
-          emailToUse = String(resolvedEmail);
+          throw new Error(resolveErr.message);
         }
+        if (!resolvedEmail) {
+          if (cleanIdentifier.toLowerCase() === 'admin') {
+            throw new Error(
+              'No Admin profile found yet. Create an admin user in Supabase Dashboard → Authentication → Users and promote it in SQL Editor.'
+            );
+          }
+          throw new Error(
+            'No account found for this User ID. Please check your User ID or verify the account exists.'
+          );
+        }
+        emailToUse = String(resolvedEmail);
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -902,11 +895,6 @@ export const api = {
         password,
       });
       if (error) {
-        if (missingSchemaRpc || unseededAdminAttempt) {
-          throw new DatabaseSetupError(
-            'Supabase database setup is incomplete. Click "Copy Setup SQL" below, run it once in your Supabase Dashboard → SQL Editor, then sign in with admin / admin.'
-          );
-        }
         throw new Error(error.message);
       }
 
