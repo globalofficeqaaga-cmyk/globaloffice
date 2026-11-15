@@ -1,5 +1,6 @@
 import type {
   AccountLedgerEntry,
+  AttendanceStatus,
   AuditAction,
   AuditLogEntry,
   ClientDocument,
@@ -7,10 +8,13 @@ import type {
   ClientPayment,
   ClientProfile,
   ClientStage,
+  DailyClientSummary,
   DashboardData,
   InterviewRecord,
   InterviewStatus,
   LedgerEntryType,
+  LogChannel,
+  LogOutcome,
   MedicalOutcome,
   MedicalRecord,
   MedicalRecordResult,
@@ -18,6 +22,8 @@ import type {
   MeetingStatus,
   PublicUser,
   SiteSettings,
+  StaffAttendanceRecord,
+  StaffDailyLog,
   UserRole,
 } from '../types';
 import { APP_IMAGES } from './assets';
@@ -296,6 +302,61 @@ interface AccountLedgerRow {
   updated_at: string;
 }
 
+interface StaffAttendanceRow {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  staff_role: UserRole;
+  attendance_date: string;
+  status: AttendanceStatus;
+  check_in_time: string;
+  check_out_time: string;
+  work_location: string;
+  notes: string;
+  version?: number;
+  client_request_id?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface StaffDailyLogRow {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  staff_role: UserRole;
+  client_id: string | null;
+  log_date: string;
+  log_time: string;
+  contact_name: string;
+  contact_phone: string;
+  channel: LogChannel;
+  topic: string;
+  discussion_summary: string;
+  outcome: LogOutcome;
+  next_follow_up_date: string;
+  version?: number;
+  client_request_id?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface DailyClientActivityRow {
+  client_id: string;
+  staff_id: string;
+  staff_name: string;
+  client_name: string;
+  phone: string;
+  trade: string;
+  destination_country: string;
+  status: ClientStage;
+  created_date: string;
+  created_at: string;
+}
+
 function mapProfileRow(row: ProfileRow): PublicUser {
   return {
     id: row.id,
@@ -444,6 +505,67 @@ function mapAccountLedgerRow(row: AccountLedgerRow): AccountLedgerEntry {
     deletedBy: row.deleted_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapAttendanceRow(row: StaffAttendanceRow): StaffAttendanceRecord {
+  return {
+    id: row.id,
+    staffId: row.staff_id,
+    staffName: row.staff_name || '',
+    staffRole: row.staff_role || 'staff',
+    attendanceDate: row.attendance_date,
+    status: row.status || 'Present',
+    checkInTime: row.check_in_time || '',
+    checkOutTime: row.check_out_time || '',
+    workLocation: row.work_location || 'Office',
+    notes: row.notes || '',
+    version: row.version ?? 1,
+    clientRequestId: row.client_request_id || undefined,
+    deletedAt: row.deleted_at || null,
+    deletedBy: row.deleted_by || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapDailyLogRow(row: StaffDailyLogRow): StaffDailyLog {
+  return {
+    id: row.id,
+    staffId: row.staff_id,
+    staffName: row.staff_name || '',
+    staffRole: row.staff_role || 'staff',
+    clientId: row.client_id || undefined,
+    logDate: row.log_date,
+    logTime: row.log_time || '',
+    contactName: row.contact_name,
+    contactPhone: row.contact_phone || '',
+    channel: row.channel || 'Phone Call',
+    topic: row.topic || '',
+    discussionSummary: row.discussion_summary || '',
+    outcome: row.outcome || 'Follow Up Needed',
+    nextFollowUpDate: row.next_follow_up_date || '',
+    version: row.version ?? 1,
+    clientRequestId: row.client_request_id || undefined,
+    deletedAt: row.deleted_at || null,
+    deletedBy: row.deleted_by || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapDailyClientSummaryRow(row: DailyClientActivityRow): DailyClientSummary {
+  return {
+    clientId: row.client_id,
+    staffId: row.staff_id,
+    staffName: row.staff_name || 'Unassigned',
+    clientName: row.client_name,
+    phone: row.phone || '',
+    trade: row.trade || '',
+    destinationCountry: row.destination_country || '',
+    status: row.status,
+    createdDate: row.created_date,
+    createdAt: row.created_at,
   };
 }
 
@@ -869,21 +991,25 @@ export const api = {
         medicalsRes,
         interviewsRes,
         ledgerRes,
+        attendanceRes,
+        dailyLogsRes,
+        dailyClientActivityRes,
         archivedClientsRes,
         archivedMeetingsRes,
         archivedMedicalsRes,
         archivedInterviewsRes,
         archivedLedgerRes,
+        archivedDailyLogsRes,
         auditLogsRes,
       ] = await Promise.all([
-        isAdmin
+        isAdmin || isAccounts
           ? supabase
               .from('profiles')
               .select('*')
               .eq('role', 'staff')
               .order('created_at', { ascending: false })
           : Promise.resolve({ data: null, error: null }),
-        isAdmin
+        isAdmin || isAccounts
           ? supabase
               .from('profiles')
               .select('*')
@@ -926,6 +1052,21 @@ export const api = {
               .order('entry_date', { ascending: false })
               .order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from('staff_attendance')
+          .select('*')
+          .is('deleted_at', null)
+          .order('attendance_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('staff_daily_logs')
+          .select('*')
+          .is('deleted_at', null)
+          .order('log_date', { ascending: false })
+          .order('created_at', { ascending: false }),
+        isAdmin || isAccounts
+          ? supabase.rpc('get_daily_client_activity')
+          : Promise.resolve({ data: [], error: null }),
         isAdmin
           ? supabase
               .from('clients')
@@ -963,6 +1104,13 @@ export const api = {
           : Promise.resolve({ data: [], error: null }),
         isAdmin
           ? supabase
+              .from('staff_daily_logs')
+              .select('*')
+              .not('deleted_at', 'is', null)
+              .order('deleted_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        isAdmin
+          ? supabase
               .from('audit_logs')
               .select('*')
               .order('created_at', { ascending: false })
@@ -977,25 +1125,56 @@ export const api = {
       if (medicalsRes.error) throw new Error(medicalsRes.error.message);
       if (interviewsRes.error) throw new Error(interviewsRes.error.message);
 
-      return {
-        user,
-        staffList: isAdmin
+      const mappedClients = ((clientsRes.data || []) as ClientRow[]).map(mapClientRow);
+      const mappedStaffList =
+        isAdmin || isAccounts
           ? ((profilesRes.data || []) as ProfileRow[]).map(mapProfileRow)
           : user.role === 'staff'
           ? [user]
-          : [],
-        accountsList: isAdmin
+          : [];
+      const mappedAccountsList =
+        isAdmin || isAccounts
           ? ((accountsRes.data || []) as ProfileRow[]).map(mapProfileRow)
-          : isAccounts
-          ? [user]
-          : [],
-        clients: ((clientsRes.data || []) as ClientRow[]).map(mapClientRow),
+          : [];
+
+      const staffLookup = new Map<string, string>();
+      mappedStaffList.forEach((s) => staffLookup.set(s.id, s.name));
+      staffLookup.set(user.id, user.name);
+
+      const mappedDailyClients: DailyClientSummary[] =
+        (isAdmin || isAccounts) && !dailyClientActivityRes.error && Array.isArray(dailyClientActivityRes.data)
+          ? (dailyClientActivityRes.data as DailyClientActivityRow[]).map(mapDailyClientSummaryRow)
+          : mappedClients.map((c) => ({
+              clientId: c.id,
+              staffId: c.staffId,
+              staffName: staffLookup.get(c.staffId) || 'Coordinator',
+              clientName: c.name,
+              phone: c.phone,
+              trade: c.trade,
+              destinationCountry: c.destinationCountry,
+              status: c.status,
+              createdDate: toLocalDateKey(c.createdAt),
+              createdAt: c.createdAt,
+            }));
+
+      return {
+        user,
+        staffList: mappedStaffList,
+        accountsList: mappedAccountsList,
+        clients: mappedClients,
         meetings: ((meetingsRes.data || []) as MeetingRow[]).map(mapMeetingRow),
         medicals: ((medicalsRes.data || []) as MedicalRow[]).map(mapMedicalRow),
         interviews: ((interviewsRes.data || []) as InterviewRow[]).map(mapInterviewRow),
         ledgerEntries: ledgerRes.error
           ? []
           : ((ledgerRes.data || []) as AccountLedgerRow[]).map(mapAccountLedgerRow),
+        attendanceRecords: attendanceRes.error
+          ? []
+          : ((attendanceRes.data || []) as StaffAttendanceRow[]).map(mapAttendanceRow),
+        dailyLogs: dailyLogsRes.error
+          ? []
+          : ((dailyLogsRes.data || []) as StaffDailyLogRow[]).map(mapDailyLogRow),
+        dailyClientSummaries: mappedDailyClients,
         archivedClients: ((archivedClientsRes.data || []) as ClientRow[]).map(mapClientRow),
         archivedMeetings: ((archivedMeetingsRes.data || []) as MeetingRow[]).map(mapMeetingRow),
         archivedMedicals: ((archivedMedicalsRes.data || []) as MedicalRow[]).map(mapMedicalRow),
@@ -1005,6 +1184,9 @@ export const api = {
         archivedLedgerEntries: archivedLedgerRes.error
           ? []
           : ((archivedLedgerRes.data || []) as AccountLedgerRow[]).map(mapAccountLedgerRow),
+        archivedDailyLogs: archivedDailyLogsRes.error
+          ? []
+          : ((archivedDailyLogsRes.data || []) as StaffDailyLogRow[]).map(mapDailyLogRow),
         auditLogs: auditLogsRes.error
           ? []
           : ((auditLogsRes.data || []) as AuditLogRow[]).map(mapAuditLogRow),
@@ -1476,7 +1658,14 @@ export const api = {
   },
 
   restoreRecord: async (
-    table: 'clients' | 'meetings' | 'medicals' | 'interviews' | 'account_ledger',
+    table:
+      | 'clients'
+      | 'meetings'
+      | 'medicals'
+      | 'interviews'
+      | 'account_ledger'
+      | 'staff_attendance'
+      | 'staff_daily_logs',
     id: string
   ): Promise<{ ok: boolean }> => {
     assertProductionBackend();
@@ -1968,7 +2157,344 @@ export const api = {
       method: 'DELETE',
     });
   },
+
+  markAttendance: async (
+    payload: Partial<StaffAttendanceRecord>
+  ): Promise<{ attendance: StaffAttendanceRecord }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const targetStaffId =
+        current.role === 'admin' && payload.staffId ? payload.staffId : current.id;
+      const attendanceDate = payload.attendanceDate || getTodayLocalDateStr();
+
+      let targetName = current.name;
+      let targetRole = current.role;
+      if (targetStaffId !== current.id) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('name, role')
+          .eq('id', targetStaffId)
+          .maybeSingle();
+        if (prof) {
+          targetName = prof.name || targetName;
+          targetRole = (prof.role as UserRole) || targetRole;
+        }
+      }
+
+      const rowData = await withRetry(async () => {
+        const { data: existingRow } = await supabase!
+          .from('staff_attendance')
+          .select('*')
+          .eq('staff_id', targetStaffId)
+          .eq('attendance_date', attendanceDate)
+          .is('deleted_at', null)
+          .maybeSingle();
+
+        if (existingRow) {
+          const updateFields: Record<string, unknown> = {
+            staff_name: targetName,
+            staff_role: targetRole,
+            updated_at: new Date().toISOString(),
+          };
+          if (payload.status !== undefined) updateFields.status = payload.status;
+          if (payload.checkInTime !== undefined && payload.checkInTime !== '') {
+            updateFields.check_in_time = payload.checkInTime;
+          }
+          if (payload.checkOutTime !== undefined) {
+            updateFields.check_out_time = payload.checkOutTime;
+          }
+          if (payload.workLocation !== undefined) {
+            updateFields.work_location = payload.workLocation;
+          }
+          if (payload.notes !== undefined) {
+            updateFields.notes = payload.notes;
+          }
+          const { data: updated, error: updateErr } = await supabase!
+            .from('staff_attendance')
+            .update(updateFields)
+            .eq('id', existingRow.id)
+            .select('*')
+            .single();
+          if (updateErr) throw new Error(updateErr.message);
+          return updated as StaffAttendanceRow;
+        }
+
+        const { data: inserted, error: insertErr } = await supabase!
+          .from('staff_attendance')
+          .insert({
+            staff_id: targetStaffId,
+            staff_name: targetName,
+            staff_role: targetRole,
+            attendance_date: attendanceDate,
+            status: payload.status || 'Present',
+            check_in_time: payload.checkInTime || '',
+            check_out_time: payload.checkOutTime || '',
+            work_location: payload.workLocation || 'Office',
+            notes: payload.notes || '',
+            client_request_id: payload.clientRequestId || null,
+          })
+          .select('*')
+          .single();
+
+        if (insertErr) {
+          if (isMissingSupabaseSchemaError(insertErr)) {
+            throw new DatabaseSetupError(
+              'Daily attendance table is not installed yet. Run supabase/migrations/20261119_daily_work_attendance.sql (or supabase/setup_all.sql) in Supabase SQL Editor.'
+            );
+          }
+          throw new Error(insertErr.message);
+        }
+        return inserted as StaffAttendanceRow;
+      });
+
+      return { attendance: mapAttendanceRow(rowData) };
+    }
+
+    return apiFetch<{ attendance: StaffAttendanceRecord }>('/api/attendance', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateAttendance: async (
+    id: string,
+    payload: Partial<StaffAttendanceRecord> & { expectedVersion?: number }
+  ): Promise<{ attendance: StaffAttendanceRecord }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const updateBody: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (current.role === 'admin' && payload.staffId !== undefined) {
+        updateBody.staff_id = payload.staffId;
+        if (payload.staffName) updateBody.staff_name = payload.staffName;
+        if (payload.staffRole) updateBody.staff_role = payload.staffRole;
+      }
+      if (payload.attendanceDate !== undefined) updateBody.attendance_date = payload.attendanceDate;
+      if (payload.status !== undefined) updateBody.status = payload.status;
+      if (payload.checkInTime !== undefined) updateBody.check_in_time = payload.checkInTime;
+      if (payload.checkOutTime !== undefined) updateBody.check_out_time = payload.checkOutTime;
+      if (payload.workLocation !== undefined) updateBody.work_location = payload.workLocation;
+      if (payload.notes !== undefined) updateBody.notes = payload.notes;
+
+      const rowData = await withRetry(async () => {
+        let query = supabase!.from('staff_attendance').update(updateBody).eq('id', id);
+        if (payload.expectedVersion !== undefined) {
+          query = query.eq('version', payload.expectedVersion);
+        }
+        const { data, error } = await query.select('*').maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) {
+          throw new ConflictError(
+            'Conflict detected: attendance record was modified elsewhere. Reload before saving.'
+          );
+        }
+        return data as StaffAttendanceRow;
+      });
+
+      return { attendance: mapAttendanceRow(rowData) };
+    }
+
+    return apiFetch<{ attendance: StaffAttendanceRecord }>(
+      `/api/attendance/${encodeURIComponent(id)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+
+  deleteAttendance: async (id: string): Promise<{ ok: boolean }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const { error } = await supabase
+        .from('staff_attendance')
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: current.id,
+        })
+        .eq('id', id);
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    }
+
+    return apiFetch<{ ok: boolean }>(`/api/attendance/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  createDailyLog: async (payload: Partial<StaffDailyLog>): Promise<{ log: StaffDailyLog }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const targetStaffId =
+        current.role === 'admin' && payload.staffId ? payload.staffId : current.id;
+      let targetName = current.name;
+      let targetRole = current.role;
+      if (targetStaffId !== current.id) {
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('name, role')
+          .eq('id', targetStaffId)
+          .maybeSingle();
+        if (prof) {
+          targetName = prof.name || targetName;
+          targetRole = (prof.role as UserRole) || targetRole;
+        }
+      }
+
+      const rowData = await withRetry(async () => {
+        const { data, error } = await supabase!
+          .from('staff_daily_logs')
+          .insert({
+            staff_id: targetStaffId,
+            staff_name: targetName,
+            staff_role: targetRole,
+            client_id: payload.clientId || null,
+            log_date: payload.logDate || getTodayLocalDateStr(),
+            log_time: payload.logTime || getCurrentLocalTimeStr(),
+            contact_name: payload.contactName || '',
+            contact_phone: payload.contactPhone || '',
+            channel: payload.channel || 'Phone Call',
+            topic: payload.topic || '',
+            discussion_summary: payload.discussionSummary || '',
+            outcome: payload.outcome || 'Follow Up Needed',
+            next_follow_up_date: payload.nextFollowUpDate || '',
+            client_request_id: payload.clientRequestId || null,
+          })
+          .select('*')
+          .single();
+
+        if (error) {
+          if (error.code === '23505' && payload.clientRequestId) {
+            const { data: existing } = await supabase!
+              .from('staff_daily_logs')
+              .select('*')
+              .eq('client_request_id', payload.clientRequestId)
+              .maybeSingle();
+            if (existing) return existing as StaffDailyLogRow;
+          }
+          if (isMissingSupabaseSchemaError(error)) {
+            throw new DatabaseSetupError(
+              'Daily conversation logs table is not installed yet. Run supabase/migrations/20261119_daily_work_attendance.sql (or supabase/setup_all.sql) in Supabase SQL Editor.'
+            );
+          }
+          throw new Error(error.message);
+        }
+        return data as StaffDailyLogRow;
+      });
+
+      return { log: mapDailyLogRow(rowData) };
+    }
+
+    return apiFetch<{ log: StaffDailyLog }>('/api/daily-logs', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateDailyLog: async (
+    id: string,
+    payload: Partial<StaffDailyLog> & { expectedVersion?: number }
+  ): Promise<{ log: StaffDailyLog }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const updateBody: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (current.role === 'admin' && payload.staffId !== undefined) {
+        updateBody.staff_id = payload.staffId;
+        if (payload.staffName) updateBody.staff_name = payload.staffName;
+        if (payload.staffRole) updateBody.staff_role = payload.staffRole;
+      }
+      if (payload.clientId !== undefined) updateBody.client_id = payload.clientId || null;
+      if (payload.logDate !== undefined) updateBody.log_date = payload.logDate;
+      if (payload.logTime !== undefined) updateBody.log_time = payload.logTime;
+      if (payload.contactName !== undefined) updateBody.contact_name = payload.contactName;
+      if (payload.contactPhone !== undefined) updateBody.contact_phone = payload.contactPhone;
+      if (payload.channel !== undefined) updateBody.channel = payload.channel;
+      if (payload.topic !== undefined) updateBody.topic = payload.topic;
+      if (payload.discussionSummary !== undefined) {
+        updateBody.discussion_summary = payload.discussionSummary;
+      }
+      if (payload.outcome !== undefined) updateBody.outcome = payload.outcome;
+      if (payload.nextFollowUpDate !== undefined) {
+        updateBody.next_follow_up_date = payload.nextFollowUpDate;
+      }
+
+      const rowData = await withRetry(async () => {
+        let query = supabase!.from('staff_daily_logs').update(updateBody).eq('id', id);
+        if (payload.expectedVersion !== undefined) {
+          query = query.eq('version', payload.expectedVersion);
+        }
+        const { data, error } = await query.select('*').maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) {
+          throw new ConflictError(
+            'Conflict detected: conversation log was modified elsewhere. Reload before saving.'
+          );
+        }
+        return data as StaffDailyLogRow;
+      });
+
+      return { log: mapDailyLogRow(rowData) };
+    }
+
+    return apiFetch<{ log: StaffDailyLog }>(`/api/daily-logs/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  deleteDailyLog: async (id: string): Promise<{ ok: boolean }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const { error } = await supabase
+        .from('staff_daily_logs')
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: current.id,
+        })
+        .eq('id', id);
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    }
+
+    return apiFetch<{ ok: boolean }>(`/api/daily-logs/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
 };
+
+export function getTodayLocalDateStr(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getCurrentLocalTimeStr(date = new Date()): string {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+export function toLocalDateKey(isoOrDate?: string): string {
+  if (!isoOrDate) return getTodayLocalDateStr();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoOrDate.trim())) {
+    return isoOrDate.trim();
+  }
+  const parsed = new Date(isoOrDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return isoOrDate.slice(0, 10);
+  }
+  return getTodayLocalDateStr(parsed);
+}
 
 export function formatBDT(amount: number): string {
   return `৳${Number(amount || 0).toLocaleString('en-US')}`;

@@ -10,12 +10,15 @@ import type {
   AuditLogEntry,
   ClientLookupResponse,
   ClientProfile,
+  DailyClientSummary,
   DashboardData,
   InterviewRecord,
   MedicalRecord,
   MeetingRecord,
   PublicUser,
   SiteSettings,
+  StaffAttendanceRecord,
+  StaffDailyLog,
   UserRole,
 } from './src/types.ts';
 
@@ -31,8 +34,27 @@ interface DatabaseSchema {
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
   ledgerEntries?: AccountLedgerEntry[];
+  attendanceRecords?: StaffAttendanceRecord[];
+  dailyLogs?: StaffDailyLog[];
   auditLogs?: AuditLogEntry[];
   siteSettings?: Partial<SiteSettings>;
+}
+
+function toDhakaDateStr(isoOrDate?: string): string {
+  const date = isoOrDate ? new Date(isoOrDate) : new Date();
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === 'year')?.value || '2026';
+  const m = parts.find((p) => p.type === 'month')?.value || '01';
+  const d = parts.find((p) => p.type === 'day')?.value || '01';
+  return `${y}-${m}-${d}`;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -773,19 +795,44 @@ async function startServer() {
     const activeInterviews = db.interviews.filter((i) => !i.deletedAt);
     const allLedger = db.ledgerEntries || [];
     const activeLedger = allLedger.filter((l) => !l.deletedAt);
+    const allAttendance = db.attendanceRecords || [];
+    const activeAttendance = allAttendance.filter((a) => !a.deletedAt);
+    const allDailyLogs = db.dailyLogs || [];
+    const activeDailyLogs = allDailyLogs.filter((l) => !l.deletedAt);
+
+    const userNameById = new Map<string, string>();
+    db.users.forEach((u) => userNameById.set(u.id, u.name));
+
+    const visibleClientsForDaily =
+      isAdmin || isAccounts
+        ? activeClients
+        : activeClients.filter((c) => c.staffId === current.id);
+
+    const dailyClientSummaries: DailyClientSummary[] = visibleClientsForDaily.map((c) => ({
+      clientId: c.id,
+      staffId: c.staffId,
+      staffName: userNameById.get(c.staffId) || 'Unassigned',
+      clientName: c.name,
+      phone: c.phone,
+      trade: c.trade,
+      destinationCountry: c.destinationCountry,
+      status: c.status,
+      createdDate: toDhakaDateStr(c.createdAt),
+      createdAt: c.createdAt,
+    }));
 
     const payload: DashboardData = {
       user: toPublicUser(current),
-      staffList: isAdmin
-        ? db.users.filter((u) => u.role === 'staff').map(toPublicUser)
-        : current.role === 'staff'
-        ? [toPublicUser(current)]
-        : [],
-      accountsList: isAdmin
-        ? db.users.filter((u) => u.role === 'accounts').map(toPublicUser)
-        : isAccounts
-        ? [toPublicUser(current)]
-        : [],
+      staffList:
+        isAdmin || isAccounts
+          ? db.users.filter((u) => u.role === 'staff').map(toPublicUser)
+          : current.role === 'staff'
+          ? [toPublicUser(current)]
+          : [],
+      accountsList:
+        isAdmin || isAccounts
+          ? db.users.filter((u) => u.role === 'accounts').map(toPublicUser)
+          : [],
       clients: isAdmin
         ? activeClients
         : current.role === 'staff'
@@ -807,11 +854,21 @@ async function startServer() {
         ? activeInterviews.filter((i) => i.staffId === current.id)
         : [],
       ledgerEntries: isAdmin || isAccounts ? activeLedger : [],
+      attendanceRecords:
+        isAdmin || isAccounts
+          ? activeAttendance
+          : activeAttendance.filter((a) => a.staffId === current.id),
+      dailyLogs:
+        isAdmin || isAccounts
+          ? activeDailyLogs
+          : activeDailyLogs.filter((l) => l.staffId === current.id),
+      dailyClientSummaries,
       archivedClients: isAdmin ? db.clients.filter((c) => Boolean(c.deletedAt)) : [],
       archivedMeetings: isAdmin ? db.meetings.filter((m) => Boolean(m.deletedAt)) : [],
       archivedMedicals: isAdmin ? db.medicals.filter((m) => Boolean(m.deletedAt)) : [],
       archivedInterviews: isAdmin ? db.interviews.filter((i) => Boolean(i.deletedAt)) : [],
       archivedLedgerEntries: isAdmin ? allLedger.filter((l) => Boolean(l.deletedAt)) : [],
+      archivedDailyLogs: isAdmin ? allDailyLogs.filter((l) => Boolean(l.deletedAt)) : [],
       auditLogs: isAdmin ? (db.auditLogs || []).slice(0, 100) : [],
     };
 
@@ -957,6 +1014,16 @@ async function startServer() {
           l.accountOwnerId === target.id ? { ...l, accountOwnerId: adminUser.id } : l
         );
       }
+      if (db.attendanceRecords) {
+        db.attendanceRecords = db.attendanceRecords.map((a) =>
+          a.staffId === target.id ? { ...a, staffId: adminUser.id } : a
+        );
+      }
+      if (db.dailyLogs) {
+        db.dailyLogs = db.dailyLogs.map((l) =>
+          l.staffId === target.id ? { ...l, staffId: adminUser.id } : l
+        );
+      }
     }
 
     await saveDb(db);
@@ -975,6 +1042,8 @@ async function startServer() {
       medicals: db.medicals,
       interviews: db.interviews,
       account_ledger: db.ledgerEntries || [],
+      staff_attendance: db.attendanceRecords || [],
+      staff_daily_logs: db.dailyLogs || [],
     } as const;
     if (!id || !(rawTable in tableMap)) {
       res.status(400).json({ error: 'Valid table and record id required.' });
@@ -1723,6 +1792,337 @@ async function startServer() {
     };
     appendAudit(db, 'account_ledger', target.id, 'SOFT_DELETE', current, {
       title: { old: target.title, new: 'archived' },
+    });
+    await saveDb(db);
+    res.json({ ok: true });
+  });
+
+  // Daily Attendance (Staff & Accounts mark own attendance; Admin manages all)
+  app.post('/api/attendance', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    const body = req.body || {};
+    if (!db.attendanceRecords) db.attendanceRecords = [];
+
+    if (body.clientRequestId) {
+      const existingByReq = db.attendanceRecords.find(
+        (a) => a.clientRequestId === body.clientRequestId
+      );
+      if (existingByReq) {
+        res.status(200).json({ attendance: existingByReq });
+        return;
+      }
+    }
+
+    const targetStaffId =
+      current.role === 'admin' && typeof body.staffId === 'string' && body.staffId.trim()
+        ? body.staffId.trim()
+        : current.id;
+    const targetUser = db.users.find((u) => u.id === targetStaffId) || current;
+    const attendanceDate = String(body.attendanceDate || toDhakaDateStr()).trim();
+    const status = body.status || 'Present';
+    const checkInTime = String(body.checkInTime || '').trim();
+    const checkOutTime = String(body.checkOutTime || '').trim();
+    const workLocation = String(body.workLocation || 'Office').trim();
+    const notes = String(body.notes || '').trim();
+    const now = new Date().toISOString();
+
+    const existingIdx = db.attendanceRecords.findIndex(
+      (a) => !a.deletedAt && a.staffId === targetStaffId && a.attendanceDate === attendanceDate
+    );
+
+    if (existingIdx !== -1) {
+      const existing = db.attendanceRecords[existingIdx];
+      const updated: StaffAttendanceRecord = {
+        ...existing,
+        staffName: targetUser.name,
+        staffRole: targetUser.role,
+        status: body.status ? status : existing.status,
+        checkInTime: checkInTime || existing.checkInTime,
+        checkOutTime: body.checkOutTime !== undefined ? checkOutTime : existing.checkOutTime,
+        workLocation: body.workLocation !== undefined ? workLocation : existing.workLocation,
+        notes: body.notes !== undefined ? notes : existing.notes,
+        version: (existing.version ?? 1) + 1,
+        updatedAt: now,
+      };
+      db.attendanceRecords[existingIdx] = updated;
+      appendAudit(db, 'staff_attendance', updated.id, 'UPDATE', current, {
+        status: { old: existing.status, new: updated.status },
+      });
+      await saveDb(db);
+      res.status(200).json({ attendance: updated });
+      return;
+    }
+
+    const record: StaffAttendanceRecord = {
+      id: generateId('att'),
+      staffId: targetUser.id,
+      staffName: targetUser.name,
+      staffRole: targetUser.role,
+      attendanceDate,
+      status,
+      checkInTime,
+      checkOutTime,
+      workLocation,
+      notes,
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    db.attendanceRecords.unshift(record);
+    appendAudit(db, 'staff_attendance', record.id, 'INSERT', current, {
+      attendance_date: { new: `${record.staffName} (${record.attendanceDate} · ${record.status})` },
+    });
+    await saveDb(db);
+    res.status(201).json({ attendance: record });
+  });
+
+  app.put('/api/attendance/:id', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.attendanceRecords) db.attendanceRecords = [];
+    const idx = db.attendanceRecords.findIndex((a) => a.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Attendance record not found.' });
+      return;
+    }
+
+    const existing = db.attendanceRecords[idx];
+    if (current.role !== 'admin' && existing.staffId !== current.id) {
+      res.status(403).json({ error: 'You can only update your own attendance.' });
+      return;
+    }
+
+    const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Conflict detected: attendance record was updated elsewhere.',
+      });
+      return;
+    }
+
+    const nextStaffId =
+      current.role === 'admin' && typeof body.staffId === 'string' && body.staffId.trim()
+        ? body.staffId.trim()
+        : existing.staffId;
+    const targetUser = db.users.find((u) => u.id === nextStaffId);
+
+    const updated: StaffAttendanceRecord = {
+      ...existing,
+      staffId: nextStaffId,
+      staffName: targetUser ? targetUser.name : existing.staffName,
+      staffRole: targetUser ? targetUser.role : existing.staffRole,
+      attendanceDate:
+        typeof body.attendanceDate === 'string' && body.attendanceDate.trim()
+          ? body.attendanceDate.trim()
+          : existing.attendanceDate,
+      status: body.status || existing.status,
+      checkInTime: typeof body.checkInTime === 'string' ? body.checkInTime.trim() : existing.checkInTime,
+      checkOutTime: typeof body.checkOutTime === 'string' ? body.checkOutTime.trim() : existing.checkOutTime,
+      workLocation: typeof body.workLocation === 'string' ? body.workLocation.trim() : existing.workLocation,
+      notes: typeof body.notes === 'string' ? body.notes.trim() : existing.notes,
+      version: (existing.version ?? 1) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.attendanceRecords[idx] = updated;
+    appendAudit(db, 'staff_attendance', updated.id, 'UPDATE', current, {
+      status: { old: existing.status, new: updated.status },
+    });
+    await saveDb(db);
+    res.json({ attendance: updated });
+  });
+
+  app.delete('/api/attendance/:id', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.attendanceRecords) db.attendanceRecords = [];
+    const idx = db.attendanceRecords.findIndex((a) => a.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Attendance record not found.' });
+      return;
+    }
+    const target = db.attendanceRecords[idx];
+    if (current.role !== 'admin' && target.staffId !== current.id) {
+      res.status(403).json({ error: 'You can only remove your own attendance.' });
+      return;
+    }
+
+    db.attendanceRecords[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'staff_attendance', target.id, 'SOFT_DELETE', current, {
+      attendance_date: { old: `${target.staffName} (${target.attendanceDate})`, new: 'archived' },
+    });
+    await saveDb(db);
+    res.json({ ok: true });
+  });
+
+  // Daily Conversation / Call Logs ("Kar sathe ki ki kotha holo")
+  app.post('/api/daily-logs', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    const body = req.body || {};
+    if (!db.dailyLogs) db.dailyLogs = [];
+
+    if (body.clientRequestId) {
+      const existingByReq = db.dailyLogs.find((l) => l.clientRequestId === body.clientRequestId);
+      if (existingByReq) {
+        res.status(200).json({ log: existingByReq });
+        return;
+      }
+    }
+
+    const contactName = String(body.contactName || '').trim();
+    const discussionSummary = String(body.discussionSummary || '').trim();
+    if (!contactName || !discussionSummary) {
+      res.status(400).json({ error: 'Contact person name and discussion summary are required.' });
+      return;
+    }
+
+    const targetStaffId =
+      current.role === 'admin' && typeof body.staffId === 'string' && body.staffId.trim()
+        ? body.staffId.trim()
+        : current.id;
+    const targetUser = db.users.find((u) => u.id === targetStaffId) || current;
+    const now = new Date().toISOString();
+
+    const log: StaffDailyLog = {
+      id: generateId('dlog'),
+      staffId: targetUser.id,
+      staffName: targetUser.name,
+      staffRole: targetUser.role,
+      clientId: body.clientId || undefined,
+      logDate: String(body.logDate || toDhakaDateStr()).trim(),
+      logTime: String(body.logTime || '').trim(),
+      contactName,
+      contactPhone: String(body.contactPhone || '').trim(),
+      channel: body.channel || 'Phone Call',
+      topic: String(body.topic || '').trim(),
+      discussionSummary,
+      outcome: body.outcome || 'Follow Up Needed',
+      nextFollowUpDate: String(body.nextFollowUpDate || '').trim(),
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    db.dailyLogs.unshift(log);
+    appendAudit(db, 'staff_daily_logs', log.id, 'INSERT', current, {
+      contact_name: { new: `${log.contactName} (${log.channel})` },
+    });
+    await saveDb(db);
+    res.status(201).json({ log });
+  });
+
+  app.put('/api/daily-logs/:id', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.dailyLogs) db.dailyLogs = [];
+    const idx = db.dailyLogs.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Conversation log not found.' });
+      return;
+    }
+    const existing = db.dailyLogs[idx];
+    if (current.role !== 'admin' && existing.staffId !== current.id) {
+      res.status(403).json({ error: 'You can only edit your own conversation logs.' });
+      return;
+    }
+
+    const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Conflict detected: this conversation log was modified elsewhere.',
+      });
+      return;
+    }
+
+    const nextStaffId =
+      current.role === 'admin' && typeof body.staffId === 'string' && body.staffId.trim()
+        ? body.staffId.trim()
+        : existing.staffId;
+    const targetUser = db.users.find((u) => u.id === nextStaffId);
+
+    const updated: StaffDailyLog = {
+      ...existing,
+      staffId: nextStaffId,
+      staffName: targetUser ? targetUser.name : existing.staffName,
+      staffRole: targetUser ? targetUser.role : existing.staffRole,
+      clientId: body.clientId !== undefined ? body.clientId || undefined : existing.clientId,
+      logDate:
+        typeof body.logDate === 'string' && body.logDate.trim()
+          ? body.logDate.trim()
+          : existing.logDate,
+      logTime: typeof body.logTime === 'string' ? body.logTime.trim() : existing.logTime,
+      contactName:
+        typeof body.contactName === 'string' && body.contactName.trim()
+          ? body.contactName.trim()
+          : existing.contactName,
+      contactPhone:
+        typeof body.contactPhone === 'string' ? body.contactPhone.trim() : existing.contactPhone,
+      channel: body.channel || existing.channel,
+      topic: typeof body.topic === 'string' ? body.topic.trim() : existing.topic,
+      discussionSummary:
+        typeof body.discussionSummary === 'string' && body.discussionSummary.trim()
+          ? body.discussionSummary.trim()
+          : existing.discussionSummary,
+      outcome: body.outcome || existing.outcome,
+      nextFollowUpDate:
+        typeof body.nextFollowUpDate === 'string'
+          ? body.nextFollowUpDate.trim()
+          : existing.nextFollowUpDate,
+      version: (existing.version ?? 1) + 1,
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.dailyLogs[idx] = updated;
+    appendAudit(db, 'staff_daily_logs', updated.id, 'UPDATE', current, {
+      outcome: { old: existing.outcome, new: updated.outcome },
+    });
+    await saveDb(db);
+    res.json({ log: updated });
+  });
+
+  app.delete('/api/daily-logs/:id', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.dailyLogs) db.dailyLogs = [];
+    const idx = db.dailyLogs.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Conversation log not found.' });
+      return;
+    }
+    const target = db.dailyLogs[idx];
+    if (current.role !== 'admin' && target.staffId !== current.id) {
+      res.status(403).json({ error: 'You can only delete your own conversation logs.' });
+      return;
+    }
+
+    db.dailyLogs[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'staff_daily_logs', target.id, 'SOFT_DELETE', current, {
+      contact_name: { old: target.contactName, new: 'archived' },
     });
     await saveDb(db);
     res.json({ ok: true });

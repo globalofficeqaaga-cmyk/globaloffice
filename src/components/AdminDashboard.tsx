@@ -6,6 +6,7 @@ import {
   ArrowUpRight,
   Briefcase,
   Calendar,
+  CalendarCheck,
   CheckCircle2,
   ClipboardList,
   Eye,
@@ -25,7 +26,15 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import { api, ConflictError, formatBDT, formatDateOnly, formatDateTime } from '../lib/api';
+import {
+  api,
+  ConflictError,
+  formatBDT,
+  formatDateOnly,
+  formatDateTime,
+  getCurrentLocalTimeStr,
+  getTodayLocalDateStr,
+} from '../lib/api';
 import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type {
   AccountLedgerEntry,
@@ -37,12 +46,17 @@ import type {
   MeetingRecord,
   PublicUser,
   SiteSettings,
+  StaffAttendanceRecord,
+  StaffDailyLog,
 } from '../types';
+import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
 import { WebsiteControlPanel } from './WebsiteControlPanel';
 import {
+  AttendanceModal,
   ClientModal,
+  DailyLogModal,
   InterviewModal,
   LedgerEntryModal,
   MedicalModal,
@@ -61,6 +75,7 @@ interface AdminDashboardProps {
 
 type AdminTab =
   | 'overview'
+  | 'daily'
   | 'meetings'
   | 'medicals'
   | 'interviews'
@@ -197,6 +212,76 @@ export function AdminDashboard({
     open: boolean;
     item: AccountLedgerEntry | null;
   }>({ open: false, item: null });
+  const [attendanceModal, setAttendanceModal] = useState<{
+    open: boolean;
+    item: StaffAttendanceRecord | null;
+    presetStaffId?: string;
+    presetDate?: string;
+  }>({ open: false, item: null });
+  const [dailyLogModal, setDailyLogModal] = useState<{
+    open: boolean;
+    item: StaffDailyLog | null;
+    presetDate?: string;
+  }>({ open: false, item: null });
+
+  const todayStr = getTodayLocalDateStr();
+  const attendanceRecords = useMemo(
+    () => data.attendanceRecords || [],
+    [data.attendanceRecords]
+  );
+  const dailyLogs = useMemo(() => data.dailyLogs || [], [data.dailyLogs]);
+  const dailyClientSummaries = useMemo(
+    () => data.dailyClientSummaries || [],
+    [data.dailyClientSummaries]
+  );
+  const fullTeamRoster = useMemo(() => {
+    const map = new Map<string, PublicUser>();
+    data.staffList.forEach((s) => map.set(s.id, s));
+    (data.accountsList || []).forEach((a) => map.set(a.id, a));
+    return Array.from(map.values());
+  }, [data.staffList, data.accountsList]);
+
+  const todaySummary = useMemo(() => {
+    const presentCount = attendanceRecords.filter(
+      (a) => a.attendanceDate === todayStr && a.status !== 'Leave'
+    ).length;
+    const clientsAddedToday = dailyClientSummaries.filter(
+      (c) => c.createdDate === todayStr
+    ).length;
+    const talksToday = dailyLogs.filter((l) => l.logDate === todayStr).length;
+    return { presentCount, clientsAddedToday, talksToday };
+  }, [attendanceRecords, dailyClientSummaries, dailyLogs, todayStr]);
+
+  async function handleAdminQuickCheckIn() {
+    setActionError('');
+    try {
+      await api.markAttendance({
+        staffId: data.user.id,
+        attendanceDate: todayStr,
+        status: 'Present',
+        checkInTime: getCurrentLocalTimeStr(),
+        workLocation: 'Office',
+      });
+      await onRefresh();
+      notifySuccess('Today attendance checked in.');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to check in.');
+    }
+  }
+
+  async function handleAdminQuickCheckOut(existing: StaffAttendanceRecord) {
+    setActionError('');
+    try {
+      await api.updateAttendance(existing.id, {
+        checkOutTime: getCurrentLocalTimeStr(),
+        expectedVersion: existing.version,
+      });
+      await onRefresh();
+      notifySuccess('Check-out time recorded.');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to check out.');
+    }
+  }
 
   const staffNameMap = useMemo(() => {
     const map = new Map<string, PublicUser>();
@@ -364,10 +449,17 @@ export function AdminDashboard({
     (data.archivedMeetings?.length || 0) +
     (data.archivedMedicals?.length || 0) +
     (data.archivedInterviews?.length || 0) +
-    (data.archivedLedgerEntries?.length || 0);
+    (data.archivedLedgerEntries?.length || 0) +
+    (data.archivedDailyLogs?.length || 0);
 
   const tabs: NavTab[] = [
     { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
+    {
+      id: 'daily',
+      label: 'Daily Work & Attendance',
+      icon: <CalendarCheck className="w-4 h-4" />,
+      count: todaySummary.talksToday,
+    },
     {
       id: 'meetings',
       label: 'Meetings',
@@ -424,6 +516,19 @@ export function AdminDashboard({
 
   const primaryAction = (() => {
     if (activeTab === 'audit' || activeTab === 'website' || activeTab === 'settings') return null;
+    if (activeTab === 'daily') {
+      return (
+        <button
+          type="button"
+          onClick={() => setDailyLogModal({ open: true, item: null, presetDate: todayStr })}
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
+        >
+          <Plus className="w-4 h-4" />
+          <span className="sm:hidden">Log Talk</span>
+          <span className="hidden sm:inline">Log Conversation</span>
+        </button>
+      );
+    }
     if (activeTab === 'accounts') {
       return (
         <button
@@ -708,6 +813,64 @@ export function AdminDashboard({
                 <Wallet className="w-3.5 h-3.5" />
                 <span className="sm:hidden">Open Ledger</span>
                 <span className="hidden sm:inline">Open Debit / Credit Ledger</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Today Staff Attendance, Clients Added & Conversations Strip */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="grid grid-cols-3 gap-2.5 sm:gap-6 flex-1">
+              <div>
+                <p className="text-[11px] sm:text-xs font-medium text-slate-500">
+                  Today Present
+                </p>
+                <p className="font-mono text-base sm:text-xl font-bold text-emerald-700 tabular-nums mt-0.5 sm:mt-1">
+                  {todaySummary.presentCount}
+                  <span className="text-xs font-normal text-slate-500">
+                    {' '}
+                    / {fullTeamRoster.length}
+                  </span>
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-medium text-slate-500">
+                  Clients Today
+                </p>
+                <p className="font-mono text-base sm:text-xl font-bold text-blue-700 tabular-nums mt-0.5 sm:mt-1">
+                  {todaySummary.clientsAddedToday}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-medium text-slate-500">
+                  Talks Today
+                </p>
+                <p className="font-mono text-base sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5 sm:mt-1">
+                  {todaySummary.talksToday}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() =>
+                  setAttendanceModal({
+                    open: true,
+                    item: null,
+                    presetStaffId: fullTeamRoster[0]?.id || data.user.id,
+                    presetDate: todayStr,
+                  })
+                }
+                className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <CalendarCheck className="w-3.5 h-3.5" />
+                <span>Mark Attendance</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('daily')}
+                className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer"
+              >
+                <span>Open Daily Work &amp; Talks</span>
               </button>
             </div>
           </div>
@@ -2507,6 +2670,13 @@ export function AdminDashboard({
                     title: `${item.title} (${formatBDT(item.amount)})`,
                     deletedAt: item.deletedAt,
                   })),
+                  ...(data.archivedDailyLogs || []).map((item) => ({
+                    table: 'staff_daily_logs' as const,
+                    id: item.id,
+                    typeLabel: 'Conversation Log',
+                    title: `${item.contactName} — ${item.channel} (${item.staffName})`,
+                    deletedAt: item.deletedAt,
+                  })),
                 ].map((rec) => (
                   <div
                     key={`${rec.table}_${rec.id}`}
@@ -2958,6 +3128,44 @@ export function AdminDashboard({
         />
       )}
 
+      {/* ====================================================================
+          DAILY ATTENDANCE, STAFF CLIENTS ADDED & CONVERSATION LOGS TAB
+         ==================================================================== */}
+      {activeTab === 'daily' && (
+        <DailyOperationsPanel
+          mode="team"
+          currentUser={data.user}
+          roster={fullTeamRoster}
+          attendanceRecords={attendanceRecords}
+          dailyLogs={dailyLogs}
+          dailyClientSummaries={dailyClientSummaries}
+          canManageAll={true}
+          onQuickCheckIn={handleAdminQuickCheckIn}
+          onQuickCheckOut={handleAdminQuickCheckOut}
+          onOpenAttendanceModal={(record, presetStaffId, presetDate) =>
+            setAttendanceModal({
+              open: true,
+              item: record,
+              presetStaffId: presetStaffId || fullTeamRoster[0]?.id || data.user.id,
+              presetDate,
+            })
+          }
+          onOpenLogModal={(log, presetDate) =>
+            setDailyLogModal({ open: true, item: log, presetDate })
+          }
+          onDeleteLog={async (id) => {
+            setActionError('');
+            try {
+              await api.deleteDailyLog(id);
+              await onRefresh();
+              notifySuccess('Conversation log archived. Recoverable from Audit & Archive.');
+            } catch (err) {
+              setActionError(err instanceof Error ? err.message : 'Failed to archive log.');
+            }
+          }}
+        />
+      )}
+
       {ledgerModal.open && (
         <LedgerEntryModal
           initial={ledgerModal.item}
@@ -2972,6 +3180,53 @@ export function AdminDashboard({
               await api.createLedgerEntry(payload);
               await onRefresh();
               notifySuccess('Debit / Credit entry saved permanently in database.');
+            }
+          }}
+        />
+      )}
+
+      {attendanceModal.open && (
+        <AttendanceModal
+          initial={attendanceModal.item}
+          isAdmin={true}
+          staffRoster={fullTeamRoster.length > 0 ? fullTeamRoster : [data.user]}
+          defaultStaffId={
+            attendanceModal.presetStaffId || fullTeamRoster[0]?.id || data.user.id
+          }
+          defaultDate={attendanceModal.presetDate}
+          onClose={() => setAttendanceModal({ open: false, item: null })}
+          onSave={async (payload) => {
+            if (attendanceModal.item) {
+              await api.updateAttendance(attendanceModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Staff attendance updated in database.');
+            } else {
+              await api.markAttendance(payload);
+              await onRefresh();
+              notifySuccess('Staff attendance recorded in database.');
+            }
+          }}
+        />
+      )}
+
+      {dailyLogModal.open && (
+        <DailyLogModal
+          initial={dailyLogModal.item}
+          isAdmin={true}
+          staffRoster={fullTeamRoster.length > 0 ? fullTeamRoster : [data.user]}
+          clients={data.clients}
+          defaultStaffId={fullTeamRoster[0]?.id || data.user.id}
+          defaultDate={dailyLogModal.presetDate}
+          onClose={() => setDailyLogModal({ open: false, item: null })}
+          onSave={async (payload) => {
+            if (dailyLogModal.item) {
+              await api.updateDailyLog(dailyLogModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Conversation log updated in database.');
+            } else {
+              await api.createDailyLog(payload);
+              await onRefresh();
+              notifySuccess('Conversation log saved permanently in database.');
             }
           }}
         />

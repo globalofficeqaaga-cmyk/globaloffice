@@ -3,6 +3,7 @@ import {
   AlertCircle,
   ArrowDownLeft,
   ArrowUpRight,
+  CalendarCheck,
   CheckCircle2,
   Lock,
   Plus,
@@ -13,11 +14,24 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import { api, ConflictError, formatBDT, formatDateOnly } from '../lib/api';
+import {
+  api,
+  ConflictError,
+  formatBDT,
+  formatDateOnly,
+  getCurrentLocalTimeStr,
+  getTodayLocalDateStr,
+} from '../lib/api';
 import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
-import type { DashboardData, LedgerEntryType } from '../types';
+import type {
+  DashboardData,
+  LedgerEntryType,
+  StaffAttendanceRecord,
+  StaffDailyLog,
+} from '../types';
+import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
-import { LedgerEntryModal } from './modals/RecordModals';
+import { AttendanceModal, DailyLogModal, LedgerEntryModal } from './modals/RecordModals';
 
 interface AccountsDashboardProps {
   data: DashboardData;
@@ -26,7 +40,7 @@ interface AccountsDashboardProps {
   onLogout: () => void;
 }
 
-type AccountsTab = 'ledger' | 'profile';
+type AccountsTab = 'ledger' | 'daily' | 'profile';
 
 export function AccountsDashboard({
   data,
@@ -38,6 +52,16 @@ export function AccountsDashboard({
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | LedgerEntryType>('all');
   const [ledgerModalOpen, setLedgerModalOpen] = useState(false);
+  const [attendanceModal, setAttendanceModal] = useState<{
+    open: boolean;
+    item: StaffAttendanceRecord | null;
+    presetDate?: string;
+  }>({ open: false, item: null });
+  const [dailyLogModal, setDailyLogModal] = useState<{
+    open: boolean;
+    item: StaffDailyLog | null;
+    presetDate?: string;
+  }>({ open: false, item: null });
   const [saveToast, setSaveToast] = useState('');
   const [actionError, setActionError] = useState('');
 
@@ -193,12 +217,71 @@ export function AccountsDashboard({
     }
   }
 
+  const todayStr = getTodayLocalDateStr();
+  const attendanceRecords = useMemo(
+    () => data.attendanceRecords || [],
+    [data.attendanceRecords]
+  );
+  const dailyLogs = useMemo(() => data.dailyLogs || [], [data.dailyLogs]);
+  const dailyClientSummaries = useMemo(
+    () => data.dailyClientSummaries || [],
+    [data.dailyClientSummaries]
+  );
+  const teamRoster = useMemo(() => {
+    const map = new Map<string, (typeof data.staffList)[number]>();
+    (data.staffList || []).forEach((s) => map.set(s.id, s));
+    (data.accountsList || []).forEach((a) => map.set(a.id, a));
+    map.set(data.user.id, data.user);
+    return Array.from(map.values());
+  }, [data.staffList, data.accountsList, data.user]);
+
+  const todayTalksCount = useMemo(
+    () => dailyLogs.filter((l) => l.logDate === todayStr).length,
+    [dailyLogs, todayStr]
+  );
+
+  async function handleQuickCheckIn() {
+    setActionError('');
+    try {
+      await api.markAttendance({
+        attendanceDate: todayStr,
+        status: 'Present',
+        checkInTime: getCurrentLocalTimeStr(),
+        workLocation: 'Office',
+      });
+      await onRefresh();
+      notifySuccess('Today attendance checked in.');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to check in.');
+    }
+  }
+
+  async function handleQuickCheckOut(existing: StaffAttendanceRecord) {
+    setActionError('');
+    try {
+      await api.updateAttendance(existing.id, {
+        checkOutTime: getCurrentLocalTimeStr(),
+        expectedVersion: existing.version,
+      });
+      await onRefresh();
+      notifySuccess('Check-out time saved.');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to check out.');
+    }
+  }
+
   const tabs: NavTab[] = [
     {
       id: 'ledger',
       label: 'Debit & Credit Ledger',
       icon: <Wallet className="w-4 h-4" />,
       count: entries.length,
+    },
+    {
+      id: 'daily',
+      label: 'Staff Daily Report',
+      icon: <CalendarCheck className="w-4 h-4" />,
+      count: todayTalksCount,
     },
     {
       id: 'profile',
@@ -217,6 +300,16 @@ export function AccountsDashboard({
         <Plus className="w-4 h-4" />
         <span className="sm:hidden">Add Entry</span>
         <span className="hidden sm:inline">Add Debit / Credit</span>
+      </button>
+    ) : activeTab === 'daily' ? (
+      <button
+        type="button"
+        onClick={() => setDailyLogModal({ open: true, item: null, presetDate: todayStr })}
+        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[38px] text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+      >
+        <Plus className="w-4 h-4" />
+        <span className="sm:hidden">Log Talk</span>
+        <span className="hidden sm:inline">Log Conversation</span>
       </button>
     ) : null;
 
@@ -751,6 +844,39 @@ export function AccountsDashboard({
         </div>
       )}
 
+      {/* ====================================================================
+          STAFF DAILY REPORT, CLIENT COUNTS & CONVERSATIONS TAB
+         ==================================================================== */}
+      {activeTab === 'daily' && (
+        <DailyOperationsPanel
+          mode="team"
+          currentUser={data.user}
+          roster={teamRoster}
+          attendanceRecords={attendanceRecords}
+          dailyLogs={dailyLogs}
+          dailyClientSummaries={dailyClientSummaries}
+          canManageAll={false}
+          onQuickCheckIn={handleQuickCheckIn}
+          onQuickCheckOut={handleQuickCheckOut}
+          onOpenAttendanceModal={(record, _staffId, presetDate) =>
+            setAttendanceModal({ open: true, item: record, presetDate })
+          }
+          onOpenLogModal={(log, presetDate) =>
+            setDailyLogModal({ open: true, item: log, presetDate })
+          }
+          onDeleteLog={async (id) => {
+            setActionError('');
+            try {
+              await api.deleteDailyLog(id);
+              await onRefresh();
+              notifySuccess('Conversation log archived.');
+            } catch (err) {
+              setActionError(err instanceof Error ? err.message : 'Failed to archive log.');
+            }
+          }}
+        />
+      )}
+
       {ledgerModalOpen && (
         <LedgerEntryModal
           initial={null}
@@ -760,6 +886,50 @@ export function AccountsDashboard({
             await api.createLedgerEntry(payload);
             await onRefresh();
             notifySuccess('Debit / Credit entry saved permanently in database.');
+          }}
+        />
+      )}
+
+      {attendanceModal.open && (
+        <AttendanceModal
+          initial={attendanceModal.item}
+          isAdmin={false}
+          staffRoster={[data.user]}
+          defaultStaffId={data.user.id}
+          defaultDate={attendanceModal.presetDate}
+          onClose={() => setAttendanceModal({ open: false, item: null })}
+          onSave={async (payload) => {
+            if (attendanceModal.item) {
+              await api.updateAttendance(attendanceModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Attendance updated in database.');
+            } else {
+              await api.markAttendance(payload);
+              await onRefresh();
+              notifySuccess('Daily attendance saved permanently in database.');
+            }
+          }}
+        />
+      )}
+
+      {dailyLogModal.open && (
+        <DailyLogModal
+          initial={dailyLogModal.item}
+          isAdmin={false}
+          staffRoster={[data.user]}
+          defaultStaffId={data.user.id}
+          defaultDate={dailyLogModal.presetDate}
+          onClose={() => setDailyLogModal({ open: false, item: null })}
+          onSave={async (payload) => {
+            if (dailyLogModal.item) {
+              await api.updateDailyLog(dailyLogModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Conversation log updated in database.');
+            } else {
+              await api.createDailyLog(payload);
+              await onRefresh();
+              notifySuccess('Daily conversation saved permanently in database.');
+            }
           }}
         />
       )}

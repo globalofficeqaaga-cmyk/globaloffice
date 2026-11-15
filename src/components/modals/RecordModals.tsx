@@ -10,7 +10,13 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { api, ConflictError, formatBDT } from '../../lib/api';
+import {
+  api,
+  ConflictError,
+  formatBDT,
+  getCurrentLocalTimeStr,
+  getTodayLocalDateStr,
+} from '../../lib/api';
 import { APP_IMAGES } from '../../lib/assets';
 import {
   clearSafeDraft,
@@ -21,6 +27,7 @@ import {
 import { useUnsavedChangesWarning } from '../../lib/useUnsavedChanges';
 import type {
   AccountLedgerEntry,
+  AttendanceStatus,
   ClientDocument,
   ClientPayment,
   ClientProfile,
@@ -29,12 +36,16 @@ import type {
   InterviewRecord,
   InterviewStatus,
   LedgerEntryType,
+  LogChannel,
+  LogOutcome,
   MedicalOutcome,
   MedicalRecord,
   MedicalRecordResult,
   MeetingRecord,
   MeetingStatus,
   PublicUser,
+  StaffAttendanceRecord,
+  StaffDailyLog,
 } from '../../types';
 
 const CLIENT_STAGES: ClientStage[] = [
@@ -2989,3 +3000,701 @@ export function LedgerEntryModal({
     </div>
   );
 }
+
+/* ============================================================================
+   DAILY ATTENDANCE MODAL
+   ============================================================================ */
+
+const ATTENDANCE_STATUSES: AttendanceStatus[] = [
+  'Present',
+  'Late',
+  'Field Work',
+  'Half Day',
+  'Leave',
+];
+
+const WORK_LOCATIONS = ['Office', 'Medical Center', 'Embassy / Visa Office', 'Field Visit', 'Remote'];
+
+interface AttendanceModalProps {
+  initial: StaffAttendanceRecord | null;
+  isAdmin: boolean;
+  staffRoster: PublicUser[];
+  defaultStaffId: string;
+  defaultDate?: string;
+  onClose: () => void;
+  onSave: (payload: Partial<StaffAttendanceRecord> & { expectedVersion?: number }) => Promise<void>;
+}
+
+export function AttendanceModal({
+  initial,
+  isAdmin,
+  staffRoster,
+  defaultStaffId,
+  defaultDate,
+  onClose,
+  onSave,
+}: AttendanceModalProps) {
+  const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
+  const [attendanceDate, setAttendanceDate] = useState(
+    initial?.attendanceDate || defaultDate || getTodayLocalDateStr()
+  );
+  const [status, setStatus] = useState<AttendanceStatus>(initial?.status || 'Present');
+  const [checkInTime, setCheckInTime] = useState(
+    initial?.checkInTime || getCurrentLocalTimeStr()
+  );
+  const [checkOutTime, setCheckOutTime] = useState(initial?.checkOutTime || '');
+  const [workLocation, setWorkLocation] = useState(initial?.workLocation || 'Office');
+  const [notes, setNotes] = useState(initial?.notes || '');
+  const [requestId] = useState(() => initial?.clientRequestId || generateRequestId());
+
+  const [dirty, setDirty] = useState(false);
+  const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [conflictDetected, setConflictDetected] = useState(false);
+
+  useUnsavedChangesWarning(dirty && !saving);
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (dirty) {
+      setShowUnsavedPrompt(true);
+      return;
+    }
+    onClose();
+  }
+
+  async function executeSave() {
+    setError('');
+    setConflictDetected(false);
+    if (!attendanceDate.trim()) {
+      setError('Attendance date is required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        staffId: isAdmin ? staffId : defaultStaffId,
+        attendanceDate: attendanceDate.trim(),
+        status,
+        checkInTime: status === 'Leave' ? '' : checkInTime.trim(),
+        checkOutTime: status === 'Leave' ? '' : checkOutTime.trim(),
+        workLocation: workLocation.trim() || 'Office',
+        notes: notes.trim(),
+        expectedVersion: initial?.version,
+        clientRequestId: initial ? undefined : requestId,
+      });
+      setDirty(false);
+      onClose();
+    } catch (err) {
+      if (err instanceof ConflictError) setConflictDetected(true);
+      setError(err instanceof Error ? err.message : 'Failed to save attendance.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    executeSave();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xl w-full max-w-lg overflow-hidden my-auto">
+        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-base sm:text-lg font-bold">
+              {initial ? 'Update Daily Attendance' : 'Mark Daily Attendance'}
+            </h2>
+            <p className="text-xs text-slate-300">
+              Record check-in, check-out, work location &amp; attendance status
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCloseAttempt}
+            className="text-slate-300 hover:text-white p-1.5 rounded-lg cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {showUnsavedPrompt && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setShowUnsavedPrompt(false)}
+            onDiscard={onClose}
+          />
+        )}
+
+        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4">
+          {error && (
+            <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg space-y-2">
+              <p>{error}</p>
+              {!conflictDetected && (
+                <button
+                  type="button"
+                  onClick={executeSave}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Retry Save</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {isAdmin && staffRoster.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Team Member *
+              </label>
+              <select
+                value={staffId}
+                onChange={(e) => {
+                  setDirty(true);
+                  setStaffId(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                {staffRoster.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Attendance Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={attendanceDate}
+                onChange={(e) => {
+                  setDirty(true);
+                  setAttendanceDate(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Attendance Status *
+              </label>
+              <select
+                value={status}
+                onChange={(e) => {
+                  setDirty(true);
+                  setStatus(e.target.value as AttendanceStatus);
+                }}
+                className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                {ATTENDANCE_STATUSES.map((st) => (
+                  <option key={st} value={st}>
+                    {st}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {status !== 'Leave' && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Check-In Time
+                </label>
+                <input
+                  type="time"
+                  value={checkInTime}
+                  onChange={(e) => {
+                    setDirty(true);
+                    setCheckInTime(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Check-Out Time
+                </label>
+                <input
+                  type="time"
+                  value={checkOutTime}
+                  onChange={(e) => {
+                    setDirty(true);
+                    setCheckOutTime(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Work Location
+            </label>
+            <input
+              type="text"
+              list="attendance-work-locations"
+              value={workLocation}
+              onChange={(e) => {
+                setDirty(true);
+                setWorkLocation(e.target.value);
+              }}
+              placeholder="Office / Field Visit / Medical Center"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+            <datalist id="attendance-work-locations">
+              {WORK_LOCATIONS.map((loc) => (
+                <option key={loc} value={loc} />
+              ))}
+            </datalist>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Work / Shift Note
+            </label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => {
+                setDirty(true);
+                setNotes(e.target.value);
+              }}
+              placeholder="Optional attendance or duty remarks"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+          </div>
+
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleCloseAttempt}
+              disabled={saving}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
+            >
+              {saving ? 'Saving...' : 'Save Attendance'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+   DAILY CONVERSATION / CALL LOG MODAL ("Kar Sathe Ki Ki Kotha Holo")
+   ============================================================================ */
+
+const LOG_CHANNELS: LogChannel[] = [
+  'Phone Call',
+  'WhatsApp',
+  'Office Visit',
+  'Video Call',
+  'Field Visit',
+];
+
+const LOG_OUTCOMES: LogOutcome[] = [
+  'Follow Up Needed',
+  'Interested',
+  'Document Promised',
+  'Payment Promised',
+  'Confirmed',
+  'Resolved',
+  'Not Interested',
+];
+
+interface DailyLogModalProps {
+  initial: StaffDailyLog | null;
+  isAdmin: boolean;
+  staffRoster: PublicUser[];
+  clients?: ClientProfile[];
+  defaultStaffId: string;
+  defaultDate?: string;
+  onClose: () => void;
+  onSave: (payload: Partial<StaffDailyLog> & { expectedVersion?: number }) => Promise<void>;
+}
+
+export function DailyLogModal({
+  initial,
+  isAdmin,
+  staffRoster,
+  clients = [],
+  defaultStaffId,
+  defaultDate,
+  onClose,
+  onSave,
+}: DailyLogModalProps) {
+  const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
+  const [clientId, setClientId] = useState(initial?.clientId || '');
+  const [logDate, setLogDate] = useState(
+    initial?.logDate || defaultDate || getTodayLocalDateStr()
+  );
+  const [logTime, setLogTime] = useState(initial?.logTime || getCurrentLocalTimeStr());
+  const [contactName, setContactName] = useState(initial?.contactName || '');
+  const [contactPhone, setContactPhone] = useState(initial?.contactPhone || '');
+  const [channel, setChannel] = useState<LogChannel>(initial?.channel || 'Phone Call');
+  const [topic, setTopic] = useState(initial?.topic || '');
+  const [discussionSummary, setDiscussionSummary] = useState(initial?.discussionSummary || '');
+  const [outcome, setOutcome] = useState<LogOutcome>(initial?.outcome || 'Follow Up Needed');
+  const [nextFollowUpDate, setNextFollowUpDate] = useState(initial?.nextFollowUpDate || '');
+  const [requestId] = useState(() => initial?.clientRequestId || generateRequestId());
+
+  const [dirty, setDirty] = useState(false);
+  const [showUnsavedPrompt, setShowUnsavedPrompt] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [conflictDetected, setConflictDetected] = useState(false);
+
+  useUnsavedChangesWarning(dirty && !saving);
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (dirty) {
+      setShowUnsavedPrompt(true);
+      return;
+    }
+    onClose();
+  }
+
+  function handlePickClient(selectedClientId: string) {
+    setDirty(true);
+    setClientId(selectedClientId);
+    const found = clients.find((c) => c.id === selectedClientId);
+    if (found) {
+      setContactName(found.name);
+      setContactPhone(found.phone);
+      if (!topic.trim()) {
+        setTopic([found.trade, found.destinationCountry].filter(Boolean).join(' · '));
+      }
+    }
+  }
+
+  async function executeSave() {
+    setError('');
+    setConflictDetected(false);
+    if (!contactName.trim() || !discussionSummary.trim()) {
+      setError('Person name ("Kar sathe kotha holo") and discussion summary are required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({
+        staffId: isAdmin ? staffId : defaultStaffId,
+        clientId: clientId || undefined,
+        logDate: logDate.trim() || getTodayLocalDateStr(),
+        logTime: logTime.trim(),
+        contactName: contactName.trim(),
+        contactPhone: contactPhone.trim(),
+        channel,
+        topic: topic.trim(),
+        discussionSummary: discussionSummary.trim(),
+        outcome,
+        nextFollowUpDate: nextFollowUpDate.trim(),
+        expectedVersion: initial?.version,
+        clientRequestId: initial ? undefined : requestId,
+      });
+      setDirty(false);
+      onClose();
+    } catch (err) {
+      if (err instanceof ConflictError) setConflictDetected(true);
+      setError(err instanceof Error ? err.message : 'Failed to save daily conversation log.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    executeSave();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xl w-full max-w-xl overflow-hidden my-auto">
+        <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-base sm:text-lg font-bold">
+              {initial ? 'Edit Conversation Log' : 'Log Daily Call / Conversation'}
+            </h2>
+            <p className="text-xs text-slate-300">
+              Record who you spoke with, what was discussed, and next follow-up
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCloseAttempt}
+            className="text-slate-300 hover:text-white p-1.5 rounded-lg cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {showUnsavedPrompt && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setShowUnsavedPrompt(false)}
+            onDiscard={onClose}
+          />
+        )}
+
+        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+          {error && (
+            <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg space-y-2">
+              <p>{error}</p>
+              {!conflictDetected && (
+                <button
+                  type="button"
+                  onClick={executeSave}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Retry Save</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {isAdmin && staffRoster.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Coordinator / Staff Member *
+              </label>
+              <select
+                value={staffId}
+                onChange={(e) => {
+                  setDirty(true);
+                  setStaffId(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                {staffRoster.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {clients.length > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Link Existing Client (Optional)
+              </label>
+              <select
+                value={clientId}
+                onChange={(e) => handlePickClient(e.target.value)}
+                className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                <option value="">-- New inquiry / external contact --</option>
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.phone}) {c.trade ? `· ${c.trade}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Person Spoken With (Name) *
+              </label>
+              <input
+                type="text"
+                required
+                value={contactName}
+                onChange={(e) => {
+                  setDirty(true);
+                  setContactName(e.target.value);
+                }}
+                placeholder="Client, candidate, or partner name"
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Phone Number
+              </label>
+              <input
+                type="tel"
+                value={contactPhone}
+                onChange={(e) => {
+                  setDirty(true);
+                  setContactPhone(e.target.value);
+                }}
+                placeholder="01XXXXXXXXX"
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+              <input
+                type="date"
+                required
+                value={logDate}
+                onChange={(e) => {
+                  setDirty(true);
+                  setLogDate(e.target.value);
+                }}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Time</label>
+              <input
+                type="time"
+                value={logTime}
+                onChange={(e) => {
+                  setDirty(true);
+                  setLogTime(e.target.value);
+                }}
+                className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Channel *</label>
+              <select
+                value={channel}
+                onChange={(e) => {
+                  setDirty(true);
+                  setChannel(e.target.value as LogChannel);
+                }}
+                className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                {LOG_CHANNELS.map((ch) => (
+                  <option key={ch} value={ch}>
+                    {ch}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Subject / Topic
+            </label>
+            <input
+              type="text"
+              value={topic}
+              onChange={(e) => {
+                setDirty(true);
+                setTopic(e.target.value);
+              }}
+              placeholder="e.g. Passport submission, Medical fee, Saudi Electrician visa"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              What Was Discussed (Ki Ki Kotha Holo) *
+            </label>
+            <textarea
+              rows={3}
+              required
+              value={discussionSummary}
+              onChange={(e) => {
+                setDirty(true);
+                setDiscussionSummary(e.target.value);
+              }}
+              placeholder="Write clear details of the conversation, commitments made, documents or amount promised..."
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Call Outcome
+              </label>
+              <select
+                value={outcome}
+                onChange={(e) => {
+                  setDirty(true);
+                  setOutcome(e.target.value as LogOutcome);
+                }}
+                className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                {LOG_OUTCOMES.map((out) => (
+                  <option key={out} value={out}>
+                    {out}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Next Follow-Up Date
+              </label>
+              <input
+                type="date"
+                value={nextFollowUpDate}
+                onChange={(e) => {
+                  setDirty(true);
+                  setNextFollowUpDate(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={handleCloseAttempt}
+              disabled={saving}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
+            >
+              {saving ? 'Saving...' : initial ? 'Update Log' : 'Save Conversation'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+

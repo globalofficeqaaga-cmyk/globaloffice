@@ -182,6 +182,74 @@ export interface AccountLedgerEntry {
   updatedAt: string;
 }
 
+export type AttendanceStatus = 'Present' | 'Late' | 'Field Work' | 'Half Day' | 'Leave';
+
+export interface StaffAttendanceRecord {
+  id: string;
+  staffId: string;
+  staffName: string;
+  staffRole: UserRole;
+  attendanceDate: string;
+  status: AttendanceStatus;
+  checkInTime: string;
+  checkOutTime: string;
+  workLocation: string;
+  notes: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type LogChannel = 'Phone Call' | 'WhatsApp' | 'Office Visit' | 'Video Call' | 'Field Visit';
+
+export type LogOutcome =
+  | 'Interested'
+  | 'Follow Up Needed'
+  | 'Document Promised'
+  | 'Payment Promised'
+  | 'Confirmed'
+  | 'Not Interested'
+  | 'Resolved';
+
+export interface StaffDailyLog {
+  id: string;
+  staffId: string;
+  staffName: string;
+  staffRole: UserRole;
+  clientId?: string;
+  logDate: string;
+  logTime: string;
+  contactName: string;
+  contactPhone: string;
+  channel: LogChannel;
+  topic: string;
+  discussionSummary: string;
+  outcome: LogOutcome;
+  nextFollowUpDate: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DailyClientSummary {
+  clientId: string;
+  staffId: string;
+  staffName: string;
+  clientName: string;
+  phone: string;
+  trade: string;
+  destinationCountry: string;
+  status: ClientStage;
+  createdDate: string;
+  createdAt: string;
+}
+
 export interface DashboardData {
   user: PublicUser;
   staffList: PublicUser[];
@@ -191,11 +259,15 @@ export interface DashboardData {
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
   ledgerEntries?: AccountLedgerEntry[];
+  attendanceRecords?: StaffAttendanceRecord[];
+  dailyLogs?: StaffDailyLog[];
+  dailyClientSummaries?: DailyClientSummary[];
   archivedClients?: ClientProfile[];
   archivedMeetings?: MeetingRecord[];
   archivedMedicals?: MedicalRecord[];
   archivedInterviews?: InterviewRecord[];
   archivedLedgerEntries?: AccountLedgerEntry[];
+  archivedDailyLogs?: StaffDailyLog[];
   auditLogs?: AuditLogEntry[];
 }
 
