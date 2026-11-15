@@ -19,6 +19,7 @@ export default function App() {
   const [bootstrapping, setBootstrapping] = useState(true);
   const [dashLoading, setDashLoading] = useState(false);
   const [dashError, setDashError] = useState('');
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     setDashError('');
@@ -74,7 +75,24 @@ export default function App() {
         return;
       }
 
-      // Local dev Express session restore
+      // Verify Express backend availability when running without Supabase in production
+      if (import.meta.env.PROD) {
+        fetch('/api/health')
+          .then(async (res) => {
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            if (!res.ok || !ct.includes('application/json')) return false;
+            const json = (await res.json()) as { ok?: boolean };
+            return json?.ok === true;
+          })
+          .catch(() => false)
+          .then((ok) => {
+            if (active && !ok) {
+              setBackendUnavailable(true);
+            }
+          });
+      }
+
+      // Express backend session restore
       const token = getAuthToken();
       if (!token) {
         if (active) setBootstrapping(false);
@@ -201,9 +219,9 @@ export default function App() {
         onGoHome={() => setView('landing')}
       />
 
-      {import.meta.env.PROD && !isSupabaseConfigured && (
+      {backendUnavailable && !isSupabaseConfigured && (
         <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 text-center text-xs font-medium text-red-800">
-          Database configuration alert: {getSupabaseConfigError()} Permanent data saving is disabled until configured in Vercel Environment Variables.
+          Database configuration alert: {getSupabaseConfigError()} Permanent data saving is disabled until backend API or Vercel Environment Variables are configured.
         </div>
       )}
 

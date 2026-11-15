@@ -1,7 +1,21 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim() || '';
-const supabasePublishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() || '';
+interface RuntimeAppConfig {
+  supabaseUrl?: string;
+  supabaseKey?: string;
+}
+
+const runtimeConfig = (globalThis as { __APP_CONFIG__?: RuntimeAppConfig }).__APP_CONFIG__;
+const env = import.meta.env as Record<string, string | undefined>;
+
+const supabaseUrl = (env.VITE_SUPABASE_URL || runtimeConfig?.supabaseUrl || '').trim();
+const supabasePublishableKey = (
+  env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  env.VITE_SUPABASE_ANON_KEY ||
+  env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+  runtimeConfig?.supabaseKey ||
+  ''
+).trim();
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 

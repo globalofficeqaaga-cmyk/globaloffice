@@ -563,7 +563,7 @@ async function startServer() {
 
   // Public health check
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true });
+    res.json({ ok: true, backend: 'express', timestamp: new Date().toISOString() });
   });
 
   // Public Website Settings (Logo, Poster Slider, Contacts, Feature Toggles)
@@ -2137,10 +2137,40 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
-    });
+    const indexPath = path.join(distDir, 'index.html');
+    const runtimeSupabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
+    const runtimeSupabaseKey = (
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+      ''
+    ).trim();
+
+    const sendProdHtml = (_req: Request, res: Response) => {
+      if (!fs.existsSync(indexPath)) {
+        res.status(404).send('Build output not found.');
+        return;
+      }
+      if (runtimeSupabaseUrl && runtimeSupabaseKey) {
+        const html = fs.readFileSync(indexPath, 'utf-8');
+        const safeConfig = JSON.stringify({
+          supabaseUrl: runtimeSupabaseUrl,
+          supabaseKey: runtimeSupabaseKey,
+        }).replace(/</g, '\\u003c');
+        res.type('html').send(
+          html.replace(
+            '</head>',
+            `<script>window.__APP_CONFIG__=${safeConfig};</script></head>`
+          )
+        );
+        return;
+      }
+      res.sendFile(indexPath);
+    };
+
+    app.get('/', sendProdHtml);
+    app.use(express.static(distDir, { index: false }));
+    app.get('*', sendProdHtml);
   }
 
   const PORT = 3000;

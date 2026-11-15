@@ -82,12 +82,7 @@ export function setAuthToken(token: string | null): void {
 }
 
 function assertProductionBackend(): void {
-  if (!supabase && import.meta.env.PROD) {
-    throw new Error(
-      getSupabaseConfigError() ||
-        'Supabase is not configured for production. Cannot persist records safely.'
-    );
-  }
+  // Handled dynamically by apiFetch when falling back to Express /api/* routes.
 }
 
 function isTransientNetworkError(err: unknown): boolean {
@@ -132,7 +127,21 @@ async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   }
 
   const res = await fetch(url, { ...options, headers });
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
   const text = await res.text();
+  const trimmed = text.trimStart().toLowerCase();
+  const isHtmlFallback =
+    contentType.includes('text/html') ||
+    trimmed.startsWith('<!doctype html') ||
+    trimmed.startsWith('<html');
+
+  if (isHtmlFallback || (res.status === 404 && !contentType.includes('application/json'))) {
+    throw new Error(
+      getSupabaseConfigError() ||
+        'Backend API is unavailable and Supabase environment variables are not configured.'
+    );
+  }
+
   let data: unknown = null;
   if (text) {
     try {
