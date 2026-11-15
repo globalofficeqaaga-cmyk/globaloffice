@@ -656,11 +656,24 @@ begin
 end;
 $$;
 
+create or replace function public.bump_profile_version()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.version := coalesce(old.version, 1) + 1;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
 drop trigger if exists trg_profiles_version on public.profiles;
 create trigger trg_profiles_version
   before update on public.profiles
   for each row
-  execute function public.bump_version_and_meta();
+  execute function public.bump_profile_version();
 
 drop trigger if exists trg_clients_version on public.clients;
 create trigger trg_clients_version

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import { Check, Copy, Database, Eye, EyeOff, Lock, User, X } from 'lucide-react';
+import { Check, Copy, Database, ExternalLink, Eye, EyeOff, Lock, User, X } from 'lucide-react';
 import { api, DatabaseSetupError, setAuthToken } from '../lib/api';
+import { getSupabaseSqlEditorUrl } from '../lib/supabase';
 import type { PublicUser } from '../types';
 import setupAllSql from '../../supabase/setup_all.sql?raw';
 
@@ -22,12 +23,34 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
 
   if (!isOpen) return null;
 
+  const sqlEditorUrl = getSupabaseSqlEditorUrl();
+
   async function handleCopySql() {
     try {
       await navigator.clipboard.writeText(setupAllSql);
       setCopiedSql(true);
       setTimeout(() => setCopiedSql(false), 3000);
+      return;
     } catch {
+      // Fallback for mobile webviews / iframes where navigator.clipboard is restricted
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = setupAllSql;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) {
+          setCopiedSql(true);
+          setTimeout(() => setCopiedSql(false), 3000);
+          return;
+        }
+      } catch {
+        // Reveal raw SQL box below
+      }
       setShowRawSql(true);
     }
   }
@@ -78,7 +101,7 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
               Portal Sign In
             </h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              Sign in with your Admin or Staff User ID and password
+              Sign in with your Admin, Staff, or Accounts User ID
             </p>
           </div>
           <button
@@ -116,8 +139,8 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
 
               <ol className="text-xs text-amber-950 space-y-1 pl-4 list-decimal">
                 <li>Click <strong>Copy Setup SQL</strong> below.</li>
-                <li>Open <strong>Supabase Dashboard → SQL Editor → New Query</strong>.</li>
-                <li>Paste the SQL and click <strong>Run</strong>, then press <strong>Sign In</strong> again.</li>
+                <li>Click <strong>Open SQL Editor</strong>, paste the SQL, and click <strong>Run</strong>.</li>
+                <li>Come back here and click <strong>Sign In</strong> with <span className="font-mono font-semibold">admin / admin</span>.</li>
               </ol>
 
               <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -138,12 +161,21 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
                     </>
                   )}
                 </button>
+                <a
+                  href={sqlEditorUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-amber-950 bg-white border border-amber-300 hover:bg-amber-100 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                >
+                  <span>Open SQL Editor</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
                 <button
                   type="button"
                   onClick={() => setShowRawSql((prev) => !prev)}
-                  className="px-3 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
+                  className="px-2.5 py-2 text-xs font-medium text-amber-900 hover:bg-amber-100 rounded-lg transition-colors cursor-pointer"
                 >
-                  {showRawSql ? 'Hide SQL' : 'View / Select SQL'}
+                  {showRawSql ? 'Hide SQL' : 'View SQL'}
                 </button>
               </div>
 

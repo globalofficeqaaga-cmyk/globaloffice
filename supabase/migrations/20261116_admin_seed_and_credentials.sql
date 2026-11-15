@@ -29,10 +29,22 @@ do $$
 declare
   v_admin_uid uuid;
   v_admin_email text := 'admin@globalpathways.local';
+  v_existing_uid uuid;
 begin
   perform set_config('search_path', 'public, auth, extensions', true);
 
   if not exists (select 1 from public.profiles where role = 'admin') then
+    select id into v_existing_uid from public.profiles where lower(user_id) = 'admin' limit 1;
+    if v_existing_uid is not null then
+      update public.profiles set role = 'admin', user_id = 'admin' where id = v_existing_uid;
+      update auth.users
+      set email_confirmed_at = coalesce(email_confirmed_at, now()),
+          encrypted_password = crypt('admin', gen_salt('bf')),
+          updated_at = now()
+      where id = v_existing_uid;
+      return;
+    end if;
+
     select id into v_admin_uid from auth.users where lower(email) = v_admin_email limit 1;
 
     if v_admin_uid is null then
@@ -74,31 +86,36 @@ begin
     else
       update auth.users
       set email_confirmed_at = coalesce(email_confirmed_at, now()),
+          encrypted_password = crypt('admin', gen_salt('bf')),
           updated_at = now()
       where id = v_admin_uid;
     end if;
 
-    insert into auth.identities (
-      id,
-      user_id,
-      provider_id,
-      identity_data,
-      provider,
-      last_sign_in_at,
-      created_at,
-      updated_at
-    )
-    values (
-      gen_random_uuid(),
-      v_admin_uid,
-      v_admin_uid::text,
-      jsonb_build_object('sub', v_admin_uid::text, 'email', v_admin_email),
-      'email',
-      now(),
-      now(),
-      now()
-    )
-    on conflict do nothing;
+    if not exists (
+      select 1 from auth.identities where user_id = v_admin_uid and provider = 'email'
+    ) then
+      insert into auth.identities (
+        id,
+        user_id,
+        provider_id,
+        identity_data,
+        provider,
+        last_sign_in_at,
+        created_at,
+        updated_at
+      )
+      values (
+        gen_random_uuid(),
+        v_admin_uid,
+        v_admin_uid::text,
+        jsonb_build_object('sub', v_admin_uid::text, 'email', v_admin_email),
+        'email',
+        now(),
+        now(),
+        now()
+      )
+      on conflict do nothing;
+    end if;
 
     insert into public.profiles (
       id,
@@ -118,7 +135,8 @@ begin
     )
     on conflict (id) do update
       set role = 'admin',
-          user_id = 'admin';
+          user_id = 'admin',
+          email = excluded.email;
   end if;
 end $$;
 

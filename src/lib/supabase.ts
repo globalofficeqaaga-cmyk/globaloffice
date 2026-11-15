@@ -44,3 +44,12 @@ export function createEphemeralSupabaseClient(): SupabaseClient {
     },
   });
 }
+
+export function getSupabaseSqlEditorUrl(): string {
+  const match = supabaseUrl.match(/^https:\/\/([a-z0-9-]+)\.supabase\.co/i);
+  if (match && match[1]) {
+    return `https://supabase.com/dashboard/project/${match[1]}/sql/new`;
+  }
+  return 'https://supabase.com/dashboard/projects';
+}
+

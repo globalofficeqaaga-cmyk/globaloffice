@@ -12,7 +12,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   user_id text unique not null,
   email text unique not null,
-  role text not null default 'staff' check (role in ('admin', 'staff')),
+  role text not null default 'staff' check (role in ('admin', 'staff', 'accounts')),
   name text not null,
   designation text not null default 'Visa & Recruitment Coordinator',
   phone text not null default '',
@@ -24,6 +24,36 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
+
+-- Upgrade existing profiles tables safely if created by an earlier script
+alter table public.profiles add column if not exists user_id text;
+alter table public.profiles add column if not exists email text not null default '';
+alter table public.profiles add column if not exists role text not null default 'staff';
+alter table public.profiles add column if not exists name text not null default 'Staff Member';
+alter table public.profiles add column if not exists designation text not null default 'Visa & Recruitment Coordinator';
+alter table public.profiles add column if not exists phone text not null default '';
+alter table public.profiles add column if not exists whatsapp text not null default '';
+alter table public.profiles add column if not exists social_link text not null default '';
+alter table public.profiles add column if not exists photo_url text not null default '';
+alter table public.profiles add column if not exists cover_url text not null default '';
+alter table public.profiles add column if not exists version integer not null default 1;
+alter table public.profiles add column if not exists updated_at timestamptz not null default now();
+alter table public.profiles add column if not exists created_at timestamptz not null default now();
+
+update public.profiles
+set user_id = coalesce(
+  nullif(trim(user_id), ''),
+  nullif(split_part(coalesce(email, ''), '@', 1), ''),
+  'user'
+) || '_' || substr(id::text, 1, 4)
+where user_id is null or trim(user_id) = '';
+
+alter table public.profiles alter column user_id set not null;
+create unique index if not exists idx_profiles_user_id_unique on public.profiles(user_id);
+
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles
+  add constraint profiles_role_check check (role in ('admin', 'staff', 'accounts'));
 
 alter table public.profiles enable row level security;
 
@@ -84,6 +114,13 @@ begin
     split_part(coalesce(new.email, 'User'), '@', 1)
   );
 
+  if exists (
+    select 1 from public.profiles
+    where lower(user_id) = lower(v_user_id) and id <> new.id
+  ) then
+    v_user_id := v_user_id || '_' || substr(new.id::text, 1, 4);
+  end if;
+
   insert into public.profiles (
     id,
     user_id,
@@ -105,7 +142,7 @@ begin
     v_name,
     coalesce(nullif(trim(new.raw_user_meta_data ->> 'designation'), ''), 'Visa & Recruitment Coordinator'),
     coalesce(trim(new.raw_user_meta_data ->> 'phone'), ''),
-    coalesce(trim(new.raw_user_meta_data ->> 'whatsapp'), coalesce(trim(new.raw_user_meta_data ->> 'phone'), '')),
+    coalesce(nullif(trim(new.raw_user_meta_data ->> 'whatsapp'), ''), coalesce(trim(new.raw_user_meta_data ->> 'phone'), '')),
     coalesce(trim(new.raw_user_meta_data ->> 'social_link'), ''),
     coalesce(trim(new.raw_user_meta_data ->> 'photo_url'), ''),
     coalesce(trim(new.raw_user_meta_data ->> 'cover_url'), '')
@@ -186,6 +223,14 @@ create table if not exists public.clients (
   updated_at timestamptz not null default now()
 );
 
+alter table public.clients add column if not exists version integer not null default 1;
+alter table public.clients add column if not exists client_request_id text;
+alter table public.clients add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.clients add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.clients add column if not exists deleted_at timestamptz;
+alter table public.clients add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
+alter table public.clients add column if not exists updated_at timestamptz not null default now();
+
 create index if not exists idx_clients_staff_id on public.clients(staff_id);
 create index if not exists idx_clients_phone on public.clients(phone);
 create index if not exists idx_clients_deleted_at on public.clients(deleted_at);
@@ -246,6 +291,14 @@ create table if not exists public.meetings (
   deleted_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table public.meetings add column if not exists version integer not null default 1;
+alter table public.meetings add column if not exists client_request_id text;
+alter table public.meetings add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.meetings add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.meetings add column if not exists updated_at timestamptz not null default now();
+alter table public.meetings add column if not exists deleted_at timestamptz;
+alter table public.meetings add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
 
 create index if not exists idx_meetings_staff_id on public.meetings(staff_id);
 create index if not exists idx_meetings_deleted_at on public.meetings(deleted_at);
@@ -309,6 +362,14 @@ create table if not exists public.medicals (
   created_at timestamptz not null default now()
 );
 
+alter table public.medicals add column if not exists version integer not null default 1;
+alter table public.medicals add column if not exists client_request_id text;
+alter table public.medicals add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.medicals add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.medicals add column if not exists updated_at timestamptz not null default now();
+alter table public.medicals add column if not exists deleted_at timestamptz;
+alter table public.medicals add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
+
 create index if not exists idx_medicals_staff_id on public.medicals(staff_id);
 create index if not exists idx_medicals_deleted_at on public.medicals(deleted_at);
 create unique index if not exists idx_medicals_request_id on public.medicals(client_request_id) where client_request_id is not null;
@@ -369,6 +430,14 @@ create table if not exists public.interviews (
   deleted_by uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+alter table public.interviews add column if not exists version integer not null default 1;
+alter table public.interviews add column if not exists client_request_id text;
+alter table public.interviews add column if not exists created_by uuid references public.profiles(id) on delete set null;
+alter table public.interviews add column if not exists updated_by uuid references public.profiles(id) on delete set null;
+alter table public.interviews add column if not exists updated_at timestamptz not null default now();
+alter table public.interviews add column if not exists deleted_at timestamptz;
+alter table public.interviews add column if not exists deleted_by uuid references public.profiles(id) on delete set null;
 
 create index if not exists idx_interviews_staff_id on public.interviews(staff_id);
 create index if not exists idx_interviews_deleted_at on public.interviews(deleted_at);
@@ -656,11 +725,24 @@ begin
 end;
 $$;
 
+create or replace function public.bump_profile_version()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  new.version := coalesce(old.version, 1) + 1;
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
 drop trigger if exists trg_profiles_version on public.profiles;
 create trigger trg_profiles_version
   before update on public.profiles
   for each row
-  execute function public.bump_version_and_meta();
+  execute function public.bump_profile_version();
 
 drop trigger if exists trg_clients_version on public.clients;
 create trigger trg_clients_version
@@ -872,10 +954,23 @@ do $$
 declare
   v_admin_uid uuid;
   v_admin_email text := 'admin@globalpathways.local';
+  v_existing_uid uuid;
 begin
   perform set_config('search_path', 'public, auth, extensions', true);
 
   if not exists (select 1 from public.profiles where role = 'admin') then
+    -- Check if a non-admin profile accidentally claimed user_id = 'admin'
+    select id into v_existing_uid from public.profiles where lower(user_id) = 'admin' limit 1;
+    if v_existing_uid is not null then
+      update public.profiles set role = 'admin', user_id = 'admin' where id = v_existing_uid;
+      update auth.users
+      set email_confirmed_at = coalesce(email_confirmed_at, now()),
+          encrypted_password = crypt('admin', gen_salt('bf')),
+          updated_at = now()
+      where id = v_existing_uid;
+      return;
+    end if;
+
     select id into v_admin_uid from auth.users where lower(email) = v_admin_email limit 1;
 
     if v_admin_uid is null then
@@ -917,31 +1012,36 @@ begin
     else
       update auth.users
       set email_confirmed_at = coalesce(email_confirmed_at, now()),
+          encrypted_password = crypt('admin', gen_salt('bf')),
           updated_at = now()
       where id = v_admin_uid;
     end if;
 
-    insert into auth.identities (
-      id,
-      user_id,
-      provider_id,
-      identity_data,
-      provider,
-      last_sign_in_at,
-      created_at,
-      updated_at
-    )
-    values (
-      gen_random_uuid(),
-      v_admin_uid,
-      v_admin_uid::text,
-      jsonb_build_object('sub', v_admin_uid::text, 'email', v_admin_email),
-      'email',
-      now(),
-      now(),
-      now()
-    )
-    on conflict do nothing;
+    if not exists (
+      select 1 from auth.identities where user_id = v_admin_uid and provider = 'email'
+    ) then
+      insert into auth.identities (
+        id,
+        user_id,
+        provider_id,
+        identity_data,
+        provider,
+        last_sign_in_at,
+        created_at,
+        updated_at
+      )
+      values (
+        gen_random_uuid(),
+        v_admin_uid,
+        v_admin_uid::text,
+        jsonb_build_object('sub', v_admin_uid::text, 'email', v_admin_email),
+        'email',
+        now(),
+        now(),
+        now()
+      )
+      on conflict do nothing;
+    end if;
 
     insert into public.profiles (
       id,
@@ -961,7 +1061,8 @@ begin
     )
     on conflict (id) do update
       set role = 'admin',
-          user_id = 'admin';
+          user_id = 'admin',
+          email = excluded.email;
   end if;
 end $$;
 
