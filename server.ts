@@ -5,6 +5,8 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import type {
+  AuditAction,
+  AuditLogEntry,
   ClientLookupResponse,
   ClientProfile,
   DashboardData,
@@ -12,6 +14,7 @@ import type {
   MedicalRecord,
   MeetingRecord,
   PublicUser,
+  SiteSettings,
   UserRole,
 } from './src/types.ts';
 
@@ -26,6 +29,8 @@ interface DatabaseSchema {
   meetings: MeetingRecord[];
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
+  auditLogs?: AuditLogEntry[];
+  siteSettings?: Partial<SiteSettings>;
 }
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -496,6 +501,30 @@ function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 }
 
+function appendAudit(
+  db: DatabaseSchema,
+  tableName: string,
+  recordId: string,
+  action: AuditAction,
+  actor: StoredUser,
+  changedFields: Record<string, { old?: unknown; new?: unknown; changed?: boolean }>
+) {
+  if (!db.auditLogs) db.auditLogs = [];
+  db.auditLogs.unshift({
+    id: generateId('aud'),
+    tableName,
+    recordId,
+    action,
+    actorId: actor.id,
+    actorName: actor.name,
+    changedFields,
+    createdAt: new Date().toISOString(),
+  });
+  if (db.auditLogs.length > 200) {
+    db.auditLogs = db.auditLogs.slice(0, 200);
+  }
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
@@ -503,6 +532,36 @@ async function startServer() {
   // Public health check
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Public Website Settings (Logo, Poster Slider, Contacts, Feature Toggles)
+  app.get('/api/site-settings', (_req, res) => {
+    const db = loadDb();
+    res.json({ siteSettings: db.siteSettings || null });
+  });
+
+  // Admin: Update Website Settings
+  app.put('/api/site-settings', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    const incoming = req.body?.siteSettings;
+    if (!incoming || typeof incoming !== 'object') {
+      res.status(400).json({ error: 'Valid siteSettings object is required.' });
+      return;
+    }
+
+    const updated: Partial<SiteSettings> = {
+      ...incoming,
+      updatedAt: new Date().toISOString(),
+    };
+    db.siteSettings = updated;
+    appendAudit(db, 'site_settings', 'default', 'UPDATE', current, {
+      brandName: { new: updated.brandName || 'Global Pathways' },
+      postersCount: { new: Array.isArray(updated.posters) ? updated.posters.length : 0 },
+      contactsCount: { new: Array.isArray(updated.contacts) ? updated.contacts.length : 0 },
+    });
+    await saveDb(db);
+    res.json({ siteSettings: updated });
   });
 
   // Public Client Lookup by phone number (Landing Page "See Update")
@@ -520,6 +579,7 @@ async function startServer() {
 
     const db = loadDb();
     const client = db.clients.find((c) => {
+      if (c.deletedAt) return false;
       const normalizedClient = normalizePhone(c.phone);
       return (
         normalizedClient === normalizedQuery ||
@@ -537,15 +597,20 @@ async function startServer() {
 
     const assignedStaff = db.users.find((u) => u.id === client.staffId);
     const meetings = db.meetings.filter(
-      (m) => m.clientId === client.id || normalizePhone(m.clientPhone) === normalizePhone(client.phone)
+      (m) =>
+        !m.deletedAt &&
+        (m.clientId === client.id || normalizePhone(m.clientPhone) === normalizePhone(client.phone))
     );
     const medicals = db.medicals.filter(
-      (m) => m.clientId === client.id || normalizePhone(m.candidatePhone) === normalizePhone(client.phone)
+      (m) =>
+        !m.deletedAt &&
+        (m.clientId === client.id || normalizePhone(m.candidatePhone) === normalizePhone(client.phone))
     );
     const interviews = db.interviews.filter(
       (i) =>
-        i.clientId === client.id ||
-        i.candidateNames.toLowerCase().includes(client.name.toLowerCase())
+        !i.deletedAt &&
+        (i.clientId === client.id ||
+          i.candidateNames.toLowerCase().includes(client.name.toLowerCase()))
     );
 
     const payload: ClientLookupResponse = {
@@ -591,54 +656,10 @@ async function startServer() {
     });
   });
 
-  // Register new staff account (local fallback mode)
-  app.post('/api/auth/register', async (req, res) => {
-    const name = String(req.body?.name || '').trim();
-    const userId = String(req.body?.userId || '').trim();
-    const phone = String(req.body?.phone || '').trim();
-    const password = String(req.body?.password || '');
-
-    if (!name || !userId || password.length < 6) {
-      res.status(400).json({ error: 'Name, User ID, and password (min 6 chars) are required.' });
-      return;
-    }
-
-    const db = loadDb();
-    if (db.users.some((u) => u.userId.toLowerCase() === userId.toLowerCase())) {
-      res.status(409).json({ error: 'A user with this User ID already exists.' });
-      return;
-    }
-
-    const newStaff: StoredUser = {
-      id: generateId('usr_staff'),
-      userId,
-      role: 'staff',
-      name,
-      designation: 'Visa & Recruitment Coordinator',
-      phone,
-      whatsapp: phone,
-      socialLink: '',
-      photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
-      coverUrl: '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
-      createdAt: new Date().toISOString(),
-      passwordHash: hashPassword(password),
-    };
-
-    db.users.push(newStaff);
-    await saveDb(db);
-
-    const token = signToken(
-      {
-        sub: newStaff.id,
-        role: newStaff.role,
-        exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
-      },
-      db.authSecret
-    );
-
-    res.status(201).json({
-      token,
-      user: toPublicUser(newStaff),
+  // Public self-registration disabled — Admin creates Staff accounts, Staff creates Client profiles
+  app.post('/api/auth/register', (_req, res) => {
+    res.status(403).json({
+      error: 'Self-registration is disabled. Please ask the Administrator for your Staff User ID and password.',
     });
   });
 
@@ -647,7 +668,7 @@ async function startServer() {
     res.json({ user: toPublicUser(req.currentUser!) });
   });
 
-  // Update own profile (Staff or Admin)
+  // Update own profile & credentials (Staff or Admin)
   app.put('/api/profile', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const idx = db.users.findIndex((u) => u.id === req.currentUser!.id);
@@ -658,6 +679,7 @@ async function startServer() {
 
     const existing = db.users[idx];
     const {
+      userId,
       name,
       designation,
       phone,
@@ -666,10 +688,50 @@ async function startServer() {
       photoUrl,
       coverUrl,
       newPassword,
+      expectedVersion,
     } = req.body || {};
+
+    if (
+      expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Your profile was updated elsewhere while you were editing. Reload the latest version before saving.',
+      });
+      return;
+    }
+
+    let nextUserId = existing.userId;
+    if (typeof userId === 'string' && userId.trim() && userId.trim() !== existing.userId) {
+      if (existing.role !== 'admin') {
+        res.status(403).json({ error: 'Only administrators can change their own login User ID.' });
+        return;
+      }
+      const cleanNextId = userId.trim();
+      const collision = db.users.some(
+        (u) => u.id !== existing.id && u.userId.toLowerCase() === cleanNextId.toLowerCase()
+      );
+      if (collision) {
+        res.status(409).json({ error: 'Another account already uses this User ID.' });
+        return;
+      }
+      nextUserId = cleanNextId;
+    }
+
+    let nextPasswordHash = existing.passwordHash;
+    if (typeof newPassword === 'string' && newPassword.trim().length > 0) {
+      if (newPassword.trim().length < 4) {
+        res.status(400).json({ error: 'New password must be at least 4 characters.' });
+        return;
+      }
+      nextPasswordHash = hashPassword(newPassword.trim());
+    }
 
     const updated: StoredUser = {
       ...existing,
+      userId: nextUserId,
+      version: (existing.version ?? 1) + 1,
       name: typeof name === 'string' && name.trim() ? name.trim() : existing.name,
       designation:
         typeof designation === 'string' && designation.trim()
@@ -680,10 +742,7 @@ async function startServer() {
       socialLink: typeof socialLink === 'string' ? socialLink.trim() : existing.socialLink,
       photoUrl: typeof photoUrl === 'string' && photoUrl.trim() ? photoUrl.trim() : existing.photoUrl,
       coverUrl: typeof coverUrl === 'string' && coverUrl.trim() ? coverUrl.trim() : existing.coverUrl,
-      passwordHash:
-        typeof newPassword === 'string' && newPassword.trim().length >= 4
-          ? hashPassword(newPassword.trim())
-          : existing.passwordHash,
+      passwordHash: nextPasswordHash,
     };
 
     db.users[idx] = updated;
@@ -697,15 +756,27 @@ async function startServer() {
     const current = req.currentUser!;
     const isAdmin = current.role === 'admin';
 
+    const activeClients = db.clients.filter((c) => !c.deletedAt);
+    const activeMeetings = db.meetings.filter((m) => !m.deletedAt);
+    const activeMedicals = db.medicals.filter((m) => !m.deletedAt);
+    const activeInterviews = db.interviews.filter((i) => !i.deletedAt);
+
     const payload: DashboardData = {
       user: toPublicUser(current),
       staffList: isAdmin
         ? db.users.filter((u) => u.role === 'staff').map(toPublicUser)
         : [toPublicUser(current)],
-      clients: isAdmin ? db.clients : db.clients.filter((c) => c.staffId === current.id),
-      meetings: isAdmin ? db.meetings : db.meetings.filter((m) => m.staffId === current.id),
-      medicals: isAdmin ? db.medicals : db.medicals.filter((m) => m.staffId === current.id),
-      interviews: isAdmin ? db.interviews : db.interviews.filter((i) => i.staffId === current.id),
+      clients: isAdmin ? activeClients : activeClients.filter((c) => c.staffId === current.id),
+      meetings: isAdmin ? activeMeetings : activeMeetings.filter((m) => m.staffId === current.id),
+      medicals: isAdmin ? activeMedicals : activeMedicals.filter((m) => m.staffId === current.id),
+      interviews: isAdmin
+        ? activeInterviews
+        : activeInterviews.filter((i) => i.staffId === current.id),
+      archivedClients: isAdmin ? db.clients.filter((c) => Boolean(c.deletedAt)) : [],
+      archivedMeetings: isAdmin ? db.meetings.filter((m) => Boolean(m.deletedAt)) : [],
+      archivedMedicals: isAdmin ? db.medicals.filter((m) => Boolean(m.deletedAt)) : [],
+      archivedInterviews: isAdmin ? db.interviews.filter((i) => Boolean(i.deletedAt)) : [],
+      auditLogs: isAdmin ? (db.auditLogs || []).slice(0, 100) : [],
     };
 
     res.json(payload);
@@ -842,11 +913,53 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // Restore Soft-Deleted Record (Admin)
+  app.post('/api/restore', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    const rawTable = req.body?.table;
+    const id = typeof req.body?.id === 'string' ? req.body.id : '';
+    if (
+      !id ||
+      (rawTable !== 'clients' &&
+        rawTable !== 'meetings' &&
+        rawTable !== 'medicals' &&
+        rawTable !== 'interviews')
+    ) {
+      res.status(400).json({ error: 'Valid table and record id required.' });
+      return;
+    }
+    const table: 'clients' | 'meetings' | 'medicals' | 'interviews' = rawTable;
+    const list = db[table] as Array<{ id: string; deletedAt?: string | null; deletedBy?: string | null; version?: number }>;
+    const idx = list.findIndex((item) => item.id === id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Archived record not found.' });
+      return;
+    }
+    list[idx] = {
+      ...list[idx],
+      deletedAt: null,
+      deletedBy: null,
+      version: (list[idx].version ?? 1) + 1,
+    };
+    appendAudit(db, table, id, 'RESTORE', current, { restored: { old: 'archived', new: 'active' } });
+    await saveDb(db);
+    res.json({ ok: true });
+  });
+
   // Clients CRUD
   app.post('/api/clients', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const current = req.currentUser!;
     const body = req.body || {};
+
+    if (body.clientRequestId) {
+      const existingByReq = db.clients.find((c) => c.clientRequestId === body.clientRequestId);
+      if (existingByReq) {
+        res.status(200).json({ client: existingByReq });
+        return;
+      }
+    }
 
     const name = String(body.name || '').trim();
     const phone = String(body.phone || '').trim();
@@ -890,11 +1003,17 @@ async function startServer() {
       documents: Array.isArray(body.documents) ? body.documents : [],
       payments,
       notes: String(body.notes || '').trim(),
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
       createdAt: now,
       updatedAt: now,
     };
 
     db.clients.unshift(client);
+    appendAudit(db, 'clients', client.id, 'INSERT', current, {
+      name: { new: client.name },
+    });
     await saveDb(db);
     res.status(201).json({ client });
   });
@@ -915,6 +1034,18 @@ async function startServer() {
     }
 
     const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error:
+          'Conflict detected: this client profile was modified by another user. Close and reopen the record to load the latest version.',
+      });
+      return;
+    }
+
     const payments = Array.isArray(body.payments) ? body.payments : existing.payments;
     const computedPaid = payments.reduce(
       (sum: number, p: { amount?: number }) => sum + (Number(p?.amount) || 0),
@@ -929,6 +1060,7 @@ async function startServer() {
 
     const updated: ClientProfile = {
       ...existing,
+      version: (existing.version ?? 1) + 1,
       staffId:
         current.role === 'admin' && typeof body.staffId === 'string' && body.staffId
           ? body.staffId
@@ -969,7 +1101,14 @@ async function startServer() {
       updatedAt: new Date().toISOString(),
     };
 
+    const diff: Record<string, { old?: unknown; new?: unknown; changed?: boolean }> = {};
+    if (existing.status !== updated.status) diff.status = { old: existing.status, new: updated.status };
+    if (existing.totalPaid !== updated.totalPaid) diff.total_paid = { old: existing.totalPaid, new: updated.totalPaid };
+    if (existing.passportNumber !== updated.passportNumber) diff.passport_number = { changed: true };
+    if (Object.keys(diff).length === 0) diff.profile = { changed: true };
+
     db.clients[idx] = updated;
+    appendAudit(db, 'clients', updated.id, 'UPDATE', current, diff);
     await saveDb(db);
     res.json({ client: updated });
   });
@@ -977,17 +1116,24 @@ async function startServer() {
   app.delete('/api/clients/:id', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const current = req.currentUser!;
-    const target = db.clients.find((c) => c.id === req.params.id);
-    if (!target) {
+    const idx = db.clients.findIndex((c) => c.id === req.params.id);
+    if (idx === -1) {
       res.status(404).json({ error: 'Client not found.' });
       return;
     }
+    const target = db.clients[idx];
     if (current.role !== 'admin' && target.staffId !== current.id) {
       res.status(403).json({ error: 'You can only delete your own clients.' });
       return;
     }
 
-    db.clients = db.clients.filter((c) => c.id !== target.id);
+    db.clients[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'clients', target.id, 'SOFT_DELETE', current, { name: { old: target.name, new: 'archived' } });
     await saveDb(db);
     res.json({ ok: true });
   });
@@ -997,6 +1143,14 @@ async function startServer() {
     const db = loadDb();
     const current = req.currentUser!;
     const body = req.body || {};
+
+    if (body.clientRequestId) {
+      const existingByReq = db.meetings.find((m) => m.clientRequestId === body.clientRequestId);
+      if (existingByReq) {
+        res.status(200).json({ meeting: existingByReq });
+        return;
+      }
+    }
 
     if (!body.clientName || !body.meetingWith || !body.location || !body.dateTime) {
       res.status(400).json({ error: 'Client, meeting partner, location, and date/time are required.' });
@@ -1018,10 +1172,14 @@ async function startServer() {
       purpose: String(body.purpose || '').trim(),
       status: body.status || 'Scheduled',
       notes: String(body.notes || '').trim(),
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
       createdAt: new Date().toISOString(),
     };
 
     db.meetings.unshift(meeting);
+    appendAudit(db, 'meetings', meeting.id, 'INSERT', current, { client_name: { new: meeting.clientName } });
     await saveDb(db);
     res.status(201).json({ meeting });
   });
@@ -1042,8 +1200,20 @@ async function startServer() {
     }
 
     const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Conflict detected: this meeting was modified by another user. Reload the latest record before saving.',
+      });
+      return;
+    }
+
     const updated: MeetingRecord = {
       ...existing,
+      version: (existing.version ?? 1) + 1,
       staffId:
         current.role === 'admin' && typeof body.staffId === 'string' && body.staffId
           ? body.staffId
@@ -1063,6 +1233,7 @@ async function startServer() {
     };
 
     db.meetings[idx] = updated;
+    appendAudit(db, 'meetings', updated.id, 'UPDATE', current, { status: { old: existing.status, new: updated.status } });
     await saveDb(db);
     res.json({ meeting: updated });
   });
@@ -1070,17 +1241,24 @@ async function startServer() {
   app.delete('/api/meetings/:id', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const current = req.currentUser!;
-    const target = db.meetings.find((m) => m.id === req.params.id);
-    if (!target) {
+    const idx = db.meetings.findIndex((m) => m.id === req.params.id);
+    if (idx === -1) {
       res.status(404).json({ error: 'Meeting not found.' });
       return;
     }
+    const target = db.meetings[idx];
     if (current.role !== 'admin' && target.staffId !== current.id) {
       res.status(403).json({ error: 'You can only delete your own meetings.' });
       return;
     }
 
-    db.meetings = db.meetings.filter((m) => m.id !== target.id);
+    db.meetings[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'meetings', target.id, 'SOFT_DELETE', current, { client_name: { old: target.clientName, new: 'archived' } });
     await saveDb(db);
     res.json({ ok: true });
   });
@@ -1090,6 +1268,14 @@ async function startServer() {
     const db = loadDb();
     const current = req.currentUser!;
     const body = req.body || {};
+
+    if (body.clientRequestId) {
+      const existingByReq = db.medicals.find((m) => m.clientRequestId === body.clientRequestId);
+      if (existingByReq) {
+        res.status(200).json({ medical: existingByReq });
+        return;
+      }
+    }
 
     if (!body.candidateName || !body.medicalCenter || !body.medicalLocation) {
       res
@@ -1115,10 +1301,14 @@ async function startServer() {
       amountReceivable: Number(body.amountReceivable) || 0,
       paymentPurpose: String(body.paymentPurpose || '').trim(),
       notes: String(body.notes || '').trim(),
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
       createdAt: new Date().toISOString(),
     };
 
     db.medicals.unshift(medical);
+    appendAudit(db, 'medicals', medical.id, 'INSERT', current, { candidate_name: { new: medical.candidateName } });
     await saveDb(db);
     res.status(201).json({ medical });
   });
@@ -1139,8 +1329,20 @@ async function startServer() {
     }
 
     const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Conflict detected: this medical record was modified by another user. Reload the latest record before saving.',
+      });
+      return;
+    }
+
     const updated: MedicalRecord = {
       ...existing,
+      version: (existing.version ?? 1) + 1,
       staffId:
         current.role === 'admin' && typeof body.staffId === 'string' && body.staffId
           ? body.staffId
@@ -1174,6 +1376,7 @@ async function startServer() {
     };
 
     db.medicals[idx] = updated;
+    appendAudit(db, 'medicals', updated.id, 'UPDATE', current, { result: { old: existing.result, new: updated.result } });
     await saveDb(db);
     res.json({ medical: updated });
   });
@@ -1181,17 +1384,24 @@ async function startServer() {
   app.delete('/api/medicals/:id', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const current = req.currentUser!;
-    const target = db.medicals.find((m) => m.id === req.params.id);
-    if (!target) {
+    const idx = db.medicals.findIndex((m) => m.id === req.params.id);
+    if (idx === -1) {
       res.status(404).json({ error: 'Medical record not found.' });
       return;
     }
+    const target = db.medicals[idx];
     if (current.role !== 'admin' && target.staffId !== current.id) {
       res.status(403).json({ error: 'You can only delete your own medical records.' });
       return;
     }
 
-    db.medicals = db.medicals.filter((m) => m.id !== target.id);
+    db.medicals[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'medicals', target.id, 'SOFT_DELETE', current, { candidate_name: { old: target.candidateName, new: 'archived' } });
     await saveDb(db);
     res.json({ ok: true });
   });
@@ -1201,6 +1411,14 @@ async function startServer() {
     const db = loadDb();
     const current = req.currentUser!;
     const body = req.body || {};
+
+    if (body.clientRequestId) {
+      const existingByReq = db.interviews.find((i) => i.clientRequestId === body.clientRequestId);
+      if (existingByReq) {
+        res.status(200).json({ interview: existingByReq });
+        return;
+      }
+    }
 
     if (!body.candidateNames || !body.interviewerOrCompany || !body.interviewDate || !body.location) {
       res.status(400).json({
@@ -1225,10 +1443,14 @@ async function startServer() {
       location: String(body.location).trim(),
       status: body.status || 'Upcoming',
       notes: String(body.notes || '').trim(),
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
       createdAt: new Date().toISOString(),
     };
 
     db.interviews.unshift(interview);
+    appendAudit(db, 'interviews', interview.id, 'INSERT', current, { candidate_names: { new: interview.candidateNames } });
     await saveDb(db);
     res.status(201).json({ interview });
   });
@@ -1249,8 +1471,20 @@ async function startServer() {
     }
 
     const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Conflict detected: this interview record was modified by another user. Reload the latest record before saving.',
+      });
+      return;
+    }
+
     const updated: InterviewRecord = {
       ...existing,
+      version: (existing.version ?? 1) + 1,
       staffId:
         current.role === 'admin' && typeof body.staffId === 'string' && body.staffId
           ? body.staffId
@@ -1277,6 +1511,7 @@ async function startServer() {
     };
 
     db.interviews[idx] = updated;
+    appendAudit(db, 'interviews', updated.id, 'UPDATE', current, { status: { old: existing.status, new: updated.status } });
     await saveDb(db);
     res.json({ interview: updated });
   });
@@ -1284,17 +1519,24 @@ async function startServer() {
   app.delete('/api/interviews/:id', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const current = req.currentUser!;
-    const target = db.interviews.find((i) => i.id === req.params.id);
-    if (!target) {
+    const idx = db.interviews.findIndex((i) => i.id === req.params.id);
+    if (idx === -1) {
       res.status(404).json({ error: 'Interview record not found.' });
       return;
     }
+    const target = db.interviews[idx];
     if (current.role !== 'admin' && target.staffId !== current.id) {
       res.status(403).json({ error: 'You can only delete your own interview records.' });
       return;
     }
 
-    db.interviews = db.interviews.filter((i) => i.id !== target.id);
+    db.interviews[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'interviews', target.id, 'SOFT_DELETE', current, { candidate_names: { old: target.candidateNames, new: 'archived' } });
     await saveDb(db);
     res.json({ ok: true });
   });

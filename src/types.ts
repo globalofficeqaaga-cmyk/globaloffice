@@ -12,6 +12,7 @@ export interface PublicUser {
   socialLink: string;
   photoUrl: string;
   coverUrl: string;
+  version?: number;
   createdAt: string;
 }
 
@@ -22,6 +23,7 @@ export interface ClientDocument {
   name: string;
   status: DocumentStatus;
   note: string;
+  storagePath?: string;
   fileDataUrl?: string;
   updatedAt: string;
 }
@@ -70,6 +72,10 @@ export interface ClientProfile {
   documents: ClientDocument[];
   payments: ClientPayment[];
   notes: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -88,6 +94,10 @@ export interface MeetingRecord {
   purpose: string;
   status: MeetingStatus;
   notes: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
 }
 
@@ -107,6 +117,10 @@ export interface MedicalRecord {
   amountReceivable: number;
   paymentPurpose: string;
   notes: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
   createdAt: string;
 }
 
@@ -125,6 +139,23 @@ export interface InterviewRecord {
   location: string;
   status: InterviewStatus;
   notes: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  createdAt: string;
+}
+
+export type AuditAction = 'INSERT' | 'UPDATE' | 'SOFT_DELETE' | 'RESTORE';
+
+export interface AuditLogEntry {
+  id: string;
+  tableName: string;
+  recordId: string;
+  action: AuditAction;
+  actorId: string | null;
+  actorName: string;
+  changedFields: Record<string, { old?: unknown; new?: unknown; changed?: boolean }>;
   createdAt: string;
 }
 
@@ -135,6 +166,11 @@ export interface DashboardData {
   meetings: MeetingRecord[];
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
+  archivedClients?: ClientProfile[];
+  archivedMeetings?: MeetingRecord[];
+  archivedMedicals?: MedicalRecord[];
+  archivedInterviews?: InterviewRecord[];
+  auditLogs?: AuditLogEntry[];
 }
 
 export interface ClientLookupResponse {
@@ -143,4 +179,47 @@ export interface ClientLookupResponse {
   meetings: MeetingRecord[];
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
+}
+
+export interface SitePosterSlide {
+  id: string;
+  kicker: string;
+  title: string;
+  subtitle: string;
+  actionLabel: string;
+  actionHref: string;
+  imageUrl: string;
+  alt: string;
+}
+
+export interface SiteContactItem {
+  id: string;
+  label: string;
+  value: string;
+  type: 'phone' | 'whatsapp';
+  actionLabel: string;
+}
+
+export interface SiteSettings {
+  brandName: string;
+  logoUrl: string;
+  heroKicker: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  trackerTitle: string;
+  trackerPlaceholder: string;
+  trackerButtonLabel: string;
+  loginButtonLabel: string;
+  showTracker: boolean;
+  showPosterSlider: boolean;
+  showContactSection: boolean;
+  showLoginButton: boolean;
+  posterAutoSlideMs: number;
+  posters: SitePosterSlide[];
+  contactSectionTitle: string;
+  officeAddress: string;
+  officeHours: string;
+  contacts: SiteContactItem[];
+  footerHotline: string;
+  updatedAt?: string;
 }

@@ -5,14 +5,16 @@ import { LoginModal } from './components/LoginModal';
 import { StaffDashboard } from './components/StaffDashboard';
 import { TopBar } from './components/TopBar';
 import { api, getAuthToken, setAuthToken } from './lib/api';
-import { supabase } from './lib/supabase';
-import type { DashboardData, PublicUser } from './types';
+import { DEFAULT_SITE_SETTINGS } from './lib/siteDefaults';
+import { getSupabaseConfigError, isSupabaseConfigured, supabase } from './lib/supabase';
+import type { DashboardData, PublicUser, SiteSettings } from './types';
 
 export default function App() {
   const [view, setView] = useState<'landing' | 'dashboard'>('landing');
   const [loginOpen, setLoginOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<PublicUser | null>(null);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [bootstrapping, setBootstrapping] = useState(true);
   const [dashLoading, setDashLoading] = useState(false);
   const [dashError, setDashError] = useState('');
@@ -39,6 +41,11 @@ export default function App() {
     let active = true;
 
     async function init() {
+      // Load public website CMS settings in parallel with session restore
+      api.getSiteSettings().then((settings) => {
+        if (active) setSiteSettings(settings);
+      });
+
       if (supabase) {
         try {
           const {
@@ -150,6 +157,8 @@ export default function App() {
       return (
         <AdminDashboard
           data={dashboardData}
+          siteSettings={siteSettings}
+          onSiteSettingsSaved={setSiteSettings}
           onRefresh={loadDashboard}
           onGoHome={() => setView('landing')}
           onLogout={handleLogout}
@@ -170,6 +179,7 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       <TopBar
         currentUser={currentUser}
+        siteSettings={siteSettings}
         onOpenLogin={() => setLoginOpen(true)}
         onGoDashboard={async () => {
           if (!dashboardData) {
@@ -180,13 +190,19 @@ export default function App() {
         onGoHome={() => setView('landing')}
       />
 
+      {import.meta.env.PROD && !isSupabaseConfigured && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 text-center text-xs font-medium text-red-800">
+          Database configuration alert: {getSupabaseConfigError()} Permanent data saving is disabled until configured in Vercel Environment Variables.
+        </div>
+      )}
+
       {dashError && (
         <div className="bg-amber-50 border-b border-amber-200 px-6 py-2.5 text-center text-xs text-amber-800">
           {dashError}
         </div>
       )}
 
-      <LandingPage />
+      <LandingPage siteSettings={siteSettings} />
 
       <LoginModal
         isOpen={loginOpen}

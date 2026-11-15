@@ -1,24 +1,29 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
+  AlertCircle,
   Briefcase,
   Calendar,
+  CheckCircle2,
   ClipboardList,
   LayoutDashboard,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Stethoscope,
   Trash2,
   Upload,
   UserCircle2,
+  X,
 } from 'lucide-react';
 import {
   api,
-  compressImageFile,
+  ConflictError,
   formatBDT,
   formatDateOnly,
   formatDateTime,
 } from '../lib/api';
+import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type {
   ClientProfile,
   DashboardData,
@@ -53,6 +58,8 @@ export function StaffDashboard({
   const [activeTab, setActiveTab] = useState<StaffTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [saveToast, setSaveToast] = useState('');
+  const [actionError, setActionError] = useState('');
 
   // Modals
   const [clientModal, setClientModal] = useState<{ open: boolean; item: ClientProfile | null }>({
@@ -81,9 +88,31 @@ export function StaffDashboard({
   const [profPhoto, setProfPhoto] = useState(data.user.photoUrl);
   const [profCover, setProfCover] = useState(data.user.coverUrl);
   const [profPassword, setProfPassword] = useState('');
+  const [profDirty, setProfDirty] = useState(false);
+  const [profUploadingKind, setProfUploadingKind] = useState<'avatar' | 'cover' | null>(null);
   const [profSaving, setProfSaving] = useState(false);
   const [profMessage, setProfMessage] = useState('');
   const [profError, setProfError] = useState('');
+  const [profConflict, setProfConflict] = useState(false);
+
+  useUnsavedChangesWarning(profDirty && !profSaving);
+
+  useEffect(() => {
+    if (!profDirty) {
+      setProfName(data.user.name);
+      setProfDesignation(data.user.designation);
+      setProfPhone(data.user.phone);
+      setProfWhatsapp(data.user.whatsapp);
+      setProfSocial(data.user.socialLink);
+      setProfPhoto(data.user.photoUrl);
+      setProfCover(data.user.coverUrl);
+    }
+  }, [data.user, profDirty]);
+
+  function notifySuccess(msg: string) {
+    setActionError('');
+    setSaveToast(msg);
+  }
 
   const medicalPaid = useMemo(
     () => data.medicals.reduce((s, m) => s + (m.amountPaid || 0), 0),
@@ -151,22 +180,28 @@ export function StaffDashboard({
 
   async function handleProfileImage(
     e: ChangeEvent<HTMLInputElement>,
+    kind: 'avatar' | 'cover',
     setter: (val: string) => void
   ) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setProfError('');
+    setProfUploadingKind(kind);
     try {
-      const url = await compressImageFile(file, 960);
+      const url = await api.uploadStaffMediaFile(file, data.user.id, kind);
+      setProfDirty(true);
       setter(url);
-    } catch {
-      setProfError('Failed to process image file.');
+    } catch (err) {
+      setProfError(err instanceof Error ? err.message : 'Failed to upload image file.');
+    } finally {
+      setProfUploadingKind(null);
     }
   }
 
-  async function handleProfileSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function saveOwnProfile() {
     setProfError('');
     setProfMessage('');
+    setProfConflict(false);
     setProfSaving(true);
     try {
       await api.updateOwnProfile({
@@ -178,15 +213,23 @@ export function StaffDashboard({
         photoUrl: profPhoto.trim(),
         coverUrl: profCover.trim(),
         newPassword: profPassword.trim() || undefined,
+        expectedVersion: data.user.version,
       });
       setProfPassword('');
+      setProfDirty(false);
       await onRefresh();
-      setProfMessage('Profile updated. Clients searching their status will see these details.');
+      setProfMessage('Profile saved to database. Clients searching their status will see these details.');
     } catch (err) {
+      if (err instanceof ConflictError) setProfConflict(true);
       setProfError(err instanceof Error ? err.message : 'Failed to update profile.');
     } finally {
       setProfSaving(false);
     }
+  }
+
+  function handleProfileSubmit(e: FormEvent) {
+    e.preventDefault();
+    saveOwnProfile();
   }
 
   const tabs: NavTab[] = [
@@ -282,6 +325,40 @@ export function StaffDashboard({
       onLogout={onLogout}
       primaryAction={primaryAction}
     >
+      {saveToast && (
+        <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
+          <div className="flex items-center gap-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>{saveToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveToast('')}
+            className="text-emerald-700 hover:text-emerald-900 p-1 cursor-pointer"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="mb-5 px-4 py-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-3 text-sm text-red-800">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionError('')}
+            className="text-red-700 hover:text-red-900 p-1 cursor-pointer"
+            aria-label="Dismiss error"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Search Filter for list tabs */}
       {activeTab !== 'overview' && activeTab !== 'profile' && (
         <div className="mb-6 bg-white border border-slate-200 rounded-xl p-4">
@@ -493,9 +570,16 @@ export function StaffDashboard({
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  await api.deleteClient(c.id);
-                                  setConfirmDeleteId(null);
-                                  await onRefresh();
+                                  setActionError('');
+                                  try {
+                                    await api.deleteClient(c.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Client profile archived. Administrators can restore it from Audit & Archive.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive client.');
+                                  }
                                 }}
                                 className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                               >
@@ -589,9 +673,16 @@ export function StaffDashboard({
                             <button
                               type="button"
                               onClick={async () => {
-                                await api.deleteMeeting(m.id);
-                                setConfirmDeleteId(null);
-                                await onRefresh();
+                                setActionError('');
+                                try {
+                                  await api.deleteMeeting(m.id);
+                                  setConfirmDeleteId(null);
+                                  await onRefresh();
+                                  notifySuccess('Meeting record archived.');
+                                } catch (err) {
+                                  setConfirmDeleteId(null);
+                                  setActionError(err instanceof Error ? err.message : 'Failed to archive meeting.');
+                                }
                               }}
                               className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                             >
@@ -695,9 +786,16 @@ export function StaffDashboard({
                             <button
                               type="button"
                               onClick={async () => {
-                                await api.deleteMedical(m.id);
-                                setConfirmDeleteId(null);
-                                await onRefresh();
+                                setActionError('');
+                                try {
+                                  await api.deleteMedical(m.id);
+                                  setConfirmDeleteId(null);
+                                  await onRefresh();
+                                  notifySuccess('Medical record archived.');
+                                } catch (err) {
+                                  setConfirmDeleteId(null);
+                                  setActionError(err instanceof Error ? err.message : 'Failed to archive medical record.');
+                                }
                               }}
                               className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                             >
@@ -793,9 +891,16 @@ export function StaffDashboard({
                             <button
                               type="button"
                               onClick={async () => {
-                                await api.deleteInterview(iv.id);
-                                setConfirmDeleteId(null);
-                                await onRefresh();
+                                setActionError('');
+                                try {
+                                  await api.deleteInterview(iv.id);
+                                  setConfirmDeleteId(null);
+                                  await onRefresh();
+                                  notifySuccess('Interview record archived.');
+                                } catch (err) {
+                                  setConfirmDeleteId(null);
+                                  setActionError(err instanceof Error ? err.message : 'Failed to archive interview.');
+                                }
                               }}
                               className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                             >
@@ -853,8 +958,35 @@ export function StaffDashboard({
               </div>
             )}
             {profError && (
-              <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-                {profError}
+              <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg space-y-2">
+                <p>{profError}</p>
+                <div className="flex flex-wrap gap-2">
+                  {profConflict ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setProfDirty(false);
+                        setProfConflict(false);
+                        setProfError('');
+                        await onRefresh();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-amber-700 hover:bg-amber-800 rounded cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Reload Latest Profile</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={saveOwnProfile}
+                      disabled={profSaving}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Retry Save</span>
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -871,11 +1003,12 @@ export function StaffDashboard({
                   />
                   <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Photo</span>
+                    <span>{profUploadingKind === 'avatar' ? 'Uploading...' : 'Upload Photo'}</span>
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => handleProfileImage(e, setProfPhoto)}
+                      disabled={profUploadingKind !== null}
+                      onChange={(e) => handleProfileImage(e, 'avatar', setProfPhoto)}
                       className="sr-only"
                     />
                   </label>
@@ -894,11 +1027,12 @@ export function StaffDashboard({
                   />
                   <label className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Upload Cover</span>
+                    <span>{profUploadingKind === 'cover' ? 'Uploading...' : 'Upload Cover'}</span>
                     <input
                       type="file"
                       accept="image/*"
-                      onChange={(e) => handleProfileImage(e, setProfCover)}
+                      disabled={profUploadingKind !== null}
+                      onChange={(e) => handleProfileImage(e, 'cover', setProfCover)}
                       className="sr-only"
                     />
                   </label>
@@ -913,7 +1047,10 @@ export function StaffDashboard({
                   type="text"
                   required
                   value={profName}
-                  onChange={(e) => setProfName(e.target.value)}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfName(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
                 />
               </div>
@@ -924,7 +1061,10 @@ export function StaffDashboard({
                 <input
                   type="text"
                   value={profDesignation}
-                  onChange={(e) => setProfDesignation(e.target.value)}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfDesignation(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
                 />
               </div>
@@ -949,7 +1089,10 @@ export function StaffDashboard({
                 <input
                   type="password"
                   value={profPassword}
-                  onChange={(e) => setProfPassword(e.target.value)}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfPassword(e.target.value);
+                  }}
                   placeholder="Leave blank to keep current"
                   className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
                 />
@@ -964,7 +1107,10 @@ export function StaffDashboard({
                 <input
                   type="tel"
                   value={profPhone}
-                  onChange={(e) => setProfPhone(e.target.value)}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfPhone(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
               </div>
@@ -975,7 +1121,10 @@ export function StaffDashboard({
                 <input
                   type="tel"
                   value={profWhatsapp}
-                  onChange={(e) => setProfWhatsapp(e.target.value)}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfWhatsapp(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
               </div>
@@ -988,7 +1137,10 @@ export function StaffDashboard({
               <input
                 type="text"
                 value={profSocial}
-                onChange={(e) => setProfSocial(e.target.value)}
+                onChange={(e) => {
+                  setProfDirty(true);
+                  setProfSocial(e.target.value);
+                }}
                 placeholder="https://facebook.com/..."
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -997,7 +1149,7 @@ export function StaffDashboard({
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
-                disabled={profSaving}
+                disabled={profSaving || profUploadingKind !== null}
                 className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
               >
                 {profSaving ? 'Saving Profile...' : 'Save Profile'}
@@ -1036,10 +1188,13 @@ export function StaffDashboard({
           onSave={async (payload) => {
             if (clientModal.item) {
               await api.updateClient(clientModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Client profile update confirmed in database.');
             } else {
               await api.createClient(payload);
+              await onRefresh();
+              notifySuccess('New client profile saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1055,10 +1210,13 @@ export function StaffDashboard({
           onSave={async (payload) => {
             if (meetingModal.item) {
               await api.updateMeeting(meetingModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Meeting update confirmed in database.');
             } else {
               await api.createMeeting(payload);
+              await onRefresh();
+              notifySuccess('Meeting saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1074,10 +1232,13 @@ export function StaffDashboard({
           onSave={async (payload) => {
             if (medicalModal.item) {
               await api.updateMedical(medicalModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Medical record update confirmed in database.');
             } else {
               await api.createMedical(payload);
+              await onRefresh();
+              notifySuccess('Medical record saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1093,10 +1254,13 @@ export function StaffDashboard({
           onSave={async (payload) => {
             if (interviewModal.item) {
               await api.updateInterview(interviewModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Interview schedule update confirmed in database.');
             } else {
               await api.createInterview(payload);
+              await onRefresh();
+              notifySuccess('Interview schedule saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}

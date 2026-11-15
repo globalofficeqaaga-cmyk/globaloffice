@@ -1,18 +1,29 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  AlertCircle,
+  ArchiveRestore,
   Briefcase,
   Calendar,
+  CheckCircle2,
   ClipboardList,
+  Eye,
+  EyeOff,
+  Globe,
+  History,
+  KeyRound,
   LayoutDashboard,
   Pencil,
   Plus,
+  RotateCcw,
   Search,
   Stethoscope,
   Trash2,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
-import { api, formatBDT, formatDateOnly, formatDateTime } from '../lib/api';
+import { api, ConflictError, formatBDT, formatDateOnly, formatDateTime } from '../lib/api';
+import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type {
   ClientProfile,
   DashboardData,
@@ -20,9 +31,11 @@ import type {
   MedicalRecord,
   MeetingRecord,
   PublicUser,
+  SiteSettings,
 } from '../types';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
+import { WebsiteControlPanel } from './WebsiteControlPanel';
 import {
   ClientModal,
   InterviewModal,
@@ -33,15 +46,28 @@ import {
 
 interface AdminDashboardProps {
   data: DashboardData;
+  siteSettings: SiteSettings;
+  onSiteSettingsSaved: (next: SiteSettings) => void;
   onRefresh: () => Promise<void>;
   onGoHome: () => void;
   onLogout: () => void;
 }
 
-type AdminTab = 'overview' | 'meetings' | 'medicals' | 'interviews' | 'clients' | 'staff';
+type AdminTab =
+  | 'overview'
+  | 'meetings'
+  | 'medicals'
+  | 'interviews'
+  | 'clients'
+  | 'staff'
+  | 'audit'
+  | 'website'
+  | 'settings';
 
 export function AdminDashboard({
   data,
+  siteSettings,
+  onSiteSettingsSaved,
   onRefresh,
   onGoHome,
   onLogout,
@@ -50,6 +76,87 @@ export function AdminDashboard({
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [saveToast, setSaveToast] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+
+  // Admin Credentials & Settings Form State
+  const [adminUserId, setAdminUserId] = useState(data.user.userId);
+  const [adminName, setAdminName] = useState(data.user.name);
+  const [adminPhone, setAdminPhone] = useState(data.user.phone);
+  const [adminWhatsapp, setAdminWhatsapp] = useState(data.user.whatsapp);
+  const [adminNewPassword, setAdminNewPassword] = useState('');
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
+  const [showAdminPass, setShowAdminPass] = useState(false);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState('');
+
+  useUnsavedChangesWarning(settingsDirty && !settingsSaving);
+
+  useEffect(() => {
+    if (!settingsDirty) {
+      setAdminUserId(data.user.userId);
+      setAdminName(data.user.name);
+      setAdminPhone(data.user.phone);
+      setAdminWhatsapp(data.user.whatsapp);
+    }
+  }, [data.user, settingsDirty]);
+
+  function notifySuccess(msg: string) {
+    setActionError('');
+    setSaveToast(msg);
+  }
+
+  async function handleSaveAdminCredentials(e: FormEvent) {
+    e.preventDefault();
+    setSettingsError('');
+    if (!adminUserId.trim() || !adminName.trim()) {
+      setSettingsError('Admin User ID and Display Name are required.');
+      return;
+    }
+    if (adminNewPassword.trim()) {
+      if (adminNewPassword.trim().length < 4) {
+        setSettingsError('New password must be at least 4 characters.');
+        return;
+      }
+      if (adminNewPassword.trim() !== adminConfirmPassword.trim()) {
+        setSettingsError('New password and confirmation password do not match.');
+        return;
+      }
+    }
+
+    setSettingsSaving(true);
+    try {
+      await api.updateOwnProfile({
+        userId: adminUserId.trim(),
+        name: adminName.trim(),
+        phone: adminPhone.trim(),
+        whatsapp: adminWhatsapp.trim(),
+        newPassword: adminNewPassword.trim() || undefined,
+        expectedVersion: data.user.version,
+      });
+      setAdminNewPassword('');
+      setAdminConfirmPassword('');
+      setSettingsDirty(false);
+      await onRefresh();
+      notifySuccess(
+        adminNewPassword.trim()
+          ? 'Admin User ID and password updated in database.'
+          : 'Admin credentials and profile updated in database.'
+      );
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        setSettingsError(err.message);
+      } else {
+        setSettingsError(
+          err instanceof Error ? err.message : 'Failed to update admin credentials.'
+        );
+      }
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
 
   // Modal states
   const [clientModal, setClientModal] = useState<{ open: boolean; item: ClientProfile | null }>({
@@ -185,6 +292,12 @@ export function AdminDashboard({
     [data.clients, staffFilter, q]
   );
 
+  const archivedCount =
+    (data.archivedClients?.length || 0) +
+    (data.archivedMeetings?.length || 0) +
+    (data.archivedMedicals?.length || 0) +
+    (data.archivedInterviews?.length || 0);
+
   const tabs: NavTab[] = [
     { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
     {
@@ -217,9 +330,26 @@ export function AdminDashboard({
       icon: <Users className="w-4 h-4" />,
       count: data.staffList.length,
     },
+    {
+      id: 'audit',
+      label: 'Audit & Archive',
+      icon: <History className="w-4 h-4" />,
+      count: archivedCount > 0 ? archivedCount : undefined,
+    },
+    {
+      id: 'website',
+      label: 'Website Control',
+      icon: <Globe className="w-4 h-4" />,
+    },
+    {
+      id: 'settings',
+      label: 'Admin Credentials',
+      icon: <KeyRound className="w-4 h-4" />,
+    },
   ];
 
   const primaryAction = (() => {
+    if (activeTab === 'audit' || activeTab === 'website' || activeTab === 'settings') return null;
     if (activeTab === 'staff') {
       return (
         <button
@@ -296,8 +426,42 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={primaryAction}
     >
+      {saveToast && (
+        <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
+          <div className="flex items-center gap-2 font-medium">
+            <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+            <span>{saveToast}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSaveToast('')}
+            className="text-emerald-700 hover:text-emerald-900 p-1 cursor-pointer"
+            aria-label="Dismiss notification"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="mb-5 px-4 py-3 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-3 text-sm text-red-800">
+          <div className="flex items-center gap-2 font-medium">
+            <AlertCircle className="w-4 h-4 text-red-700 shrink-0" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionError('')}
+            className="text-red-700 hover:text-red-900 p-1 cursor-pointer"
+            aria-label="Dismiss error"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Shared Filter Toolbar for List Views */}
-      {activeTab !== 'overview' && activeTab !== 'staff' && (
+      {activeTab !== 'overview' && activeTab !== 'staff' && activeTab !== 'audit' && (
         <div className="mb-6 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-white border border-slate-200 rounded-xl p-4">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -631,17 +795,24 @@ export function AdminDashboard({
                         </button>
                         {confirmDeleteId === m.id ? (
                           <span className="inline-flex items-center gap-1 ml-2">
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                await api.deleteMeeting(m.id);
-                                setConfirmDeleteId(null);
-                                await onRefresh();
-                              }}
-                              className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
-                            >
-                              Confirm
-                            </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setActionError('');
+                                  try {
+                                    await api.deleteMeeting(m.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Meeting archived. You can restore it anytime from Audit & Archive.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive meeting.');
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                              >
+                                Confirm
+                              </button>
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteId(null)}
@@ -791,9 +962,16 @@ export function AdminDashboard({
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  await api.deleteMedical(m.id);
-                                  setConfirmDeleteId(null);
-                                  await onRefresh();
+                                  setActionError('');
+                                  try {
+                                    await api.deleteMedical(m.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Medical record archived. You can restore it from Audit & Archive.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive medical record.');
+                                  }
                                 }}
                                 className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                               >
@@ -923,9 +1101,16 @@ export function AdminDashboard({
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  await api.deleteInterview(iv.id);
-                                  setConfirmDeleteId(null);
-                                  await onRefresh();
+                                  setActionError('');
+                                  try {
+                                    await api.deleteInterview(iv.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Interview record archived. You can restore it from Audit & Archive.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive interview.');
+                                  }
                                 }}
                                 className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                               >
@@ -1048,9 +1233,16 @@ export function AdminDashboard({
                               <button
                                 type="button"
                                 onClick={async () => {
-                                  await api.deleteClient(c.id);
-                                  setConfirmDeleteId(null);
-                                  await onRefresh();
+                                  setActionError('');
+                                  try {
+                                    await api.deleteClient(c.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Client profile archived. Restore anytime from Audit & Archive.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive client.');
+                                  }
                                 }}
                                 className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                               >
@@ -1130,9 +1322,16 @@ export function AdminDashboard({
                           <button
                             type="button"
                             onClick={async () => {
-                              await api.deleteStaff(staff.id);
-                              setConfirmDeleteId(null);
-                              await onRefresh();
+                              setActionError('');
+                              try {
+                                await api.deleteStaff(staff.id);
+                                setConfirmDeleteId(null);
+                                await onRefresh();
+                                notifySuccess('Staff account removed from active roster.');
+                              } catch (err) {
+                                setConfirmDeleteId(null);
+                                setActionError(err instanceof Error ? err.message : 'Failed to remove staff account.');
+                              }
                             }}
                             className="px-2 py-1 font-semibold text-white bg-red-600 rounded cursor-pointer"
                           >
@@ -1165,6 +1364,398 @@ export function AdminDashboard({
       )}
 
       {/* ====================================================================
+          AUDIT & ARCHIVE TAB
+         ==================================================================== */}
+      {activeTab === 'audit' && (
+        <div className="space-y-8">
+          {/* Soft-Deleted / Archived Records */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
+                  <ArchiveRestore className="w-4 h-4 text-blue-700" />
+                  <span>Archived Records (Soft-Deleted Recovery)</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Records deleted by staff or admin are preserved here and can be restored with one click.
+                </p>
+              </div>
+              <span className="font-mono text-xs text-slate-500 tabular-nums">
+                {archivedCount} archived
+              </span>
+            </div>
+
+            {archivedCount === 0 ? (
+              <div className="px-6 py-8 text-sm text-slate-500 text-center">
+                No archived records. Any soft-deleted clients, meetings, medicals, or interviews appear here.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {[
+                  ...(data.archivedClients || []).map((item) => ({
+                    table: 'clients' as const,
+                    id: item.id,
+                    typeLabel: 'Client Profile',
+                    title: `${item.name} (${item.phone})`,
+                    deletedAt: item.deletedAt,
+                  })),
+                  ...(data.archivedMeetings || []).map((item) => ({
+                    table: 'meetings' as const,
+                    id: item.id,
+                    typeLabel: 'Meeting',
+                    title: `${item.clientName} with ${item.meetingWith}`,
+                    deletedAt: item.deletedAt,
+                  })),
+                  ...(data.archivedMedicals || []).map((item) => ({
+                    table: 'medicals' as const,
+                    id: item.id,
+                    typeLabel: 'Medical',
+                    title: `${item.candidateName} — ${item.medicalCenter}`,
+                    deletedAt: item.deletedAt,
+                  })),
+                  ...(data.archivedInterviews || []).map((item) => ({
+                    table: 'interviews' as const,
+                    id: item.id,
+                    typeLabel: 'Interview',
+                    title: `${item.candidateNames} (${item.interviewerOrCompany})`,
+                    deletedAt: item.deletedAt,
+                  })),
+                ].map((rec) => (
+                  <div
+                    key={`${rec.table}_${rec.id}`}
+                    className="px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 hover:bg-slate-50/60"
+                  >
+                    <div>
+                      <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                        {rec.typeLabel}
+                      </span>
+                      <p className="text-sm font-semibold text-slate-900">{rec.title}</p>
+                      {rec.deletedAt && (
+                        <p className="text-xs text-slate-500 font-mono">
+                          Archived {formatDateTime(rec.deletedAt)}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      disabled={restoringId === rec.id}
+                      onClick={async () => {
+                        setActionError('');
+                        setRestoringId(rec.id);
+                        try {
+                          await api.restoreRecord(rec.table, rec.id);
+                          await onRefresh();
+                          notifySuccess(`${rec.typeLabel} "${rec.title}" restored to active records.`);
+                        } catch (err) {
+                          setActionError(err instanceof Error ? err.message : 'Failed to restore record.');
+                        } finally {
+                          setRestoringId(null);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 rounded-lg cursor-pointer"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>{restoringId === rec.id ? 'Restoring...' : 'Restore Record'}</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Audit History Log */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+              <div>
+                <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
+                  <History className="w-4 h-4 text-blue-700" />
+                  <span>Change Audit Trail</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Immutable log of creations, edits, soft deletions, and restorations across all records.
+                </p>
+              </div>
+              <span className="font-mono text-xs text-slate-500 tabular-nums">
+                {(data.auditLogs || []).length} events
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                  <tr>
+                    <th className="px-6 py-3 font-medium">Timestamp</th>
+                    <th className="px-4 py-3 font-medium">Actor</th>
+                    <th className="px-4 py-3 font-medium">Action</th>
+                    <th className="px-4 py-3 font-medium">Record Type</th>
+                    <th className="px-6 py-3 font-medium">Changed Fields</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {(data.auditLogs || []).length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-10 text-center text-slate-500">
+                        No audit events recorded yet. Events appear automatically once database triggers are active.
+                      </td>
+                    </tr>
+                  ) : (
+                    (data.auditLogs || []).map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-50/60 align-top">
+                        <td className="px-6 py-3 font-mono text-xs text-slate-600 whitespace-nowrap">
+                          {formatDateTime(log.createdAt)}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-900 whitespace-nowrap">
+                          {log.actorName || 'System'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span
+                            className={`text-xs font-semibold ${
+                              log.action === 'SOFT_DELETE'
+                                ? 'text-red-700'
+                                : log.action === 'RESTORE'
+                                ? 'text-emerald-700'
+                                : log.action === 'INSERT'
+                                ? 'text-blue-700'
+                                : 'text-amber-700'
+                            }`}
+                          >
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-700 whitespace-nowrap">
+                          {log.tableName}
+                        </td>
+                        <td className="px-6 py-3 text-xs text-slate-600">
+                          {Object.entries(log.changedFields || {}).map(([field, diff]) => (
+                            <div key={field} className="mb-0.5">
+                              <span className="font-mono font-semibold text-slate-800">{field}:</span>{' '}
+                              {diff && typeof diff === 'object' && 'changed' in diff ? (
+                                <span className="text-slate-500">[Protected field updated]</span>
+                              ) : diff && typeof diff === 'object' && ('old' in diff || 'new' in diff) ? (
+                                <span>
+                                  <span className="text-slate-400">{String(diff.old ?? '—')}</span>
+                                  {' → '}
+                                  <span className="text-slate-800">{String(diff.new ?? '—')}</span>
+                                </span>
+                              ) : (
+                                <span>{String(diff)}</span>
+                              )}
+                            </div>
+                          ))}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          WEBSITE CONTROL TAB (Logo, Slider, Photos, Functions, Contacts)
+         ==================================================================== */}
+      {activeTab === 'website' && (
+        <WebsiteControlPanel
+          siteSettings={siteSettings}
+          onSiteSettingsSaved={onSiteSettingsSaved}
+          onNotifySuccess={notifySuccess}
+        />
+      )}
+
+      {/* ====================================================================
+          ADMIN CREDENTIALS & SETTINGS TAB
+         ==================================================================== */}
+      {activeTab === 'settings' && (
+        <div className="max-w-2xl space-y-6">
+          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Customize Website Logo, Running Posters, Photos & Functions
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5">
+                Add or remove posters, upload logo/photos, edit hotlines, and toggle landing sections.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('website')}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer shrink-0"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Open Website Control</span>
+            </button>
+          </div>
+          <form
+            onSubmit={handleSaveAdminCredentials}
+            className="bg-white border border-slate-200 rounded-xl p-6 space-y-5"
+          >
+            <div>
+              <h2 className="font-display text-lg font-bold text-slate-900">
+                Admin Login User ID & Password
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Change your Admin User ID (default: admin) or update your login password. Changes take
+                effect immediately on your next sign-in.
+              </p>
+            </div>
+
+            {settingsError && (
+              <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                {settingsError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="admin-userid-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Admin Login User ID *
+                </label>
+                <input
+                  id="admin-userid-input"
+                  type="text"
+                  required
+                  value={adminUserId}
+                  onChange={(e) => {
+                    setSettingsDirty(true);
+                    setAdminUserId(e.target.value);
+                  }}
+                  placeholder="admin"
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-name-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Display Name *
+                </label>
+                <input
+                  id="admin-name-input"
+                  type="text"
+                  required
+                  value={adminName}
+                  onChange={(e) => {
+                    setSettingsDirty(true);
+                    setAdminName(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="admin-newpass-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  New Password (min. 4 characters)
+                </label>
+                <div className="relative">
+                  <input
+                    id="admin-newpass-input"
+                    type={showAdminPass ? 'text' : 'password'}
+                    value={adminNewPassword}
+                    onChange={(e) => {
+                      setSettingsDirty(true);
+                      setAdminNewPassword(e.target.value);
+                    }}
+                    placeholder="Leave blank to keep current password"
+                    className="w-full pl-3.5 pr-10 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPass((prev) => !prev)}
+                    aria-label={showAdminPass ? 'Hide password' : 'Show password'}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  >
+                    {showAdminPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-confirmpass-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Confirm New Password
+                </label>
+                <input
+                  id="admin-confirmpass-input"
+                  type={showAdminPass ? 'text' : 'password'}
+                  value={adminConfirmPassword}
+                  onChange={(e) => {
+                    setSettingsDirty(true);
+                    setAdminConfirmPassword(e.target.value);
+                  }}
+                  placeholder="Re-enter new password"
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label
+                  htmlFor="admin-phone-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Admin Hotline Phone
+                </label>
+                <input
+                  id="admin-phone-input"
+                  type="tel"
+                  value={adminPhone}
+                  onChange={(e) => {
+                    setSettingsDirty(true);
+                    setAdminPhone(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="admin-whatsapp-input"
+                  className="block text-xs font-semibold text-slate-700 mb-1"
+                >
+                  Admin WhatsApp
+                </label>
+                <input
+                  id="admin-whatsapp-input"
+                  type="tel"
+                  value={adminWhatsapp}
+                  onChange={(e) => {
+                    setSettingsDirty(true);
+                    setAdminWhatsapp(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+                />
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
+              <button
+                type="submit"
+                disabled={settingsSaving}
+                className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
+              >
+                {settingsSaving ? 'Saving...' : 'Save Admin Credentials'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ====================================================================
           MODALS
          ==================================================================== */}
       {clientModal.open && (
@@ -1177,10 +1768,13 @@ export function AdminDashboard({
           onSave={async (payload) => {
             if (clientModal.item) {
               await api.updateClient(clientModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Client profile update confirmed in database.');
             } else {
               await api.createClient(payload);
+              await onRefresh();
+              notifySuccess('New client profile saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1196,10 +1790,13 @@ export function AdminDashboard({
           onSave={async (payload) => {
             if (meetingModal.item) {
               await api.updateMeeting(meetingModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Meeting update confirmed in database.');
             } else {
               await api.createMeeting(payload);
+              await onRefresh();
+              notifySuccess('Meeting saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1215,10 +1812,13 @@ export function AdminDashboard({
           onSave={async (payload) => {
             if (medicalModal.item) {
               await api.updateMedical(medicalModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Medical record update confirmed in database.');
             } else {
               await api.createMedical(payload);
+              await onRefresh();
+              notifySuccess('Medical record saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1234,10 +1834,13 @@ export function AdminDashboard({
           onSave={async (payload) => {
             if (interviewModal.item) {
               await api.updateInterview(interviewModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Interview schedule update confirmed in database.');
             } else {
               await api.createInterview(payload);
+              await onRefresh();
+              notifySuccess('Interview schedule saved permanently in database.');
             }
-            await onRefresh();
           }}
         />
       )}
@@ -1249,6 +1852,8 @@ export function AdminDashboard({
           onSave={async (payload) => {
             if (staffModal.item) {
               await api.updateStaff(staffModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Staff account update confirmed in database.');
             } else {
               if (!payload.password) {
                 throw new Error('Password is required to create a staff account.');
@@ -1257,8 +1862,9 @@ export function AdminDashboard({
                 ...payload,
                 password: payload.password,
               });
+              await onRefresh();
+              notifySuccess('Staff account created and saved in database.');
             }
-            await onRefresh();
           }}
         />
       )}

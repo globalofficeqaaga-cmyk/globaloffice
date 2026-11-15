@@ -1,7 +1,14 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
-import { Plus, Trash2, Upload, X } from 'lucide-react';
-import { compressImageFile, formatBDT } from '../../lib/api';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { AlertTriangle, ExternalLink, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { api, ConflictError, formatBDT } from '../../lib/api';
 import { APP_IMAGES } from '../../lib/assets';
+import {
+  clearSafeDraft,
+  generateRequestId,
+  loadSafeDraft,
+  saveSafeDraft,
+} from '../../lib/drafts';
+import { useUnsavedChangesWarning } from '../../lib/useUnsavedChanges';
 import type {
   ClientDocument,
   ClientPayment,
@@ -39,6 +46,39 @@ const INTERVIEW_STATUSES: InterviewStatus[] = [
   'Completed',
 ];
 
+function UnsavedClosePrompt({
+  onKeepEditing,
+  onDiscard,
+}: {
+  onKeepEditing: () => void;
+  onDiscard: () => void;
+}) {
+  return (
+    <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2 text-xs font-medium text-amber-900">
+        <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+        <span>You have unsaved changes. Closing now will lose unsaved sensitive fields.</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onKeepEditing}
+          className="px-3 py-1 text-xs font-semibold text-slate-800 bg-white border border-slate-300 rounded cursor-pointer"
+        >
+          Keep Editing
+        </button>
+        <button
+          type="button"
+          onClick={onDiscard}
+          className="px-3 py-1 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded cursor-pointer"
+        >
+          Discard Changes
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================================
  * 1. CLIENT CREATE / EDIT MODAL
  * ========================================================================== */
@@ -48,7 +88,9 @@ interface ClientModalProps {
   staffList: PublicUser[];
   defaultStaffId: string;
   onClose: () => void;
-  onSave: (payload: Partial<ClientProfile>) => Promise<void>;
+  onSave: (
+    payload: Partial<ClientProfile> & { expectedVersion?: number }
+  ) => Promise<void>;
 }
 
 export function ClientModal({
@@ -59,6 +101,10 @@ export function ClientModal({
   onClose,
   onSave,
 }: ClientModalProps) {
+  const isCreate = !initial;
+  const draftKey = `client_create_${defaultStaffId}`;
+  const [clientRequestId] = useState(() => generateRequestId());
+
   const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
   const [name, setName] = useState(initial?.name || '');
   const [phone, setPhone] = useState(initial?.phone || '');
@@ -81,14 +127,75 @@ export function ClientModal({
   const [documents, setDocuments] = useState<ClientDocument[]>(initial?.documents || []);
   const [payments, setPayments] = useState<ClientPayment[]>(initial?.payments || []);
 
+  const [isDirty, setIsDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [uploadingDocIdx, setUploadingDocIdx] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isConflict, setIsConflict] = useState(false);
+  const [draftOffer, setDraftOffer] = useState<{
+    savedAt: string;
+    data: {
+      name?: string;
+      phone?: string;
+      address?: string;
+      trade?: string;
+      destinationCountry?: string;
+      expectedSalary?: string;
+      pendingItems?: string;
+      notes?: string;
+    };
+  } | null>(() => (isCreate ? loadSafeDraft(draftKey) : null));
+
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  // Save ONLY non-sensitive fields in sessionStorage draft (never passport/medical/files)
+  useEffect(() => {
+    if (!isCreate || !isDirty) return;
+    saveSafeDraft(draftKey, {
+      name,
+      phone,
+      address,
+      trade,
+      destinationCountry,
+      expectedSalary,
+      pendingItems,
+      notes,
+    });
+  }, [
+    isCreate,
+    isDirty,
+    draftKey,
+    name,
+    phone,
+    address,
+    trade,
+    destinationCountry,
+    expectedSalary,
+    pendingItems,
+    notes,
+  ]);
 
   const computedPaidFromEntries = payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
   const effectivePaid = payments.length > 0 ? computedPaidFromEntries : Number(manualPaid) || 0;
   const remainingDue = Math.max(0, (Number(totalPayable) || 0) - effectivePaid);
 
+  function markDirty() {
+    if (!isDirty) setIsDirty(true);
+    if (confirmClose) setConfirmClose(false);
+  }
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (isDirty && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }
+
   function addDocumentRow() {
+    markDirty();
     setDocuments((prev) => [
       ...prev,
       {
@@ -102,6 +209,7 @@ export function ClientModal({
   }
 
   function updateDoc(index: number, patch: Partial<ClientDocument>) {
+    markDirty();
     setDocuments((prev) =>
       prev.map((d, i) => (i === index ? { ...d, ...patch, updatedAt: new Date().toISOString() } : d))
     );
@@ -110,15 +218,33 @@ export function ClientModal({
   async function handleDocFile(index: number, e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setError('');
+    setUploadingDocIdx(index);
     try {
-      const dataUrl = await compressImageFile(file, 900);
-      updateDoc(index, { fileDataUrl: dataUrl });
-    } catch {
-      setError('Could not process document image.');
+      const uploaded = await api.uploadClientDocumentFile(file, staffId);
+      updateDoc(index, {
+        storagePath: uploaded.storagePath,
+        fileDataUrl: uploaded.fileDataUrl,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not upload document file.');
+    } finally {
+      setUploadingDocIdx(null);
+    }
+  }
+
+  async function handleViewDoc(doc: ClientDocument) {
+    setError('');
+    try {
+      const url = await api.getClientDocumentSignedUrl(doc);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to open document.');
     }
   }
 
   function addPaymentRow() {
+    markDirty();
     setPayments((prev) => [
       ...prev,
       {
@@ -132,12 +258,13 @@ export function ClientModal({
   }
 
   function updatePayment(index: number, patch: Partial<ClientPayment>) {
+    markDirty();
     setPayments((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function submitSave() {
     setError('');
+    setIsConflict(false);
     if (!name.trim() || !phone.trim()) {
       setError('Client name and phone number are required.');
       return;
@@ -167,13 +294,25 @@ export function ClientModal({
         documents: cleanDocs,
         payments: cleanPays,
         notes: notes.trim(),
+        clientRequestId: isCreate ? clientRequestId : undefined,
+        expectedVersion: initial?.version,
       });
+      if (isCreate) clearSafeDraft(draftKey);
+      setIsDirty(false);
       onClose();
     } catch (err) {
+      if (err instanceof ConflictError) {
+        setIsConflict(true);
+      }
       setError(err instanceof Error ? err.message : 'Failed to save client profile.');
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    submitSave();
   }
 
   return (
@@ -185,22 +324,82 @@ export function ClientModal({
               {initial ? 'Edit Client Profile' : 'Create Client Profile'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Clients can search their phone number on the landing page to view this update.
+              Saved permanently to Supabase PostgreSQL · Documents stored in private Storage
             </p>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseAttempt}
             className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {confirmClose && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setConfirmClose(false)}
+            onDiscard={() => {
+              if (isCreate) clearSafeDraft(draftKey);
+              onClose();
+            }}
+          />
+        )}
+
+        {draftOffer && (
+          <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-medium text-blue-900">
+              Unsaved non-sensitive contact draft found from{' '}
+              {new Date(draftOffer.savedAt).toLocaleTimeString()}. Restore it?
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setName(draftOffer.data.name || '');
+                  setPhone(draftOffer.data.phone || '');
+                  setAddress(draftOffer.data.address || '');
+                  setTrade(draftOffer.data.trade || '');
+                  setDestinationCountry(draftOffer.data.destinationCountry || '');
+                  setExpectedSalary(draftOffer.data.expectedSalary || '');
+                  setPendingItems(draftOffer.data.pendingItems || '');
+                  setNotes(draftOffer.data.notes || '');
+                  setDraftOffer(null);
+                  setIsDirty(true);
+                }}
+                className="px-3 py-1 text-xs font-semibold text-white bg-blue-700 rounded cursor-pointer"
+              >
+                Restore Draft
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearSafeDraft(draftKey);
+                  setDraftOffer(null);
+                }}
+                className="px-3 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
           {error && (
-            <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-              {error}
+            <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg flex flex-wrap items-center justify-between gap-3">
+              <span>{error}</span>
+              {!isConflict && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={submitSave}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Retry Save</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -213,7 +412,10 @@ export function ClientModal({
                 </label>
                 <select
                   value={staffId}
-                  onChange={(e) => setStaffId(e.target.value)}
+                  onChange={(e) => {
+                    markDirty();
+                    setStaffId(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
                 >
                   {staffList.map((s) => (
@@ -233,7 +435,10 @@ export function ClientModal({
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setName(e.target.value);
+                }}
                 placeholder="e.g. Md. Kamrul Hasan"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -247,7 +452,10 @@ export function ClientModal({
                 type="tel"
                 required
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setPhone(e.target.value);
+                }}
                 placeholder="e.g. 01712345678"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg font-mono"
               />
@@ -258,7 +466,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setAddress(e.target.value);
+                }}
                 placeholder="Full home address"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -271,7 +482,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={passportNumber}
-                onChange={(e) => setPassportNumber(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setPassportNumber(e.target.value);
+                }}
                 placeholder="e.g. A08943211"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg font-mono"
               />
@@ -284,7 +498,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={trade}
-                onChange={(e) => setTrade(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setTrade(e.target.value);
+                }}
                 placeholder="e.g. Electrician, Welder, Driver"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -297,7 +514,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={destinationCountry}
-                onChange={(e) => setDestinationCountry(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setDestinationCountry(e.target.value);
+                }}
                 placeholder="e.g. Saudi Arabia, UAE, Qatar"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -310,7 +530,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={expectedSalary}
-                onChange={(e) => setExpectedSalary(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setExpectedSalary(e.target.value);
+                }}
                 placeholder="e.g. 1,800 SAR + Overtime"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -322,7 +545,10 @@ export function ClientModal({
               </label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as ClientStage)}
+                onChange={(e) => {
+                  markDirty();
+                  setStatus(e.target.value as ClientStage);
+                }}
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {CLIENT_STAGES.map((st) => (
@@ -342,14 +568,20 @@ export function ClientModal({
                   <input
                     type="checkbox"
                     checked={medicalDone}
-                    onChange={(e) => setMedicalDone(e.target.checked)}
+                    onChange={(e) => {
+                      markDirty();
+                      setMedicalDone(e.target.checked);
+                    }}
                     className="w-4 h-4 accent-blue-700"
                   />
                   <span>Yes, medical done</span>
                 </label>
                 <select
                   value={medicalStatus}
-                  onChange={(e) => setMedicalStatus(e.target.value as MedicalOutcome)}
+                  onChange={(e) => {
+                    markDirty();
+                    setMedicalStatus(e.target.value as MedicalOutcome);
+                  }}
                   className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg"
                 >
                   {MEDICAL_OUTCOMES.map((mo) => (
@@ -368,7 +600,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={medicalCenter}
-                onChange={(e) => setMedicalCenter(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setMedicalCenter(e.target.value);
+                }}
                 placeholder="e.g. Al-Riyadh Diagnostic Center"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -381,7 +616,10 @@ export function ClientModal({
               <input
                 type="text"
                 value={medicalLocation}
-                onChange={(e) => setMedicalLocation(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setMedicalLocation(e.target.value);
+                }}
                 placeholder="e.g. Banani, Dhaka"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -403,7 +641,10 @@ export function ClientModal({
                   type="number"
                   min={0}
                   value={totalPayable}
-                  onChange={(e) => setTotalPayable(e.target.value)}
+                  onChange={(e) => {
+                    markDirty();
+                    setTotalPayable(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
               </div>
@@ -417,7 +658,10 @@ export function ClientModal({
                   min={0}
                   disabled={payments.length > 0}
                   value={payments.length > 0 ? effectivePaid : manualPaid}
-                  onChange={(e) => setManualPaid(e.target.value)}
+                  onChange={(e) => {
+                    markDirty();
+                    setManualPaid(e.target.value);
+                  }}
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg disabled:bg-slate-100"
                 />
               </div>
@@ -439,7 +683,10 @@ export function ClientModal({
               <textarea
                 rows={2}
                 value={pendingItems}
-                onChange={(e) => setPendingItems(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setPendingItems(e.target.value);
+                }}
                 placeholder="e.g. Police clearance certificate & final visa stamping fee"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -499,7 +746,10 @@ export function ClientModal({
                       />
                       <button
                         type="button"
-                        onClick={() => setPayments((prev) => prev.filter((_, i) => i !== idx))}
+                        onClick={() => {
+                          markDirty();
+                          setPayments((prev) => prev.filter((_, i) => i !== idx));
+                        }}
                         className="sm:col-span-1 p-1.5 text-red-600 hover:bg-red-50 rounded justify-self-end cursor-pointer"
                         aria-label="Remove payment"
                       >
@@ -516,7 +766,7 @@ export function ClientModal({
           <div className="pt-4 border-t border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-display text-sm font-bold text-slate-900">
-                Documents Provided by Client
+                Documents Provided by Client (Private Storage)
               </h3>
               <button
                 type="button"
@@ -544,7 +794,7 @@ export function ClientModal({
                       placeholder="Document name (e.g. Passport)"
                       value={doc.name}
                       onChange={(e) => updateDoc(idx, { name: e.target.value })}
-                      className="sm:col-span-4 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
+                      className="sm:col-span-3 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
                     />
                     <select
                       value={doc.status}
@@ -562,19 +812,41 @@ export function ClientModal({
                       onChange={(e) => updateDoc(idx, { note: e.target.value })}
                       className="sm:col-span-3 px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded"
                     />
-                    <label className="sm:col-span-2 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium bg-white border border-slate-300 rounded cursor-pointer hover:bg-slate-100">
-                      <Upload className="w-3 h-3" />
-                      <span>{doc.fileDataUrl ? 'Uploaded' : 'Photo'}</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handleDocFile(idx, e)}
-                        className="sr-only"
-                      />
-                    </label>
+                    <div className="sm:col-span-3 flex items-center gap-1.5">
+                      <label className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium bg-white border border-slate-300 rounded cursor-pointer hover:bg-slate-100">
+                        <Upload className="w-3 h-3" />
+                        <span>
+                          {uploadingDocIdx === idx
+                            ? 'Uploading...'
+                            : doc.storagePath || doc.fileDataUrl
+                            ? 'Replace'
+                            : 'Upload'}
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          disabled={uploadingDocIdx !== null}
+                          onChange={(e) => handleDocFile(idx, e)}
+                          className="sr-only"
+                        />
+                      </label>
+                      {(doc.storagePath || doc.fileDataUrl) && (
+                        <button
+                          type="button"
+                          onClick={() => handleViewDoc(doc)}
+                          className="p-1.5 text-blue-700 bg-white border border-slate-300 rounded hover:bg-blue-50 cursor-pointer"
+                          title="Open private file"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setDocuments((prev) => prev.filter((_, i) => i !== idx))}
+                      onClick={() => {
+                        markDirty();
+                        setDocuments((prev) => prev.filter((_, i) => i !== idx));
+                      }}
                       className="sm:col-span-1 p-1.5 text-red-600 hover:bg-red-50 rounded justify-self-end cursor-pointer"
                       aria-label="Remove document"
                     >
@@ -593,27 +865,36 @@ export function ClientModal({
             <textarea
               rows={2}
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setNotes(e.target.value);
+              }}
               placeholder="Any internal or client-facing notes"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
 
-          <div className="pt-4 border-t border-slate-200 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
-            >
-              {saving ? 'Saving...' : initial ? 'Save Changes' : 'Create Client'}
-            </button>
+          <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-500">
+              {initial?.version ? `Version #${initial.version}` : 'New record'}
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleCloseAttempt}
+                disabled={saving}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving || uploadingDocIdx !== null}
+                className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
+              >
+                {saving ? 'Saving to Database...' : initial ? 'Save Changes' : 'Create Client'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
@@ -631,7 +912,9 @@ interface MeetingModalProps {
   clients: ClientProfile[];
   defaultStaffId: string;
   onClose: () => void;
-  onSave: (payload: Partial<MeetingRecord>) => Promise<void>;
+  onSave: (
+    payload: Partial<MeetingRecord> & { expectedVersion?: number }
+  ) => Promise<void>;
 }
 
 export function MeetingModal({
@@ -643,6 +926,10 @@ export function MeetingModal({
   onClose,
   onSave,
 }: MeetingModalProps) {
+  const isCreate = !initial;
+  const draftKey = `meeting_create_${defaultStaffId}`;
+  const [clientRequestId] = useState(() => generateRequestId());
+
   const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
   const [clientId, setClientId] = useState(initial?.clientId || '');
   const [clientName, setClientName] = useState(initial?.clientName || '');
@@ -655,10 +942,47 @@ export function MeetingModal({
   const [purpose, setPurpose] = useState(initial?.purpose || '');
   const [status, setStatus] = useState<MeetingStatus>(initial?.status || 'Scheduled');
   const [notes, setNotes] = useState(initial?.notes || '');
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isConflict, setIsConflict] = useState(false);
+  const [draftOffer, setDraftOffer] = useState<{
+    savedAt: string;
+    data: {
+      clientName?: string;
+      clientPhone?: string;
+      meetingWith?: string;
+      location?: string;
+      dateTime?: string;
+      purpose?: string;
+    };
+  } | null>(() => (isCreate ? loadSafeDraft(draftKey) : null));
+
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  useEffect(() => {
+    if (!isCreate || !isDirty) return;
+    saveSafeDraft(draftKey, { clientName, clientPhone, meetingWith, location, dateTime, purpose });
+  }, [isCreate, isDirty, draftKey, clientName, clientPhone, meetingWith, location, dateTime, purpose]);
+
+  function markDirty() {
+    if (!isDirty) setIsDirty(true);
+    if (confirmClose) setConfirmClose(false);
+  }
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (isDirty && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }
 
   function handleClientPick(selectedId: string) {
+    markDirty();
     setClientId(selectedId);
     const found = clients.find((c) => c.id === selectedId);
     if (found) {
@@ -667,9 +991,9 @@ export function MeetingModal({
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function submitSave() {
     setError('');
+    setIsConflict(false);
     if (!clientName.trim() || !meetingWith.trim() || !location.trim() || !dateTime) {
       setError('Client name, meeting partner, location, and date/time are required.');
       return;
@@ -688,13 +1012,23 @@ export function MeetingModal({
         purpose: purpose.trim(),
         status,
         notes: notes.trim(),
+        clientRequestId: isCreate ? clientRequestId : undefined,
+        expectedVersion: initial?.version,
       });
+      if (isCreate) clearSafeDraft(draftKey);
+      setIsDirty(false);
       onClose();
     } catch (err) {
+      if (err instanceof ConflictError) setIsConflict(true);
       setError(err instanceof Error ? err.message : 'Failed to save meeting.');
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    submitSave();
   }
 
   return (
@@ -706,17 +1040,72 @@ export function MeetingModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseAttempt}
             className="p-2 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {confirmClose && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setConfirmClose(false)}
+            onDiscard={() => {
+              if (isCreate) clearSafeDraft(draftKey);
+              onClose();
+            }}
+          />
+        )}
+
+        {draftOffer && (
+          <div className="px-6 py-2.5 bg-blue-50 border-b border-blue-200 flex items-center justify-between gap-2 text-xs">
+            <span className="text-blue-900">Restore unsaved meeting draft?</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setClientName(draftOffer.data.clientName || '');
+                  setClientPhone(draftOffer.data.clientPhone || '');
+                  setMeetingWith(draftOffer.data.meetingWith || '');
+                  setLocation(draftOffer.data.location || '');
+                  setDateTime(draftOffer.data.dateTime || dateTime);
+                  setPurpose(draftOffer.data.purpose || '');
+                  setDraftOffer(null);
+                  setIsDirty(true);
+                }}
+                className="px-2.5 py-1 font-semibold text-white bg-blue-700 rounded cursor-pointer"
+              >
+                Restore
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearSafeDraft(draftKey);
+                  setDraftOffer(null);
+                }}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="px-4 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-              {error}
+            <div className="px-4 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg flex flex-wrap items-center justify-between gap-2">
+              <span>{error}</span>
+              {!isConflict && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={submitSave}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-red-700 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -725,7 +1114,10 @@ export function MeetingModal({
               <label className="block text-xs font-semibold text-slate-700 mb-1">Staff Owner</label>
               <select
                 value={staffId}
-                onChange={(e) => setStaffId(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setStaffId(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {staffList.map((s) => (
@@ -766,7 +1158,10 @@ export function MeetingModal({
                 type="text"
                 required
                 value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setClientName(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
             </div>
@@ -777,7 +1172,10 @@ export function MeetingModal({
               <input
                 type="tel"
                 value={clientPhone}
-                onChange={(e) => setClientPhone(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setClientPhone(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -791,7 +1189,10 @@ export function MeetingModal({
               type="text"
               required
               value={meetingWith}
-              onChange={(e) => setMeetingWith(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setMeetingWith(e.target.value);
+              }}
               placeholder="e.g. Saudi Delegate / Agency Director / Embassy Officer"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -805,7 +1206,10 @@ export function MeetingModal({
               type="text"
               required
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setLocation(e.target.value);
+              }}
               placeholder="e.g. Banani Office Room 2"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -820,7 +1224,10 @@ export function MeetingModal({
                 type="datetime-local"
                 required
                 value={dateTime}
-                onChange={(e) => setDateTime(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setDateTime(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -828,7 +1235,10 @@ export function MeetingModal({
               <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as MeetingStatus)}
+                onChange={(e) => {
+                  markDirty();
+                  setStatus(e.target.value as MeetingStatus);
+                }}
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {MEETING_STATUSES.map((st) => (
@@ -845,8 +1255,24 @@ export function MeetingModal({
             <input
               type="text"
               value={purpose}
-              onChange={(e) => setPurpose(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setPurpose(e.target.value);
+              }}
               placeholder="e.g. Salary negotiation & passport handover"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Notes</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => {
+                markDirty();
+                setNotes(e.target.value);
+              }}
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
@@ -854,7 +1280,8 @@ export function MeetingModal({
           <div className="pt-3 border-t border-slate-200 flex justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseAttempt}
+              disabled={saving}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
               Cancel
@@ -875,6 +1302,7 @@ export function MeetingModal({
 
 /* ============================================================================
  * 3. MEDICAL RECORD CREATE / EDIT MODAL
+ * (Never persists medical info in browser storage!)
  * ========================================================================== */
 interface MedicalModalProps {
   initial?: MedicalRecord | null;
@@ -883,7 +1311,9 @@ interface MedicalModalProps {
   clients: ClientProfile[];
   defaultStaffId: string;
   onClose: () => void;
-  onSave: (payload: Partial<MedicalRecord>) => Promise<void>;
+  onSave: (
+    payload: Partial<MedicalRecord> & { expectedVersion?: number }
+  ) => Promise<void>;
 }
 
 export function MedicalModal({
@@ -895,6 +1325,9 @@ export function MedicalModal({
   onClose,
   onSave,
 }: MedicalModalProps) {
+  const isCreate = !initial;
+  const [clientRequestId] = useState(() => generateRequestId());
+
   const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
   const [clientId, setClientId] = useState(initial?.clientId || '');
   const [candidateName, setCandidateName] = useState(initial?.candidateName || '');
@@ -909,10 +1342,31 @@ export function MedicalModal({
   const [amountReceivable, setAmountReceivable] = useState(String(initial?.amountReceivable ?? 0));
   const [paymentPurpose, setPaymentPurpose] = useState(initial?.paymentPurpose || '');
   const [notes, setNotes] = useState(initial?.notes || '');
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isConflict, setIsConflict] = useState(false);
+
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  function markDirty() {
+    if (!isDirty) setIsDirty(true);
+    if (confirmClose) setConfirmClose(false);
+  }
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (isDirty && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }
 
   function handleClientPick(selectedId: string) {
+    markDirty();
     setClientId(selectedId);
     const found = clients.find((c) => c.id === selectedId);
     if (found) {
@@ -921,9 +1375,9 @@ export function MedicalModal({
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function submitSave() {
     setError('');
+    setIsConflict(false);
     if (!candidateName.trim() || !medicalCenter.trim() || !medicalLocation.trim()) {
       setError('Candidate name, medical center, and location are required.');
       return;
@@ -944,13 +1398,22 @@ export function MedicalModal({
         amountReceivable: Number(amountReceivable) || 0,
         paymentPurpose: paymentPurpose.trim(),
         notes: notes.trim(),
+        clientRequestId: isCreate ? clientRequestId : undefined,
+        expectedVersion: initial?.version,
       });
+      setIsDirty(false);
       onClose();
     } catch (err) {
+      if (err instanceof ConflictError) setIsConflict(true);
       setError(err instanceof Error ? err.message : 'Failed to save medical record.');
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    submitSave();
   }
 
   return (
@@ -962,17 +1425,35 @@ export function MedicalModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseAttempt}
             className="p-2 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {confirmClose && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setConfirmClose(false)}
+            onDiscard={onClose}
+          />
+        )}
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="px-4 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-              {error}
+            <div className="px-4 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg flex flex-wrap items-center justify-between gap-2">
+              <span>{error}</span>
+              {!isConflict && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={submitSave}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-red-700 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -981,7 +1462,10 @@ export function MedicalModal({
               <label className="block text-xs font-semibold text-slate-700 mb-1">Staff Owner</label>
               <select
                 value={staffId}
-                onChange={(e) => setStaffId(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setStaffId(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {staffList.map((s) => (
@@ -1022,7 +1506,10 @@ export function MedicalModal({
                 type="text"
                 required
                 value={candidateName}
-                onChange={(e) => setCandidateName(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setCandidateName(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
             </div>
@@ -1033,7 +1520,10 @@ export function MedicalModal({
               <input
                 type="tel"
                 value={candidatePhone}
-                onChange={(e) => setCandidatePhone(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setCandidatePhone(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -1047,7 +1537,10 @@ export function MedicalModal({
               type="text"
               required
               value={medicalCenter}
-              onChange={(e) => setMedicalCenter(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setMedicalCenter(e.target.value);
+              }}
               placeholder="e.g. Al-Riyadh Diagnostic & GAMCA Center"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -1061,7 +1554,10 @@ export function MedicalModal({
               type="text"
               required
               value={medicalLocation}
-              onChange={(e) => setMedicalLocation(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setMedicalLocation(e.target.value);
+              }}
               placeholder="e.g. Banani Road 11, Dhaka"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -1073,7 +1569,10 @@ export function MedicalModal({
               <input
                 type="date"
                 value={testDate}
-                onChange={(e) => setTestDate(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setTestDate(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -1083,7 +1582,10 @@ export function MedicalModal({
               </label>
               <select
                 value={result}
-                onChange={(e) => setResult(e.target.value as MedicalRecordResult)}
+                onChange={(e) => {
+                  markDirty();
+                  setResult(e.target.value as MedicalRecordResult);
+                }}
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {MEDICAL_RESULTS.map((r) => (
@@ -1104,7 +1606,10 @@ export function MedicalModal({
                 type="number"
                 min={0}
                 value={amountPaid}
-                onChange={(e) => setAmountPaid(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setAmountPaid(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -1116,7 +1621,10 @@ export function MedicalModal({
                 type="number"
                 min={0}
                 value={amountReceivable}
-                onChange={(e) => setAmountReceivable(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setAmountReceivable(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -1129,7 +1637,10 @@ export function MedicalModal({
             <input
               type="text"
               value={paymentPurpose}
-              onChange={(e) => setPaymentPurpose(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setPaymentPurpose(e.target.value);
+              }}
               placeholder="e.g. GAMCA Slip & Lab Screening Fee"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -1140,7 +1651,10 @@ export function MedicalModal({
             <input
               type="text"
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setNotes(e.target.value);
+              }}
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
@@ -1148,7 +1662,8 @@ export function MedicalModal({
           <div className="pt-3 border-t border-slate-200 flex justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseAttempt}
+              disabled={saving}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
               Cancel
@@ -1177,7 +1692,9 @@ interface InterviewModalProps {
   clients: ClientProfile[];
   defaultStaffId: string;
   onClose: () => void;
-  onSave: (payload: Partial<InterviewRecord>) => Promise<void>;
+  onSave: (
+    payload: Partial<InterviewRecord> & { expectedVersion?: number }
+  ) => Promise<void>;
 }
 
 export function InterviewModal({
@@ -1189,6 +1706,10 @@ export function InterviewModal({
   onClose,
   onSave,
 }: InterviewModalProps) {
+  const isCreate = !initial;
+  const draftKey = `interview_create_${defaultStaffId}`;
+  const [clientRequestId] = useState(() => generateRequestId());
+
   const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
   const [clientId, setClientId] = useState(initial?.clientId || '');
   const [candidateNames, setCandidateNames] = useState(initial?.candidateNames || '');
@@ -1204,10 +1725,64 @@ export function InterviewModal({
   const [location, setLocation] = useState(initial?.location || '');
   const [status, setStatus] = useState<InterviewStatus>(initial?.status || 'Upcoming');
   const [notes, setNotes] = useState(initial?.notes || '');
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [isConflict, setIsConflict] = useState(false);
+  const [draftOffer, setDraftOffer] = useState<{
+    savedAt: string;
+    data: {
+      candidateNames?: string;
+      interviewerOrCompany?: string;
+      trade?: string;
+      interviewDate?: string;
+      interviewTime?: string;
+      location?: string;
+    };
+  } | null>(() => (isCreate ? loadSafeDraft(draftKey) : null));
+
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  useEffect(() => {
+    if (!isCreate || !isDirty) return;
+    saveSafeDraft(draftKey, {
+      candidateNames,
+      interviewerOrCompany,
+      trade,
+      interviewDate,
+      interviewTime,
+      location,
+    });
+  }, [
+    isCreate,
+    isDirty,
+    draftKey,
+    candidateNames,
+    interviewerOrCompany,
+    trade,
+    interviewDate,
+    interviewTime,
+    location,
+  ]);
+
+  function markDirty() {
+    if (!isDirty) setIsDirty(true);
+    if (confirmClose) setConfirmClose(false);
+  }
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (isDirty && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }
 
   function handleClientPick(selectedId: string) {
+    markDirty();
     setClientId(selectedId);
     const found = clients.find((c) => c.id === selectedId);
     if (found) {
@@ -1216,9 +1791,9 @@ export function InterviewModal({
     }
   }
 
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
+  async function submitSave() {
     setError('');
+    setIsConflict(false);
     if (!candidateNames.trim() || !interviewerOrCompany.trim() || !interviewDate || !location.trim()) {
       setError('Candidates, company/interviewer, date, and location are required.');
       return;
@@ -1238,13 +1813,23 @@ export function InterviewModal({
         location: location.trim(),
         status,
         notes: notes.trim(),
+        clientRequestId: isCreate ? clientRequestId : undefined,
+        expectedVersion: initial?.version,
       });
+      if (isCreate) clearSafeDraft(draftKey);
+      setIsDirty(false);
       onClose();
     } catch (err) {
+      if (err instanceof ConflictError) setIsConflict(true);
       setError(err instanceof Error ? err.message : 'Failed to save interview.');
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    submitSave();
   }
 
   return (
@@ -1256,17 +1841,72 @@ export function InterviewModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseAttempt}
             className="p-2 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
+        {confirmClose && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setConfirmClose(false)}
+            onDiscard={() => {
+              if (isCreate) clearSafeDraft(draftKey);
+              onClose();
+            }}
+          />
+        )}
+
+        {draftOffer && (
+          <div className="px-6 py-2.5 bg-blue-50 border-b border-blue-200 flex items-center justify-between gap-2 text-xs">
+            <span className="text-blue-900">Restore unsaved interview draft?</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCandidateNames(draftOffer.data.candidateNames || '');
+                  setInterviewerOrCompany(draftOffer.data.interviewerOrCompany || '');
+                  setTrade(draftOffer.data.trade || '');
+                  setInterviewDate(draftOffer.data.interviewDate || interviewDate);
+                  setInterviewTime(draftOffer.data.interviewTime || interviewTime);
+                  setLocation(draftOffer.data.location || '');
+                  setDraftOffer(null);
+                  setIsDirty(true);
+                }}
+                className="px-2.5 py-1 font-semibold text-white bg-blue-700 rounded cursor-pointer"
+              >
+                Restore
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearSafeDraft(draftKey);
+                  setDraftOffer(null);
+                }}
+                className="px-2.5 py-1 bg-white border border-slate-300 rounded cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="px-4 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-              {error}
+            <div className="px-4 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg flex flex-wrap items-center justify-between gap-2">
+              <span>{error}</span>
+              {!isConflict && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={submitSave}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-white bg-red-700 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Retry</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -1275,7 +1915,10 @@ export function InterviewModal({
               <label className="block text-xs font-semibold text-slate-700 mb-1">Staff Owner</label>
               <select
                 value={staffId}
-                onChange={(e) => setStaffId(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setStaffId(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {staffList.map((s) => (
@@ -1316,7 +1959,10 @@ export function InterviewModal({
                 type="text"
                 required
                 value={candidateNames}
-                onChange={(e) => setCandidateNames(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setCandidateNames(e.target.value);
+                }}
                 placeholder="e.g. Md. Kamrul Hasan, Sohel Rana"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -1329,7 +1975,10 @@ export function InterviewModal({
                 type="number"
                 min={1}
                 value={clientCount}
-                onChange={(e) => setClientCount(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setClientCount(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -1344,7 +1993,10 @@ export function InterviewModal({
                 type="text"
                 required
                 value={interviewerOrCompany}
-                onChange={(e) => setInterviewerOrCompany(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setInterviewerOrCompany(e.target.value);
+                }}
                 placeholder="e.g. Al-Fanar Contracting (KSA)"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -1354,7 +2006,10 @@ export function InterviewModal({
               <input
                 type="text"
                 value={trade}
-                onChange={(e) => setTrade(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setTrade(e.target.value);
+                }}
                 placeholder="e.g. Electrician"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -1370,7 +2025,10 @@ export function InterviewModal({
                 type="date"
                 required
                 value={interviewDate}
-                onChange={(e) => setInterviewDate(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setInterviewDate(e.target.value);
+                }}
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -1379,7 +2037,10 @@ export function InterviewModal({
               <input
                 type="text"
                 value={interviewTime}
-                onChange={(e) => setInterviewTime(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setInterviewTime(e.target.value);
+                }}
                 placeholder="10:00 AM"
                 className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
@@ -1388,7 +2049,10 @@ export function InterviewModal({
               <label className="block text-xs font-semibold text-slate-700 mb-1">Status</label>
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as InterviewStatus)}
+                onChange={(e) => {
+                  markDirty();
+                  setStatus(e.target.value as InterviewStatus);
+                }}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg"
               >
                 {INTERVIEW_STATUSES.map((st) => (
@@ -1408,7 +2072,10 @@ export function InterviewModal({
               type="text"
               required
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setLocation(e.target.value);
+              }}
               placeholder="e.g. Technical Trade Center, Mirpur 12"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -1419,7 +2086,10 @@ export function InterviewModal({
             <input
               type="text"
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setNotes(e.target.value);
+              }}
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
@@ -1427,7 +2097,8 @@ export function InterviewModal({
           <div className="pt-3 border-t border-slate-200 flex justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseAttempt}
+              disabled={saving}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
               Cancel
@@ -1483,20 +2154,45 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
   const [coverUrl, setCoverUrl] = useState(
     initial?.coverUrl || APP_IMAGES.heroMobilityAgency
   );
+  const [isDirty, setIsDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [uploadingKind, setUploadingKind] = useState<'avatar' | 'cover' | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  function markDirty() {
+    if (!isDirty) setIsDirty(true);
+    if (confirmClose) setConfirmClose(false);
+  }
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (isDirty && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    onClose();
+  }
+
   async function handleImageUpload(
     e: ChangeEvent<HTMLInputElement>,
+    kind: 'avatar' | 'cover',
     setter: (val: string) => void
   ) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setError('');
+    setUploadingKind(kind);
     try {
-      const dataUrl = await compressImageFile(file, 900);
-      setter(dataUrl);
-    } catch {
-      setError('Failed to process uploaded image.');
+      const url = await api.uploadStaffMediaFile(file, initial?.id || 'admin_uploads', kind);
+      markDirty();
+      setter(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload image.');
+    } finally {
+      setUploadingKind(null);
     }
   }
 
@@ -1507,12 +2203,12 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
       setError('Staff Name and User ID are required.');
       return;
     }
-    if (!initial && !email.trim()) {
-      setError('Staff Email address is required.');
+    if (!initial && password.trim().length < 4) {
+      setError('Password must be at least 4 characters.');
       return;
     }
-    if (!initial && password.trim().length < 6) {
-      setError('Password must be at least 6 characters.');
+    if (initial && password.trim().length > 0 && password.trim().length < 4) {
+      setError('New password must be at least 4 characters.');
       return;
     }
 
@@ -1530,6 +2226,7 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
         photoUrl: photoUrl.trim(),
         coverUrl: coverUrl.trim(),
       });
+      setIsDirty(false);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save staff account.');
@@ -1547,17 +2244,24 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
               {initial ? 'Edit Staff Account' : 'Create Staff Account'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Staff will use this Email or User ID and Password to sign in to their dashboard.
+              Staff will use this User ID and Password to sign in and create client accounts.
             </p>
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCloseAttempt}
             className="p-2 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {confirmClose && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setConfirmClose(false)}
+            onDiscard={onClose}
+          />
+        )}
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           {error && (
@@ -1573,7 +2277,10 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setName(e.target.value);
+                }}
                 placeholder="e.g. Rafiqul Islam"
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
@@ -1585,7 +2292,10 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
               <input
                 type="text"
                 value={designation}
-                onChange={(e) => setDesignation(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setDesignation(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
               />
             </div>
@@ -1594,42 +2304,50 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Email Address {!initial && '*'}
-              </label>
-              <input
-                type="email"
-                required={!initial}
-                disabled={Boolean(initial)}
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="staff@company.com"
-                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg disabled:bg-slate-100"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Login User ID *
               </label>
               <input
                 type="text"
                 required
                 value={userId}
-                onChange={(e) => setUserId(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setUserId(e.target.value);
+                }}
                 placeholder="e.g. rafiq"
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email Address (Optional)
+              </label>
+              <input
+                type="email"
+                disabled={Boolean(initial)}
+                value={email}
+                onChange={(e) => {
+                  markDirty();
+                  setEmail(e.target.value);
+                }}
+                placeholder="Auto-assigned if blank"
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg disabled:bg-slate-100"
               />
             </div>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              {initial ? 'New Password (optional, local mode only)' : 'Login Password (min. 6 chars) *'}
+              {initial ? 'New Login Password (leave blank to keep current)' : 'Login Password (min. 4 chars) *'}
             </label>
             <input
               type="password"
               required={!initial}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setPassword(e.target.value);
+              }}
               placeholder={initial ? 'Leave blank to keep current password' : 'Set login password'}
               className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
             />
@@ -1643,7 +2361,10 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
               <input
                 type="tel"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setPhone(e.target.value);
+                }}
                 placeholder="+88017..."
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
@@ -1655,7 +2376,10 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
               <input
                 type="tel"
                 value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
+                onChange={(e) => {
+                  markDirty();
+                  setWhatsapp(e.target.value);
+                }}
                 placeholder="+88017..."
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
@@ -1669,7 +2393,10 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
             <input
               type="text"
               value={socialLink}
-              onChange={(e) => setSocialLink(e.target.value)}
+              onChange={(e) => {
+                markDirty();
+                setSocialLink(e.target.value);
+              }}
               placeholder="https://facebook.com/..."
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
             />
@@ -1688,11 +2415,12 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
                 />
                 <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>Upload Photo</span>
+                  <span>{uploadingKind === 'avatar' ? 'Uploading...' : 'Upload Photo'}</span>
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => handleImageUpload(e, setPhotoUrl)}
+                    disabled={uploadingKind !== null}
+                    onChange={(e) => handleImageUpload(e, 'avatar', setPhotoUrl)}
                     className="sr-only"
                   />
                 </label>
@@ -1711,11 +2439,12 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
                 />
                 <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>Upload Cover</span>
+                  <span>{uploadingKind === 'cover' ? 'Uploading...' : 'Upload Cover'}</span>
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={(e) => handleImageUpload(e, setCoverUrl)}
+                    disabled={uploadingKind !== null}
+                    onChange={(e) => handleImageUpload(e, 'cover', setCoverUrl)}
                     className="sr-only"
                   />
                 </label>
@@ -1726,14 +2455,15 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
           <div className="pt-3 border-t border-slate-200 flex justify-end gap-3">
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleCloseAttempt}
+              disabled={saving}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploadingKind !== null}
               className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
             >
               {saving ? 'Saving...' : initial ? 'Update Staff' : 'Create Staff'}

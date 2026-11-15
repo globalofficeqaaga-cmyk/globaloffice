@@ -1,28 +1,78 @@
-import { useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowRight,
   Calendar,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   FileCheck2,
   MapPin,
+  MessageCircle,
+  Pause,
   Phone,
+  Play,
   Search,
   Stethoscope,
   Wallet,
+  X,
 } from 'lucide-react';
-import { api, formatBDT, formatDateOnly, formatDateTime } from '../lib/api';
-import { APP_IMAGES } from '../lib/assets';
-import type { ClientLookupResponse } from '../types';
+import {
+  api,
+  buildWhatsAppUrl,
+  formatBDT,
+  formatDateOnly,
+  formatDateTime,
+} from '../lib/api';
+import type { ClientLookupResponse, SiteSettings } from '../types';
+import { BrandLogo } from './BrandLogo';
 import { StaffContactCard } from './StaffContactCard';
 
-export function LandingPage() {
+interface LandingPageProps {
+  siteSettings: SiteSettings;
+}
+
+export function LandingPage({ siteSettings }: LandingPageProps) {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ClientLookupResponse | null>(null);
   const [previewImage, setPreviewImage] = useState<{ title: string; url: string } | null>(null);
   const resultRef = useRef<HTMLDivElement | null>(null);
+
+  const posters = siteSettings.posters;
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  const safeSlideIndex = posters.length > 0 ? activeSlide % posters.length : 0;
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const syncPreference = () => setPrefersReducedMotion(mq.matches);
+    syncPreference();
+    mq.addEventListener('change', syncPreference);
+    return () => mq.removeEventListener('change', syncPreference);
+  }, []);
+
+  useEffect(() => {
+    if (posters.length <= 1 || isPaused || prefersReducedMotion) return;
+    const delay = Math.max(1500, siteSettings.posterAutoSlideMs || 4500);
+    const timer = window.setInterval(() => {
+      setActiveSlide((prev) => (prev + 1) % posters.length);
+    }, delay);
+    return () => window.clearInterval(timer);
+  }, [posters.length, isPaused, prefersReducedMotion, siteSettings.posterAutoSlideMs]);
+
+  function handlePrevSlide() {
+    if (posters.length === 0) return;
+    setActiveSlide((prev) => (prev - 1 + posters.length) % posters.length);
+  }
+
+  function handleNextSlide() {
+    if (posters.length === 0) return;
+    setActiveSlide((prev) => (prev + 1) % posters.length);
+  }
 
   async function runLookup(targetPhone: string) {
     const clean = targetPhone.trim();
@@ -60,155 +110,229 @@ export function LandingPage() {
     ? Math.max(0, (result.client.totalPayable || 0) - (result.client.totalPaid || 0))
     : 0;
 
+  const hasTracker = siteSettings.showTracker;
+  const hasSlider = siteSettings.showPosterSlider && posters.length > 0;
+
   return (
-    <main className="bg-slate-50">
-      {/* Hero Section */}
-      <section id="track-status" className="bg-white border-b border-slate-200">
-        <div className="max-w-[1280px] mx-auto px-6 py-12 lg:py-16">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-stretch">
-            {/* Left Column: Proposition + Client Phone Update Form */}
-            <div className="lg:col-span-6 flex flex-col justify-between">
-              <div>
-                <p className="text-xs font-medium text-slate-500 tracking-wide mb-3">
-                  Overseas Recruitment · Visa Processing · Live Candidate Desk
-                </p>
-                <h1
-                  className="font-display font-bold tracking-tight text-slate-900 text-balance"
-                  style={{ fontSize: 'clamp(2.25rem, 4vw, 3.5rem)', lineHeight: 1.08 }}
+    <main className="bg-slate-50 flex-1 flex flex-col">
+      {/* First Page Focal Split: Track by Phone Number + Running Poster Slider */}
+      {(hasTracker || hasSlider) && (
+        <section id="track-status" className="bg-white border-b border-slate-200">
+          <div className="max-w-[1280px] mx-auto px-6 py-10 lg:py-14">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
+              {/* Left Column: Track by Phone Number */}
+              {hasTracker && (
+                <div
+                  className={`${
+                    hasSlider ? 'lg:col-span-6' : 'lg:col-span-12 max-w-2xl'
+                  } flex flex-col justify-center`}
                 >
-                  Check your visa, medical, and payment progress in seconds.
-                </h1>
-                <p className="mt-4 text-base text-slate-600 leading-relaxed max-w-xl">
-                  Enter the phone number registered with your coordinator to review submitted
-                  documents, GAMCA medical clearance, interview dates, remaining balance, and
-                  direct staff contact details.
-                </p>
-
-                {/* Primary Focal Action: Phone Number + See Update */}
-                <form
-                  onSubmit={handleSubmit}
-                  className="mt-8 p-5 bg-slate-50 border border-slate-200 rounded-xl"
-                >
-                  <label
-                    htmlFor="client-phone-input"
-                    className="block text-sm font-semibold text-slate-900 mb-2"
+                  {siteSettings.heroKicker && (
+                    <p className="text-xs font-medium text-slate-500 tracking-wide mb-3">
+                      {siteSettings.heroKicker}
+                    </p>
+                  )}
+                  <h1
+                    className="font-display font-bold tracking-tight text-slate-900 text-balance"
+                    style={{ fontSize: 'clamp(2.1rem, 3.8vw, 3.2rem)', lineHeight: 1.08 }}
                   >
-                    Client Phone Number
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <div className="relative flex-1">
-                      <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        id="client-phone-input"
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        placeholder="e.g. 01712345678"
-                        className="w-full pl-10 pr-4 py-3 text-base bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
-                    >
-                      <Search className="w-4 h-4" />
-                      <span>{loading ? 'Checking...' : 'See Update'}</span>
-                    </button>
-                  </div>
-
-                  {error && (
-                    <div className="mt-3 px-3.5 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
-                      {error}
-                    </div>
+                    {siteSettings.heroTitle}
+                  </h1>
+                  {siteSettings.heroSubtitle && (
+                    <p className="mt-4 text-base text-slate-600 leading-relaxed max-w-xl">
+                      {siteSettings.heroSubtitle}
+                    </p>
                   )}
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    <span>Sample registered files:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPhone('01712345678');
-                        runLookup('01712345678');
-                      }}
-                      className="font-mono font-medium text-blue-700 hover:underline cursor-pointer"
+                  {/* Phone Number Search Box */}
+                  <form
+                    onSubmit={handleSubmit}
+                    className="mt-7 p-5 bg-slate-50 border border-slate-200 rounded-xl"
+                  >
+                    <label
+                      htmlFor="client-phone-input"
+                      className="block text-sm font-semibold text-slate-900 mb-2"
                     >
-                      01712345678
-                    </button>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPhone('01855667788');
-                        runLookup('01855667788');
-                      }}
-                      className="font-mono font-medium text-blue-700 hover:underline cursor-pointer"
-                    >
-                      01855667788
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
+                      {siteSettings.trackerTitle || 'Client Phone Number'}
+                    </label>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <div className="relative flex-1">
+                        <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          id="client-phone-input"
+                          type="tel"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          placeholder={siteSettings.trackerPlaceholder || 'e.g. 01712345678'}
+                          className="w-full pl-10 pr-4 py-3 text-base bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                        />
+                      </div>
+                      <button
+                        type="submit"
+                        disabled={loading}
+                        className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+                      >
+                        <Search className="w-4 h-4" />
+                        <span>
+                          {loading ? 'Checking...' : siteSettings.trackerButtonLabel || 'See Update'}
+                        </span>
+                      </button>
+                    </div>
 
-            {/* Right Column: Architectural Visual */}
-            <div className="lg:col-span-6">
-              <div className="relative h-72 sm:h-96 lg:h-full min-h-[340px] rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
-                <img
-                  src={APP_IMAGES.heroMobilityAgency}
-                  alt="Global Pathways headquarters reception and visa consultation desk"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
-                <div className="absolute bottom-5 left-5 right-5 text-white">
-                  <p className="text-xs text-slate-200 font-medium">
-                    Dhaka Head Office · Banani Road 11
-                  </p>
-                  <p className="font-display text-lg font-semibold mt-0.5">
-                    Transparent processing from passport intake to boarding pass.
-                  </p>
+                    {error && (
+                      <div className="mt-3 px-3.5 py-2.5 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg">
+                        {error}
+                      </div>
+                    )}
+                  </form>
                 </div>
-              </div>
+              )}
+
+              {/* Right Column: Interactive Running Poster Slider */}
+              {hasSlider && (
+                <div
+                  id="posters"
+                  className={`${hasTracker ? 'lg:col-span-6' : 'lg:col-span-12'} flex flex-col`}
+                >
+                  <div
+                    className="relative h-[380px] sm:h-[420px] lg:h-full lg:min-h-[420px] rounded-xl overflow-hidden border border-slate-200 bg-gradient-to-br from-slate-800 to-slate-950"
+                    onMouseEnter={() => setIsPaused(true)}
+                    onMouseLeave={() => setIsPaused(false)}
+                    onFocusCapture={() => setIsPaused(true)}
+                    onBlurCapture={() => setIsPaused(false)}
+                    aria-roledescription="carousel"
+                    aria-label={`${siteSettings.brandName} posters`}
+                  >
+                    {/* Compositor-only horizontal poster track */}
+                    <div
+                      className="flex h-full transition-transform duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform"
+                      style={{ transform: `translateX(-${safeSlideIndex * 100}%)` }}
+                    >
+                      {posters.map((slide, idx) => (
+                        <article
+                          key={slide.id}
+                          className="relative w-full h-full shrink-0 bg-gradient-to-br from-slate-800 to-slate-950"
+                          aria-hidden={safeSlideIndex !== idx}
+                        >
+                          {slide.imageUrl && (
+                            <img
+                              src={slide.imageUrl}
+                              alt={slide.alt || slide.title}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-slate-950/15" />
+
+                          <div className="absolute bottom-14 left-5 right-5 sm:left-6 sm:right-6 text-white">
+                            {slide.kicker && (
+                              <p className="font-mono text-xs font-medium text-blue-300 tracking-wide">
+                                {slide.kicker}
+                              </p>
+                            )}
+                            <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-white mt-1.5 text-balance">
+                              {slide.title}
+                            </h2>
+                            {slide.subtitle && (
+                              <p className="text-xs sm:text-sm text-slate-200 mt-2 leading-relaxed line-clamp-2 max-w-lg">
+                                {slide.subtitle}
+                              </p>
+                            )}
+                            {slide.actionLabel && slide.actionHref && (
+                              <a
+                                href={slide.actionHref}
+                                className="mt-3 inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-white hover:text-blue-200 underline underline-offset-4"
+                              >
+                                <span>{slide.actionLabel}</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                              </a>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+
+                    {/* Top-Right Poster Controls: Prev, Pause/Play, Next */}
+                    {posters.length > 1 && (
+                      <div className="absolute top-3.5 right-3.5 flex items-center gap-1.5 z-10">
+                        <button
+                          type="button"
+                          onClick={handlePrevSlide}
+                          aria-label="Previous poster"
+                          className="w-8 h-8 rounded-lg bg-slate-950/70 hover:bg-slate-950 text-white border border-white/15 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsPaused((prev) => !prev)}
+                          aria-label={isPaused ? 'Play poster slideshow' : 'Pause poster slideshow'}
+                          className="w-8 h-8 rounded-lg bg-slate-950/70 hover:bg-slate-950 text-white border border-white/15 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                        >
+                          {isPaused ? (
+                            <Play className="w-3.5 h-3.5" />
+                          ) : (
+                            <Pause className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleNextSlide}
+                          aria-label="Next poster"
+                          className="w-8 h-8 rounded-lg bg-slate-950/70 hover:bg-slate-950 text-white border border-white/15 flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Bottom Bar: Clickable Slide Indicators */}
+                    {posters.length > 1 && (
+                      <div className="absolute bottom-4 left-5 right-5 sm:left-6 sm:right-6 z-10 flex items-center justify-between gap-4">
+                        <div
+                          className="flex items-center gap-2 flex-1 max-w-xs"
+                          role="tablist"
+                          aria-label="Select poster slide"
+                        >
+                          {posters.map((slide, idx) => {
+                            const isActive = safeSlideIndex === idx;
+                            return (
+                              <button
+                                key={slide.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={isActive}
+                                aria-label={`Show poster ${idx + 1}: ${slide.title}`}
+                                onClick={() => setActiveSlide(idx)}
+                                className={`h-1.5 rounded-sm transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${
+                                  isActive
+                                    ? 'flex-1 bg-white'
+                                    : 'w-6 bg-white/40 hover:bg-white/65'
+                                }`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <span className="font-mono text-xs text-slate-300 tabular-nums shrink-0">
+                          {String(safeSlideIndex + 1).padStart(2, '0')} /{' '}
+                          {String(posters.length).padStart(2, '0')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
+        </section>
+      )}
 
-          {/* 4-Column Operational Proof Strip below hero split */}
-          <div className="mt-10 pt-8 border-t border-slate-200 grid grid-cols-2 lg:grid-cols-4 gap-6">
-            <div>
-              <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">1,450+</p>
-              <p className="text-sm text-slate-600 mt-1">
-                Workers deployed across Saudi Arabia, UAE, and Qatar
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">100%</p>
-              <p className="text-sm text-slate-600 mt-1">
-                Itemized payment ledger & verifiable receipt records
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">24 hrs</p>
-              <p className="text-sm text-slate-600 mt-1">
-                Live status sync after medical or interview updates
-              </p>
-            </div>
-            <div>
-              <p className="font-mono text-2xl font-semibold text-slate-900 tabular-nums">Direct</p>
-              <p className="text-sm text-slate-600 mt-1">
-                Phone, WhatsApp & Facebook access to your assigned officer
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Client Lookup Result Section (Shown when "See Update" finds a client) */}
-      {result && (
+      {/* Client Lookup Result Section (Shown only after tracking by phone number) */}
+      {hasTracker && result && (
         <section
           ref={resultRef}
           aria-live="polite"
-          className="bg-slate-50 border-b border-slate-200 py-12"
+          className="bg-slate-50 border-b border-slate-200 py-10"
         >
           <div className="max-w-[1280px] mx-auto px-6">
             {/* Client Status Banner */}
@@ -233,6 +357,15 @@ export function LandingPage() {
                   <span className="text-slate-500 mr-2">Current Stage:</span>
                   <span className="font-semibold text-blue-700">{result.client.status}</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setResult(null)}
+                  aria-label="Hide tracking result"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>Close</span>
+                </button>
               </div>
             </div>
 
@@ -275,20 +408,20 @@ export function LandingPage() {
                       </p>
                     </div>
                     <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-lg">
-                      <p className="text-xs text-emerald-800">Total Paid (Koto Tk Dise)</p>
+                      <p className="text-xs text-emerald-800">Total Paid</p>
                       <p className="font-mono text-xl font-bold text-emerald-700 tabular-nums mt-1">
                         {formatBDT(result.client.totalPaid)}
                       </p>
                     </div>
                     <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-lg">
-                      <p className="text-xs text-amber-800">Remaining Due (Koto Baki)</p>
+                      <p className="text-xs text-amber-800">Remaining Due</p>
                       <p className="font-mono text-xl font-bold text-amber-700 tabular-nums mt-1">
                         {formatBDT(dueAmount)}
                       </p>
                     </div>
                   </div>
 
-                  {/* Remaining Items / What is Left */}
+                  {/* Remaining Items */}
                   <div className="mt-5 p-4 bg-slate-50 border border-slate-200 rounded-lg">
                     <p className="text-xs font-semibold text-slate-700">
                       Remaining Steps & Pending Requirements
@@ -327,7 +460,7 @@ export function LandingPage() {
                             {doc.note && <p className="text-xs text-slate-500 mt-0.5">{doc.note}</p>}
                           </div>
                           <div className="flex items-center gap-3 shrink-0">
-                            {doc.fileDataUrl && (
+                            {doc.fileDataUrl ? (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -337,7 +470,9 @@ export function LandingPage() {
                               >
                                 View Copy
                               </button>
-                            )}
+                            ) : doc.storagePath ? (
+                              <span className="text-xs text-slate-500">On File (Private)</span>
+                            ) : null}
                             <span
                               className={`text-xs font-semibold ${
                                 doc.status === 'Verified'
@@ -549,154 +684,109 @@ export function LandingPage() {
         </section>
       )}
 
-      {/* Services & Operations Showcase */}
-      <section id="medical-screening" className="py-16 max-w-[1280px] mx-auto px-6">
-        <div className="max-w-2xl mb-10">
-          <p className="text-xs font-medium text-blue-700 mb-2">Core Operations</p>
-          <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900 text-balance">
-            Coordinated medical, trade testing, and employer interviews under one ledger.
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
-            <div className="aspect-[4/3] bg-slate-100 overflow-hidden">
-              <img
-                src={APP_IMAGES.serviceMedicalCenter}
-                alt="Partner international diagnostic medical screening center"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="p-6 flex-1 flex flex-col justify-between">
+      {/* Direct Contact Numbers Strip */}
+      {siteSettings.showContactSection && (
+        <section id="contact" className="bg-slate-50 py-10 flex-1">
+          <div className="max-w-[1280px] mx-auto px-6">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-6">
               <div>
-                <p className="text-xs font-medium text-slate-500">
-                  GAMCA · QVC · Gulf Diagnostic Centers
-                </p>
-                <h3 className="font-display text-xl font-bold text-slate-900 mt-1">
-                  01. Verified Medical Screening & Fee Transparency
-                </h3>
-                <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                  Every medical slip, diagnostic center location, fit/unfit result, and lab payment
-                  is recorded directly by your coordinator so candidates know exact fees paid and
-                  remaining balances.
-                </p>
+                <p className="text-xs font-medium text-blue-700">Contact Numbers</p>
+                <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900 mt-0.5">
+                  {siteSettings.contactSectionTitle || 'Direct Hotline & WhatsApp Desk'}
+                </h2>
               </div>
-              <a
-                href="#track-status"
-                className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-800"
-              >
-                <span>Check your medical status</span>
-                <ArrowRight className="w-4 h-4" />
-              </a>
+              {(siteSettings.officeAddress || siteSettings.officeHours) && (
+                <p className="text-xs text-slate-500">
+                  {[siteSettings.officeAddress, siteSettings.officeHours].filter(Boolean).join(' · ')}
+                </p>
+              )}
             </div>
-          </div>
 
-          <div id="trade-interviews" className="lg:col-span-6 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
-            <div className="aspect-[4/3] bg-slate-100 overflow-hidden">
-              <img
-                src={APP_IMAGES.serviceTradeInterview}
-                alt="Technical trade testing and foreign delegate interview center"
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="p-6 flex-1 flex flex-col justify-between">
-              <div>
-                <p className="text-xs font-medium text-slate-500">
-                  Trade Assessment · Foreign Delegate Interviews
-                </p>
-                <h3 className="font-display text-xl font-bold text-slate-900 mt-1">
-                  02. Direct Employer Interviews & Trade Certification
-                </h3>
-                <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                  Receive exact interview dates, test center addresses, salary terms, and briefing
-                  schedules directly on your status page before meeting foreign employer delegates.
-                </p>
+            {siteSettings.contacts.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {siteSettings.contacts.map((item) => {
+                  const isWa = item.type === 'whatsapp';
+                  const href = isWa
+                    ? buildWhatsAppUrl(item.value)
+                    : `tel:${item.value.replace(/[^+\d]/g, '')}`;
+                  return (
+                    <a
+                      key={item.id}
+                      href={href}
+                      target={isWa ? '_blank' : undefined}
+                      rel={isWa ? 'noopener noreferrer' : undefined}
+                      className={`bg-white border border-slate-200 ${
+                        isWa ? 'hover:border-emerald-700' : 'hover:border-blue-700'
+                      } rounded-xl p-5 flex items-center justify-between gap-4 transition-colors group`}
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div
+                          className={`w-10 h-10 rounded-lg ${
+                            isWa ? 'bg-emerald-700' : 'bg-slate-900'
+                          } text-white flex items-center justify-center shrink-0`}
+                        >
+                          {isWa ? (
+                            <MessageCircle className="w-4 h-4" />
+                          ) : (
+                            <Phone className="w-4 h-4" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-500">{item.label}</p>
+                          <p className="font-mono text-base font-bold text-slate-900 tabular-nums mt-0.5">
+                            {item.value}
+                          </p>
+                        </div>
+                      </div>
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                          isWa ? 'text-emerald-700' : 'text-blue-700'
+                        } group-hover:underline shrink-0`}
+                      >
+                        <span>{item.actionLabel || (isWa ? 'Chat' : 'Call')}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </span>
+                    </a>
+                  );
+                })}
               </div>
-              <a
-                href="#track-status"
-                className="mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-800"
-              >
-                <span>View scheduled interviews</span>
-                <ArrowRight className="w-4 h-4" />
-              </a>
-            </div>
+            )}
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* Process Breakdown */}
-      <section id="process" className="bg-white border-t border-slate-200 py-16">
-        <div className="max-w-[1280px] mx-auto px-6">
-          <div className="max-w-2xl mb-10">
-            <p className="text-xs font-medium text-blue-700 mb-2">How It Works</p>
-            <h2 className="font-display text-3xl font-bold tracking-tight text-slate-900">
-              Four verifiable milestones from registration to departure.
-            </h2>
-          </div>
+      {!siteSettings.showContactSection && <div className="flex-1" />}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div className="pt-4 border-t border-slate-200">
-              <h3 className="font-display text-base font-bold text-slate-900">
-                01. Document Intake
-              </h3>
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                Your coordinator creates your profile with passport, NID, trade skill, target
-                country, and salary package.
-              </p>
-            </div>
-            <div className="pt-4 border-t border-slate-200">
-              <h3 className="font-display text-base font-bold text-slate-900">
-                02. Medical Clearance
-              </h3>
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                Designated medical center, screening date, fit/pending result, and medical receipts
-                are logged in real time.
-              </p>
-            </div>
-            <div className="pt-4 border-t border-slate-200">
-              <h3 className="font-display text-base font-bold text-slate-900">
-                03. Delegate Interview
-              </h3>
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                Pre-interview briefing meetings and technical trade test locations appear on your
-                lookup dashboard.
-              </p>
-            </div>
-            <div className="pt-4 border-t border-slate-200">
-              <h3 className="font-display text-base font-bold text-slate-900">
-                04. Visa & Settlement
-              </h3>
-              <p className="text-sm text-slate-600 mt-2 leading-relaxed">
-                Track every installment paid, remaining balance, and pending clearance items before
-                flight departure.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Quiet Footer */}
+      {/* Compact Footer */}
       <footer className="bg-slate-900 text-slate-300 border-t border-slate-800">
-        <div className="max-w-[1280px] mx-auto px-6 py-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-          <div>
-            <p className="font-display text-base font-bold text-white">Global Pathways</p>
-            <p className="text-xs text-slate-400 mt-1">
-              House 42, Road 11, Banani, Dhaka 1213 · Overseas Recruitment & Candidate Operations
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-6 text-xs text-slate-400">
-            <a href="#track-status" className="hover:text-white transition-colors">
-              Track Status
-            </a>
-            <a href="#medical-screening" className="hover:text-white transition-colors">
-              Medical Centers
-            </a>
-            <a href="#trade-interviews" className="hover:text-white transition-colors">
-              Trade Interviews
-            </a>
-            <span>© {new Date().getFullYear()} Global Pathways</span>
+        <div className="max-w-[1280px] mx-auto px-6 py-7 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <BrandLogo
+            variant="dark"
+            brandName={siteSettings.brandName}
+            logoUrl={siteSettings.logoUrl}
+          />
+          <div className="flex flex-wrap items-center gap-5 text-xs text-slate-400">
+            {siteSettings.showTracker && (
+              <a href="#track-status" className="hover:text-white transition-colors whitespace-nowrap">
+                Track Status
+              </a>
+            )}
+            {siteSettings.showPosterSlider && posters.length > 0 && (
+              <a href="#posters" className="hover:text-white transition-colors whitespace-nowrap">
+                Posters
+              </a>
+            )}
+            {siteSettings.footerHotline && (
+              <a
+                href={`tel:${siteSettings.footerHotline.replace(/[^+\d]/g, '')}`}
+                className="font-mono text-slate-200 hover:text-white transition-colors whitespace-nowrap"
+              >
+                {siteSettings.footerHotline}
+              </a>
+            )}
+            <span className="whitespace-nowrap">
+              © {new Date().getFullYear()} {siteSettings.brandName || 'Global Pathways'}
+            </span>
           </div>
         </div>
       </footer>

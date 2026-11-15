@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react';
-import { ArrowLeft, LogOut, Menu, X } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { ArrowLeft, LogOut, Menu, WifiOff, X } from 'lucide-react';
 import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser } from '../types';
 
@@ -34,6 +34,20 @@ export function DashboardShell({
   children,
 }: DashboardShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const activeTabLabel = tabs.find((t) => t.id === activeTab)?.label || 'Overview';
 
@@ -165,6 +179,15 @@ export function DashboardShell({
 
           {primaryAction && <div className="shrink-0">{primaryAction}</div>}
         </header>
+
+        {!isOnline && (
+          <div className="bg-red-50 border-b border-red-200 px-6 py-2.5 flex items-center gap-2 text-xs font-medium text-red-800">
+            <WifiOff className="w-4 h-4 text-red-700 shrink-0" />
+            <span>
+              You are currently offline. Changes cannot be confirmed in the database until your internet connection reconnects.
+            </span>
+          </div>
+        )}
 
         <main className="flex-1 p-6 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
