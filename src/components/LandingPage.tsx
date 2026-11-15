@@ -12,6 +12,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { api, formatBDT, formatDateOnly, formatDateTime } from '../lib/api';
+import { APP_IMAGES } from '../lib/assets';
 import type { ClientLookupResponse } from '../types';
 import { StaffContactCard } from './StaffContactCard';
 
@@ -154,7 +155,7 @@ export function LandingPage() {
             <div className="lg:col-span-6">
               <div className="relative h-72 sm:h-96 lg:h-full min-h-[340px] rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
                 <img
-                  src="/src/assets/images/hero_mobility_agency_1794656908413.jpg"
+                  src={APP_IMAGES.heroMobilityAgency}
                   alt="Global Pathways headquarters reception and visa consultation desk"
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"
@@ -561,7 +562,7 @@ export function LandingPage() {
           <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
             <div className="aspect-[4/3] bg-slate-100 overflow-hidden">
               <img
-                src="/src/assets/images/service_medical_center_1794656908059.jpg"
+                src={APP_IMAGES.serviceMedicalCenter}
                 alt="Partner international diagnostic medical screening center"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
@@ -594,7 +595,7 @@ export function LandingPage() {
           <div id="trade-interviews" className="lg:col-span-6 bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col">
             <div className="aspect-[4/3] bg-slate-100 overflow-hidden">
               <img
-                src="/src/assets/images/service_trade_interview_1794656908174.jpg"
+                src={APP_IMAGES.serviceTradeInterview}
                 alt="Technical trade testing and foreign delegate interview center"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"

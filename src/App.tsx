@@ -5,6 +5,7 @@ import { LoginModal } from './components/LoginModal';
 import { StaffDashboard } from './components/StaffDashboard';
 import { TopBar } from './components/TopBar';
 import { api, getAuthToken, setAuthToken } from './lib/api';
+import { supabase } from './lib/supabase';
 import type { DashboardData, PublicUser } from './types';
 
 export default function App() {
@@ -13,10 +14,12 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<PublicUser | null>(null);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [bootstrapping, setBootstrapping] = useState(true);
+  const [dashLoading, setDashLoading] = useState(false);
   const [dashError, setDashError] = useState('');
 
   const loadDashboard = useCallback(async () => {
     setDashError('');
+    setDashLoading(true);
     try {
       const data = await api.getDashboard();
       setDashboardData(data);
@@ -26,13 +29,44 @@ export default function App() {
       setCurrentUser(null);
       setDashboardData(null);
       setView('landing');
-      setDashError(err instanceof Error ? err.message : 'Session expired.');
+      setDashError(err instanceof Error ? err.message : 'Unable to load dashboard session.');
+    } finally {
+      setDashLoading(false);
     }
   }, []);
 
   useEffect(() => {
     let active = true;
+
     async function init() {
+      if (supabase) {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session && active) {
+            const res = await api.me();
+            if (!active) return;
+            setCurrentUser(res.user);
+            const dash = await api.getDashboard();
+            if (!active) return;
+            setDashboardData(dash);
+          }
+        } catch (err) {
+          if (active) {
+            setCurrentUser(null);
+            setDashboardData(null);
+            setDashError(
+              err instanceof Error ? err.message : 'Could not restore Supabase session.'
+            );
+          }
+        } finally {
+          if (active) setBootstrapping(false);
+        }
+        return;
+      }
+
+      // Local dev Express session restore
       const token = getAuthToken();
       if (!token) {
         if (active) setBootstrapping(false);
@@ -55,7 +89,27 @@ export default function App() {
         if (active) setBootstrapping(false);
       }
     }
+
     init();
+
+    // Sync Supabase auth state changes (token refresh, email confirmation, sign-out)
+    if (supabase) {
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((event) => {
+        if (!active) return;
+        if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          setDashboardData(null);
+          setView('landing');
+        }
+      });
+      return () => {
+        active = false;
+        subscription.unsubscribe();
+      };
+    }
+
     return () => {
       active = false;
     };
@@ -68,8 +122,8 @@ export default function App() {
     setView('dashboard');
   }
 
-  function handleLogout() {
-    setAuthToken(null);
+  async function handleLogout() {
+    await api.logout();
     setCurrentUser(null);
     setDashboardData(null);
     setView('landing');
@@ -79,6 +133,14 @@ export default function App() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-sm text-slate-500 font-medium">Loading Global Pathways Portal...</div>
+      </div>
+    );
+  }
+
+  if (view === 'dashboard' && dashLoading && !dashboardData) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-sm text-slate-500 font-medium">Loading workspace data...</div>
       </div>
     );
   }

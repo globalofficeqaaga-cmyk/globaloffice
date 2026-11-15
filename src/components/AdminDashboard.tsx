@@ -1250,9 +1250,12 @@ export function AdminDashboard({
             if (staffModal.item) {
               await api.updateStaff(staffModal.item.id, payload);
             } else {
+              if (!payload.password) {
+                throw new Error('Password is required to create a staff account.');
+              }
               await api.createStaff({
                 ...payload,
-                password: payload.password || 'staff123',
+                password: payload.password,
               });
             }
             await onRefresh();

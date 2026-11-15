@@ -591,6 +591,57 @@ async function startServer() {
     });
   });
 
+  // Register new staff account (local fallback mode)
+  app.post('/api/auth/register', async (req, res) => {
+    const name = String(req.body?.name || '').trim();
+    const userId = String(req.body?.userId || '').trim();
+    const phone = String(req.body?.phone || '').trim();
+    const password = String(req.body?.password || '');
+
+    if (!name || !userId || password.length < 6) {
+      res.status(400).json({ error: 'Name, User ID, and password (min 6 chars) are required.' });
+      return;
+    }
+
+    const db = loadDb();
+    if (db.users.some((u) => u.userId.toLowerCase() === userId.toLowerCase())) {
+      res.status(409).json({ error: 'A user with this User ID already exists.' });
+      return;
+    }
+
+    const newStaff: StoredUser = {
+      id: generateId('usr_staff'),
+      userId,
+      role: 'staff',
+      name,
+      designation: 'Visa & Recruitment Coordinator',
+      phone,
+      whatsapp: phone,
+      socialLink: '',
+      photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
+      coverUrl: '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
+      createdAt: new Date().toISOString(),
+      passwordHash: hashPassword(password),
+    };
+
+    db.users.push(newStaff);
+    await saveDb(db);
+
+    const token = signToken(
+      {
+        sub: newStaff.id,
+        role: newStaff.role,
+        exp: Date.now() + 7 * 24 * 60 * 60 * 1000,
+      },
+      db.authSecret
+    );
+
+    res.status(201).json({
+      token,
+      user: toPublicUser(newStaff),
+    });
+  });
+
   // Current user check
   app.get('/api/auth/me', requireAuth, (req: AuthedRequest, res) => {
     res.json({ user: toPublicUser(req.currentUser!) });

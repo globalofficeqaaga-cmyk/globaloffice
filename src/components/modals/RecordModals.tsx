@@ -1,6 +1,7 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react';
 import { Plus, Trash2, Upload, X } from 'lucide-react';
 import { compressImageFile, formatBDT } from '../../lib/api';
+import { APP_IMAGES } from '../../lib/assets';
 import type {
   ClientDocument,
   ClientPayment,
@@ -1453,6 +1454,7 @@ interface StaffAccountModalProps {
   onClose: () => void;
   onSave: (payload: {
     userId: string;
+    email?: string;
     password?: string;
     name: string;
     designation: string;
@@ -1470,15 +1472,16 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
     initial?.designation || 'Visa & Recruitment Coordinator'
   );
   const [userId, setUserId] = useState(initial?.userId || '');
+  const [email, setEmail] = useState(initial?.email || '');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState(initial?.phone || '');
   const [whatsapp, setWhatsapp] = useState(initial?.whatsapp || '');
   const [socialLink, setSocialLink] = useState(initial?.socialLink || '');
   const [photoUrl, setPhotoUrl] = useState(
-    initial?.photoUrl || '/src/assets/images/staff_avatar_default_1794656907853.jpg'
+    initial?.photoUrl || APP_IMAGES.staffAvatarDefault
   );
   const [coverUrl, setCoverUrl] = useState(
-    initial?.coverUrl || '/src/assets/images/hero_mobility_agency_1794656908413.jpg'
+    initial?.coverUrl || APP_IMAGES.heroMobilityAgency
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1504,8 +1507,12 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
       setError('Staff Name and User ID are required.');
       return;
     }
-    if (!initial && password.trim().length < 3) {
-      setError('Password must be at least 3 characters.');
+    if (!initial && !email.trim()) {
+      setError('Staff Email address is required.');
+      return;
+    }
+    if (!initial && password.trim().length < 6) {
+      setError('Password must be at least 6 characters.');
       return;
     }
 
@@ -1515,6 +1522,7 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
         name: name.trim(),
         designation: designation.trim(),
         userId: userId.trim(),
+        email: email.trim() || undefined,
         password: password.trim() || undefined,
         phone: phone.trim(),
         whatsapp: whatsapp.trim() || phone.trim(),
@@ -1539,7 +1547,7 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
               {initial ? 'Edit Staff Account' : 'Create Staff Account'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Staff will use this User ID and Password to sign in to their dashboard.
+              Staff will use this Email or User ID and Password to sign in to their dashboard.
             </p>
           </div>
           <button
@@ -1586,6 +1594,20 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Email Address {!initial && '*'}
+              </label>
+              <input
+                type="email"
+                required={!initial}
+                disabled={Boolean(initial)}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="staff@company.com"
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg disabled:bg-slate-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Login User ID *
               </label>
               <input
@@ -1597,19 +1619,20 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                {initial ? 'New Password (leave blank to keep)' : 'Login Password *'}
-              </label>
-              <input
-                type="text"
-                required={!initial}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={initial ? 'Optional password reset' : 'Set password'}
-                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
-              />
-            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              {initial ? 'New Password (optional, local mode only)' : 'Login Password (min. 6 chars) *'}
+            </label>
+            <input
+              type="password"
+              required={!initial}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={initial ? 'Leave blank to keep current password' : 'Set login password'}
+              className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+            />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

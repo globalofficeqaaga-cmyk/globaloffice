@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowLeft, LogOut, Menu, X } from 'lucide-react';
+import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser } from '../types';
 
 export interface NavTab {
@@ -91,7 +92,7 @@ export function DashboardShell({
       <div className="p-4 border-t border-slate-200 space-y-2">
         <div className="flex items-center gap-3 px-2 py-1.5">
           <img
-            src={user.photoUrl || '/src/assets/images/staff_avatar_default_1794656907853.jpg'}
+            src={user.photoUrl || APP_IMAGES.staffAvatarDefault}
             alt={user.name}
             referrerPolicy="no-referrer"
             className="w-9 h-9 rounded-lg object-cover bg-slate-200 border border-slate-200 shrink-0"
