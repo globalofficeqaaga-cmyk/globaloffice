@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   AlertCircle,
   ArchiveRestore,
+  ArrowDownLeft,
+  ArrowUpRight,
   Briefcase,
   Calendar,
   CheckCircle2,
@@ -20,14 +22,17 @@ import {
   Trash2,
   UserPlus,
   Users,
+  Wallet,
   X,
 } from 'lucide-react';
 import { api, ConflictError, formatBDT, formatDateOnly, formatDateTime } from '../lib/api';
 import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type {
+  AccountLedgerEntry,
   ClientProfile,
   DashboardData,
   InterviewRecord,
+  LedgerEntryType,
   MedicalRecord,
   MeetingRecord,
   PublicUser,
@@ -39,6 +44,7 @@ import { WebsiteControlPanel } from './WebsiteControlPanel';
 import {
   ClientModal,
   InterviewModal,
+  LedgerEntryModal,
   MedicalModal,
   MeetingModal,
   StaffAccountModal,
@@ -59,6 +65,7 @@ type AdminTab =
   | 'medicals'
   | 'interviews'
   | 'clients'
+  | 'accounts'
   | 'staff'
   | 'audit'
   | 'website'
@@ -75,6 +82,8 @@ export function AdminDashboard({
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'all' | LedgerEntryType>('all');
+  const [ledgerSearchQuery, setLedgerSearchQuery] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState('');
   const [actionError, setActionError] = useState('');
@@ -175,10 +184,19 @@ export function AdminDashboard({
     open: boolean;
     item: InterviewRecord | null;
   }>({ open: false, item: null });
-  const [staffModal, setStaffModal] = useState<{ open: boolean; item: PublicUser | null }>({
+  const [staffModal, setStaffModal] = useState<{
+    open: boolean;
+    item: PublicUser | null;
+    defaultRole?: 'staff' | 'accounts';
+  }>({
     open: false,
     item: null,
+    defaultRole: 'staff',
   });
+  const [ledgerModal, setLedgerModal] = useState<{
+    open: boolean;
+    item: AccountLedgerEntry | null;
+  }>({ open: false, item: null });
 
   const staffNameMap = useMemo(() => {
     const map = new Map<string, PublicUser>();
@@ -292,11 +310,61 @@ export function AdminDashboard({
     [data.clients, staffFilter, q]
   );
 
+  const ledgerEntries = useMemo(() => {
+    const list = [...(data.ledgerEntries || [])];
+    list.sort((a, b) => {
+      const dateCmp = (b.entryDate || '').localeCompare(a.entryDate || '');
+      if (dateCmp !== 0) return dateCmp;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+    return list;
+  }, [data.ledgerEntries]);
+
+  const ledgerTotals = useMemo(() => {
+    let totalCredit = 0;
+    let totalDebit = 0;
+    let creditCount = 0;
+    let debitCount = 0;
+    for (const item of ledgerEntries) {
+      if (item.entryType === 'debit') {
+        totalDebit += Number(item.amount) || 0;
+        debitCount += 1;
+      } else {
+        totalCredit += Number(item.amount) || 0;
+        creditCount += 1;
+      }
+    }
+    return {
+      totalCredit,
+      totalDebit,
+      netBalance: totalCredit - totalDebit,
+      creditCount,
+      debitCount,
+    };
+  }, [ledgerEntries]);
+
+  const lq = ledgerSearchQuery.trim().toLowerCase();
+  const filteredLedgerEntries = useMemo(() => {
+    return ledgerEntries.filter((item) => {
+      if (ledgerTypeFilter !== 'all' && item.entryType !== ledgerTypeFilter) return false;
+      if (!lq) return true;
+      return (
+        item.title.toLowerCase().includes(lq) ||
+        item.category.toLowerCase().includes(lq) ||
+        item.partyName.toLowerCase().includes(lq) ||
+        item.referenceNo.toLowerCase().includes(lq) ||
+        (item.paymentMethod || '').toLowerCase().includes(lq) ||
+        (item.createdByName || '').toLowerCase().includes(lq)
+      );
+    });
+  }, [ledgerEntries, ledgerTypeFilter, lq]);
+
   const archivedCount =
     (data.archivedClients?.length || 0) +
     (data.archivedMeetings?.length || 0) +
     (data.archivedMedicals?.length || 0) +
-    (data.archivedInterviews?.length || 0);
+    (data.archivedInterviews?.length || 0) +
+    (data.archivedLedgerEntries?.length || 0);
 
   const tabs: NavTab[] = [
     { id: 'overview', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -325,6 +393,12 @@ export function AdminDashboard({
       count: data.clients.length,
     },
     {
+      id: 'accounts',
+      label: 'Accounts & Ledger',
+      icon: <Wallet className="w-4 h-4" />,
+      count: ledgerEntries.length,
+    },
+    {
       id: 'staff',
       label: 'Staff Accounts',
       icon: <Users className="w-4 h-4" />,
@@ -350,15 +424,29 @@ export function AdminDashboard({
 
   const primaryAction = (() => {
     if (activeTab === 'audit' || activeTab === 'website' || activeTab === 'settings') return null;
+    if (activeTab === 'accounts') {
+      return (
+        <button
+          type="button"
+          onClick={() => setLedgerModal({ open: true, item: null })}
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
+        >
+          <Plus className="w-4 h-4" />
+          <span className="sm:hidden">Add Entry</span>
+          <span className="hidden sm:inline">Add Debit / Credit</span>
+        </button>
+      );
+    }
     if (activeTab === 'staff') {
       return (
         <button
           type="button"
-          onClick={() => setStaffModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          onClick={() => setStaffModal({ open: true, item: null, defaultRole: 'staff' })}
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
         >
           <UserPlus className="w-4 h-4" />
-          <span>Create Staff ID</span>
+          <span className="sm:hidden">Staff ID</span>
+          <span className="hidden sm:inline">Create Staff ID</span>
         </button>
       );
     }
@@ -367,10 +455,11 @@ export function AdminDashboard({
         <button
           type="button"
           onClick={() => setMeetingModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Meeting</span>
+          <span className="sm:hidden">Meeting</span>
+          <span className="hidden sm:inline">Add Meeting</span>
         </button>
       );
     }
@@ -379,10 +468,11 @@ export function AdminDashboard({
         <button
           type="button"
           onClick={() => setMedicalModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Medical</span>
+          <span className="sm:hidden">Medical</span>
+          <span className="hidden sm:inline">Add Medical</span>
         </button>
       );
     }
@@ -391,10 +481,11 @@ export function AdminDashboard({
         <button
           type="button"
           onClick={() => setInterviewModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Interview</span>
+          <span className="sm:hidden">Interview</span>
+          <span className="hidden sm:inline">Add Interview</span>
         </button>
       );
     }
@@ -402,10 +493,11 @@ export function AdminDashboard({
       <button
         type="button"
         onClick={() => setClientModal({ open: true, item: null })}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
       >
         <Plus className="w-4 h-4" />
-        <span>Add Client</span>
+        <span className="sm:hidden">Client</span>
+        <span className="hidden sm:inline">Add Client</span>
       </button>
     );
   })();
@@ -461,30 +553,30 @@ export function AdminDashboard({
       )}
 
       {/* Shared Filter Toolbar for List Views */}
-      {activeTab !== 'overview' && activeTab !== 'staff' && activeTab !== 'audit' && (
-        <div className="mb-6 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-white border border-slate-200 rounded-xl p-4">
+      {['meetings', 'medicals', 'interviews', 'clients'].includes(activeTab) && (
+        <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row gap-2.5 sm:gap-3 items-stretch sm:items-center justify-between bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, phone, location, center..."
-              className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700 focus:bg-white"
+              placeholder="Search name, phone, location..."
+              className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700 focus:bg-white min-h-[40px]"
             />
           </div>
 
           <div className="flex items-center gap-2">
-            <label htmlFor="admin-staff-filter" className="text-xs font-medium text-slate-500">
+            <label htmlFor="admin-staff-filter" className="hidden sm:inline text-xs font-medium text-slate-500">
               Filter Staff:
             </label>
             <select
               id="admin-staff-filter"
               value={staffFilter}
               onChange={(e) => setStaffFilter(e.target.value)}
-              className="px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg"
+              className="w-full sm:w-auto px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg min-h-[40px]"
             >
-              <option value="all">All Staff Members</option>
+              <option value="all">All Staff</option>
               {data.staffList.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -499,19 +591,19 @@ export function AdminDashboard({
           OVERVIEW TAB
          ==================================================================== */}
       {activeTab === 'overview' && (
-        <div className="space-y-8">
+        <div className="space-y-6 sm:space-y-8">
           {/* Top KPI Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5">
             <button
               type="button"
               onClick={() => setActiveTab('meetings')}
-              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-5 transition-colors cursor-pointer"
+              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-3.5 sm:p-5 transition-colors cursor-pointer"
             >
-              <p className="text-xs font-medium text-slate-500">Total Meetings</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+              <p className="text-xs font-medium text-slate-500">Meetings</p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {data.meetings.length}
               </p>
-              <p className="text-xs text-slate-500 mt-2">
+              <p className="hidden sm:block text-xs text-slate-500 mt-2">
                 {data.meetings.filter((m) => m.status === 'Scheduled').length} currently scheduled
               </p>
             </button>
@@ -519,13 +611,15 @@ export function AdminDashboard({
             <button
               type="button"
               onClick={() => setActiveTab('medicals')}
-              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-5 transition-colors cursor-pointer"
+              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-3.5 sm:p-5 transition-colors cursor-pointer"
             >
-              <p className="text-xs font-medium text-slate-500">Medical Candidates & Totals</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+              <p className="text-xs font-medium text-slate-500">
+                Medicals<span className="hidden sm:inline"> &amp; Totals</span>
+              </p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {medicalTotals.totalCandidates}
               </p>
-              <p className="text-xs text-slate-600 font-mono tabular-nums mt-2">
+              <p className="hidden sm:block text-xs text-slate-600 font-mono tabular-nums mt-2">
                 Paid {formatBDT(medicalTotals.totalPaid)} · Due {formatBDT(medicalTotals.totalReceivable)}
               </p>
             </button>
@@ -533,13 +627,13 @@ export function AdminDashboard({
             <button
               type="button"
               onClick={() => setActiveTab('interviews')}
-              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-5 transition-colors cursor-pointer"
+              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-3.5 sm:p-5 transition-colors cursor-pointer"
             >
-              <p className="text-xs font-medium text-slate-500">Interview Candidates</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+              <p className="text-xs font-medium text-slate-500">Interviews</p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {totalInterviewClients}
               </p>
-              <p className="text-xs text-slate-500 mt-2">
+              <p className="hidden sm:block text-xs text-slate-500 mt-2">
                 Across {data.interviews.length} scheduled sessions
               </p>
             </button>
@@ -547,97 +641,177 @@ export function AdminDashboard({
             <button
               type="button"
               onClick={() => setActiveTab('clients')}
-              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-5 transition-colors cursor-pointer"
+              className="text-left bg-white border border-slate-200 hover:border-slate-300 rounded-xl p-3.5 sm:p-5 transition-colors cursor-pointer"
             >
-              <p className="text-xs font-medium text-slate-500">Active Clients & Staff</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+              <p className="text-xs font-medium text-slate-500">
+                Active Clients<span className="hidden sm:inline"> &amp; Staff</span>
+              </p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {data.clients.length}
               </p>
-              <p className="text-xs text-slate-500 mt-2">
+              <p className="hidden sm:block text-xs text-slate-500 mt-2">
                 Managed by {data.staffList.length} staff coordinators
               </p>
             </button>
           </div>
 
+          {/* Accounts Cashflow Summary Strip */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="grid grid-cols-3 gap-2.5 sm:gap-6 flex-1">
+              <div>
+                <p className="text-[11px] sm:text-xs font-medium text-slate-500">
+                  Credit<span className="hidden sm:inline"> (Money In)</span>
+                </p>
+                <p className="font-mono text-sm sm:text-xl font-bold text-emerald-700 tabular-nums mt-0.5 sm:mt-1 truncate">
+                  {formatBDT(ledgerTotals.totalCredit)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-medium text-slate-500">
+                  Debit<span className="hidden sm:inline"> (Money Out)</span>
+                </p>
+                <p className="font-mono text-sm sm:text-xl font-bold text-red-700 tabular-nums mt-0.5 sm:mt-1 truncate">
+                  {formatBDT(ledgerTotals.totalDebit)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] sm:text-xs font-medium text-slate-500">
+                  Balance<span className="hidden sm:inline"> (Net)</span>
+                </p>
+                <p
+                  className={`font-mono text-sm sm:text-xl font-bold tabular-nums mt-0.5 sm:mt-1 truncate ${
+                    ledgerTotals.netBalance < 0 ? 'text-red-700' : 'text-slate-900'
+                  }`}
+                >
+                  {ledgerTotals.netBalance < 0 ? '-' : ''}
+                  {formatBDT(Math.abs(ledgerTotals.netBalance))}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() =>
+                  setStaffModal({ open: true, item: null, defaultRole: 'accounts' })
+                }
+                className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span className="sm:hidden">Accounts ID</span>
+                <span className="hidden sm:inline">Create Accounts ID</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('accounts')}
+                className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg cursor-pointer"
+              >
+                <Wallet className="w-3.5 h-3.5" />
+                <span className="sm:hidden">Open Ledger</span>
+                <span className="hidden sm:inline">Open Debit / Credit Ledger</span>
+              </button>
+            </div>
+          </div>
+
           {/* Per-Staff Operational & Financial Breakdown */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex items-center justify-between gap-2">
               <div>
-                <h2 className="font-display text-base font-bold text-slate-900">
-                  Staff Activity & Medical Finance Breakdown
+                <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                  Staff Breakdown
                 </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
+                <p className="hidden sm:block text-xs text-slate-500 mt-0.5">
                   Real-time entries submitted by each staff coordinator
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setStaffModal({ open: true, item: null })}
-                className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                onClick={() => setStaffModal({ open: true, item: null, defaultRole: 'staff' })}
+                className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer shrink-0"
               >
-                + Create Staff Account
+                + Staff ID
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                  <tr>
-                    <th className="px-6 py-3 font-medium">Staff Member</th>
-                    <th className="px-4 py-3 font-medium text-right">Clients</th>
-                    <th className="px-4 py-3 font-medium text-right">Meetings</th>
-                    <th className="px-4 py-3 font-medium text-right">Medical Jatri</th>
-                    <th className="px-4 py-3 font-medium text-right">Medical Paid</th>
-                    <th className="px-4 py-3 font-medium text-right">Medical Due</th>
-                    <th className="px-6 py-3 font-medium text-right">Interview Jatri</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {staffBreakdown.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
-                        No staff members created yet. Create a staff ID & password to begin.
-                      </td>
-                    </tr>
-                  ) : (
-                    staffBreakdown.map((row) => (
-                      <tr key={row.staff.id} className="hover:bg-slate-50/70">
-                        <td className="px-6 py-3.5">
-                          <p className="font-semibold text-slate-900">{row.staff.name}</p>
-                          <p className="text-xs text-slate-500 font-mono">@{row.staff.userId}</p>
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-slate-800">
-                          {row.clientsCount}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-slate-800">
-                          {row.meetingsCount}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-slate-800">
-                          {row.medicalsCount}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-emerald-700 font-medium">
-                          {formatBDT(row.medPaid)}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums text-amber-700 font-medium">
-                          {formatBDT(row.medDue)}
-                        </td>
-                        <td className="px-6 py-3.5 text-right font-mono tabular-nums text-slate-800">
-                          {row.interviewCandidatesCount}
-                        </td>
+            {staffBreakdown.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-slate-500">
+                No staff accounts yet. Create a staff ID to begin.
+              </div>
+            ) : (
+              <>
+                {/* Mobile Staff Breakdown Cards */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {staffBreakdown.map((row) => (
+                    <div key={row.staff.id} className="p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-slate-900 truncate">{row.staff.name}</p>
+                        <span className="text-xs font-mono text-slate-500 shrink-0">
+                          @{row.staff.userId}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-slate-600 font-mono tabular-nums">
+                        <span>{row.clientsCount} clients</span>
+                        <span>{row.meetingsCount} mtg</span>
+                        <span>{row.medicalsCount} med</span>
+                        <span>{row.interviewCandidatesCount} intv</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Staff Breakdown Table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                      <tr>
+                        <th className="px-6 py-3 font-medium">Staff Member</th>
+                        <th className="px-4 py-3 font-medium text-right">Clients</th>
+                        <th className="px-4 py-3 font-medium text-right">Meetings</th>
+                        <th className="px-4 py-3 font-medium text-right">Medical Jatri</th>
+                        <th className="px-4 py-3 font-medium text-right">Medical Paid</th>
+                        <th className="px-4 py-3 font-medium text-right">Medical Due</th>
+                        <th className="px-6 py-3 font-medium text-right">Interview Jatri</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {staffBreakdown.map((row) => (
+                        <tr key={row.staff.id} className="hover:bg-slate-50/70">
+                          <td className="px-6 py-3.5">
+                            <p className="font-semibold text-slate-900">{row.staff.name}</p>
+                            <p className="text-xs text-slate-500 font-mono">@{row.staff.userId}</p>
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-slate-800">
+                            {row.clientsCount}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-slate-800">
+                            {row.meetingsCount}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-slate-800">
+                            {row.medicalsCount}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-emerald-700 font-medium">
+                            {formatBDT(row.medPaid)}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums text-amber-700 font-medium">
+                            {formatBDT(row.medDue)}
+                          </td>
+                          <td className="px-6 py-3.5 text-right font-mono tabular-nums text-slate-800">
+                            {row.interviewCandidatesCount}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Live Feeds: Upcoming Meetings & Upcoming Interviews */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white border border-slate-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-display text-base font-bold text-slate-900">
-                  Recent & Upcoming Meetings
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                  Recent Meetings
                 </h3>
                 <button
                   type="button"
@@ -673,10 +847,10 @@ export function AdminDashboard({
               </div>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-display text-base font-bold text-slate-900">
-                  Interview Schedule Summary
+            <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+              <div className="flex items-center justify-between mb-3 sm:mb-4">
+                <h3 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                  Interview Schedule
                 </h3>
                 <button
                   type="button"
@@ -720,124 +894,203 @@ export function AdminDashboard({
          ==================================================================== */}
       {activeTab === 'meetings' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="font-display text-base font-bold text-slate-900">
+              <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 All Meetings ({filteredMeetings.length})
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="hidden sm:block text-xs text-slate-500">
                 Who is meeting whom, which staff&apos;s client, location, and exact time
               </p>
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Staff</th>
-                  <th className="px-4 py-3 font-medium">Client</th>
-                  <th className="px-4 py-3 font-medium">Meeting With</th>
-                  <th className="px-4 py-3 font-medium">Location</th>
-                  <th className="px-4 py-3 font-medium">Date & Time</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredMeetings.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                      No meetings match your filter.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMeetings.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50/70">
-                      <td className="px-6 py-3.5 text-slate-700 font-medium">
-                        {getStaffLabel(m.staffId)}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <p className="font-semibold text-slate-900">{m.clientName}</p>
-                        {m.clientPhone && (
-                          <p className="text-xs text-slate-500 font-mono">{m.clientPhone}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-800">
-                        <p className="font-medium">{m.meetingWith}</p>
-                        {m.purpose && <p className="text-xs text-slate-500">{m.purpose}</p>}
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-700">{m.location}</td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-slate-700 whitespace-nowrap">
-                        {formatDateTime(m.dateTime)}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span
-                          className={`text-xs font-semibold ${
-                            m.status === 'Completed'
-                              ? 'text-emerald-700'
-                              : m.status === 'Cancelled'
-                              ? 'text-red-700'
-                              : 'text-blue-700'
-                          }`}
-                        >
-                          {m.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-3.5 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => setMeetingModal({ open: true, item: m })}
-                          className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
-                          title="Edit meeting"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        {confirmDeleteId === m.id ? (
-                          <span className="inline-flex items-center gap-1 ml-2">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setActionError('');
-                                  try {
-                                    await api.deleteMeeting(m.id);
-                                    setConfirmDeleteId(null);
-                                    await onRefresh();
-                                    notifySuccess('Meeting archived. You can restore it anytime from Audit & Archive.');
-                                  } catch (err) {
-                                    setConfirmDeleteId(null);
-                                    setActionError(err instanceof Error ? err.message : 'Failed to archive meeting.');
-                                  }
-                                }}
-                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
-                              >
-                                Confirm
-                              </button>
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteId(null)}
-                              className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
-                            >
-                              No
-                            </button>
-                          </span>
-                        ) : (
+          {filteredMeetings.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No meetings match your filter.
+            </div>
+          ) : (
+            <>
+              {/* Mobile Meeting Cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filteredMeetings.map((m) => (
+                  <div key={m.id} className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{m.clientName}</p>
+                        <p className="text-xs text-slate-600 truncate">
+                          With {m.meetingWith} · {m.location}
+                        </p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          {getStaffLabel(m.staffId)} · {formatDateTime(m.dateTime)}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-xs font-semibold shrink-0 ${
+                          m.status === 'Completed'
+                            ? 'text-emerald-700'
+                            : m.status === 'Cancelled'
+                            ? 'text-red-700'
+                            : 'text-blue-700'
+                        }`}
+                      >
+                        {m.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setMeetingModal({ open: true, item: m })}
+                        className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                        title="Edit meeting"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      {confirmDeleteId === m.id ? (
+                        <span className="inline-flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => setConfirmDeleteId(m.id)}
-                            className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
-                            title="Delete meeting"
+                            onClick={async () => {
+                              setActionError('');
+                              try {
+                                await api.deleteMeeting(m.id);
+                                setConfirmDeleteId(null);
+                                await onRefresh();
+                                notifySuccess('Meeting archived.');
+                              } catch (err) {
+                                setConfirmDeleteId(null);
+                                setActionError(err instanceof Error ? err.message : 'Failed to archive meeting.');
+                              }
+                            }}
+                            className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                           >
-                            <Trash2 className="w-4 h-4" />
+                            Confirm
                           </button>
-                        )}
-                      </td>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                          >
+                            No
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(m.id)}
+                          className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                          title="Delete meeting"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Meetings Table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Staff</th>
+                      <th className="px-4 py-3 font-medium">Client</th>
+                      <th className="px-4 py-3 font-medium">Meeting With</th>
+                      <th className="px-4 py-3 font-medium">Location</th>
+                      <th className="px-4 py-3 font-medium">Date & Time</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-6 py-3 font-medium text-right">Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMeetings.map((m) => (
+                      <tr key={m.id} className="hover:bg-slate-50/70">
+                        <td className="px-6 py-3.5 text-slate-700 font-medium">
+                          {getStaffLabel(m.staffId)}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <p className="font-semibold text-slate-900">{m.clientName}</p>
+                          {m.clientPhone && (
+                            <p className="text-xs text-slate-500 font-mono">{m.clientPhone}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-800">
+                          <p className="font-medium">{m.meetingWith}</p>
+                          {m.purpose && <p className="text-xs text-slate-500">{m.purpose}</p>}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-700">{m.location}</td>
+                        <td className="px-4 py-3.5 font-mono text-xs text-slate-700 whitespace-nowrap">
+                          {formatDateTime(m.dateTime)}
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`text-xs font-semibold ${
+                              m.status === 'Completed'
+                                ? 'text-emerald-700'
+                                : m.status === 'Cancelled'
+                                ? 'text-red-700'
+                                : 'text-blue-700'
+                            }`}
+                          >
+                            {m.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setMeetingModal({ open: true, item: m })}
+                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                            title="Edit meeting"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          {confirmDeleteId === m.id ? (
+                            <span className="inline-flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteMeeting(m.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Meeting archived. You can restore it anytime from Audit & Archive.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(err instanceof Error ? err.message : 'Failed to archive meeting.');
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(m.id)}
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                              title="Delete meeting"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -845,30 +1098,34 @@ export function AdminDashboard({
           MEDICALS & FINANCE TAB
          ==================================================================== */}
       {activeTab === 'medicals' && (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Totals Bar */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Total Medical Candidates</p>
-              <p className="font-mono text-2xl font-bold text-slate-900 tabular-nums mt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+              <p className="text-xs text-slate-500">Candidates</p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums mt-1">
                 {filteredMedicals.length}
               </p>
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Total Paid (Koto Tk Dise)</p>
-              <p className="font-mono text-2xl font-bold text-emerald-700 tabular-nums mt-1">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+              <p className="text-xs text-slate-500">
+                Total Paid<span className="hidden sm:inline"> (Koto Tk Dise)</span>
+              </p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums mt-1 truncate">
                 {formatBDT(filteredMedicals.reduce((s, m) => s + (m.amountPaid || 0), 0))}
               </p>
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Total Receivable (Koto Paya Jabe)</p>
-              <p className="font-mono text-2xl font-bold text-amber-700 tabular-nums mt-1">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+              <p className="text-xs text-slate-500">
+                Receivable<span className="hidden sm:inline"> (Koto Paya Jabe)</span>
+              </p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-amber-700 tabular-nums mt-1 truncate">
                 {formatBDT(filteredMedicals.reduce((s, m) => s + (m.amountReceivable || 0), 0))}
               </p>
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Combined Medical Total</p>
-              <p className="font-mono text-2xl font-bold text-slate-900 tabular-nums mt-1">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+              <p className="text-xs text-slate-500">Combined Total</p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums mt-1 truncate">
                 {formatBDT(
                   filteredMedicals.reduce(
                     (s, m) => s + (m.amountPaid || 0) + (m.amountReceivable || 0),
@@ -880,85 +1137,66 @@ export function AdminDashboard({
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200">
-              <h2 className="font-display text-base font-bold text-slate-900">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
+              <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 Medical Screening & Payment Ledger
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="hidden sm:block text-xs text-slate-500">
                 Center, location, staff owner, paid amount, receivable due, and payment purpose
               </p>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                  <tr>
-                    <th className="px-6 py-3 font-medium">Staff</th>
-                    <th className="px-4 py-3 font-medium">Candidate</th>
-                    <th className="px-4 py-3 font-medium">Medical Center & Location</th>
-                    <th className="px-4 py-3 font-medium">Purpose</th>
-                    <th className="px-4 py-3 font-medium text-right">Paid</th>
-                    <th className="px-4 py-3 font-medium text-right">Receivable</th>
-                    <th className="px-4 py-3 font-medium">Result</th>
-                    <th className="px-6 py-3 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredMedicals.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-6 py-10 text-center text-slate-500">
-                        No medical records found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredMedicals.map((m) => (
-                      <tr key={m.id} className="hover:bg-slate-50/70">
-                        <td className="px-6 py-3.5 text-slate-700 font-medium">
-                          {getStaffLabel(m.staffId)}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="font-semibold text-slate-900">{m.candidateName}</p>
-                          <p className="text-xs text-slate-500 font-mono">
-                            {m.candidatePhone || formatDateOnly(m.testDate)}
+            {filteredMedicals.length === 0 ? (
+              <div className="px-6 py-10 text-center text-sm text-slate-500">
+                No medical records found.
+              </div>
+            ) : (
+              <>
+                {/* Mobile Medical Cards */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {filteredMedicals.map((m) => (
+                    <div key={m.id} className="p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">{m.candidateName}</p>
+                          <p className="text-xs text-slate-600 truncate">
+                            {m.medicalCenter} · {m.medicalLocation}
                           </p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="font-medium text-slate-900">{m.medicalCenter}</p>
-                          <p className="text-xs text-slate-500">{m.medicalLocation}</p>
-                        </td>
-                        <td className="px-4 py-3.5 text-slate-700">
-                          {m.paymentPurpose || 'Medical Screening'}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-emerald-700">
-                          {formatBDT(m.amountPaid)}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-amber-700">
-                          {formatBDT(m.amountReceivable)}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span
-                            className={`text-xs font-semibold ${
-                              m.result === 'Fit'
-                                ? 'text-emerald-700'
-                                : m.result === 'Unfit'
-                                ? 'text-red-700'
-                                : 'text-amber-700'
-                            }`}
-                          >
-                            {m.result}
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            Staff: {getStaffLabel(m.staffId)}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-xs font-semibold shrink-0 ${
+                            m.result === 'Fit'
+                              ? 'text-emerald-700'
+                              : m.result === 'Unfit'
+                              ? 'text-red-700'
+                              : 'text-amber-700'
+                          }`}
+                        >
+                          {m.result}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="font-mono text-xs tabular-nums">
+                          <span className="text-emerald-700 font-semibold">
+                            Paid {formatBDT(m.amountPaid)}
                           </span>
-                        </td>
-                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                          <span className="text-slate-300 mx-1.5">·</span>
+                          <span className="text-amber-700">Due {formatBDT(m.amountReceivable)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => setMedicalModal({ open: true, item: m })}
-                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                             title="Edit medical"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           {confirmDeleteId === m.id ? (
-                            <span className="inline-flex items-center gap-1 ml-2">
+                            <span className="inline-flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -967,7 +1205,7 @@ export function AdminDashboard({
                                     await api.deleteMedical(m.id);
                                     setConfirmDeleteId(null);
                                     await onRefresh();
-                                    notifySuccess('Medical record archived. You can restore it from Audit & Archive.');
+                                    notifySuccess('Medical record archived.');
                                   } catch (err) {
                                     setConfirmDeleteId(null);
                                     setActionError(err instanceof Error ? err.message : 'Failed to archive medical record.');
@@ -989,19 +1227,126 @@ export function AdminDashboard({
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteId(m.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                              className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
                               title="Delete medical"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
-                        </td>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Medicals Table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                      <tr>
+                        <th className="px-6 py-3 font-medium">Staff</th>
+                        <th className="px-4 py-3 font-medium">Candidate</th>
+                        <th className="px-4 py-3 font-medium">Medical Center & Location</th>
+                        <th className="px-4 py-3 font-medium">Purpose</th>
+                        <th className="px-4 py-3 font-medium text-right">Paid</th>
+                        <th className="px-4 py-3 font-medium text-right">Receivable</th>
+                        <th className="px-4 py-3 font-medium">Result</th>
+                        <th className="px-6 py-3 font-medium text-right">Actions</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredMedicals.map((m) => (
+                        <tr key={m.id} className="hover:bg-slate-50/70">
+                          <td className="px-6 py-3.5 text-slate-700 font-medium">
+                            {getStaffLabel(m.staffId)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p className="font-semibold text-slate-900">{m.candidateName}</p>
+                            <p className="text-xs text-slate-500 font-mono">
+                              {m.candidatePhone || formatDateOnly(m.testDate)}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p className="font-medium text-slate-900">{m.medicalCenter}</p>
+                            <p className="text-xs text-slate-500">{m.medicalLocation}</p>
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-700">
+                            {m.paymentPurpose || 'Medical Screening'}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-emerald-700">
+                            {formatBDT(m.amountPaid)}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-amber-700">
+                            {formatBDT(m.amountReceivable)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span
+                              className={`text-xs font-semibold ${
+                                m.result === 'Fit'
+                                  ? 'text-emerald-700'
+                                  : m.result === 'Unfit'
+                                  ? 'text-red-700'
+                                  : 'text-amber-700'
+                              }`}
+                            >
+                              {m.result}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setMedicalModal({ open: true, item: m })}
+                              className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                              title="Edit medical"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === m.id ? (
+                              <span className="inline-flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteMedical(m.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Medical record archived. You can restore it from Audit & Archive.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(err instanceof Error ? err.message : 'Failed to archive medical record.');
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(m.id)}
+                                className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                                title="Delete medical"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1010,137 +1355,219 @@ export function AdminDashboard({
           INTERVIEWS TAB
          ==================================================================== */}
       {activeTab === 'interviews' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Total Interview Sessions</p>
-              <p className="font-mono text-2xl font-bold text-slate-900 tabular-nums mt-1">
+        <div className="space-y-4 sm:space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+              <p className="text-xs text-slate-500">Sessions</p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums mt-1">
                 {filteredInterviews.length}
               </p>
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <p className="text-xs text-slate-500">Total Interview Candidates</p>
-              <p className="font-mono text-2xl font-bold text-blue-700 tabular-nums mt-1">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4">
+              <p className="text-xs text-slate-500">Total Candidates</p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-blue-700 tabular-nums mt-1">
                 {filteredInterviews.reduce((s, i) => s + (i.clientCount || 1), 0)}
               </p>
             </div>
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200">
-              <h2 className="font-display text-base font-bold text-slate-900">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
+              <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 Employer Interviews & Trade Assessments
               </h2>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                  <tr>
-                    <th className="px-6 py-3 font-medium">Staff</th>
-                    <th className="px-4 py-3 font-medium">Candidates (Jatri)</th>
-                    <th className="px-4 py-3 font-medium text-right">Count</th>
-                    <th className="px-4 py-3 font-medium">Company / Interviewer</th>
-                    <th className="px-4 py-3 font-medium">Date & Location</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-6 py-3 font-medium text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredInterviews.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                        No interviews found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredInterviews.map((iv) => (
-                      <tr key={iv.id} className="hover:bg-slate-50/70">
-                        <td className="px-6 py-3.5 text-slate-700 font-medium">
-                          {getStaffLabel(iv.staffId)}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="font-semibold text-slate-900">{iv.candidateNames}</p>
-                          {iv.trade && <p className="text-xs text-slate-500">Trade: {iv.trade}</p>}
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-slate-900">
-                          {iv.clientCount}
-                        </td>
-                        <td className="px-4 py-3.5 text-slate-800">{iv.interviewerOrCompany}</td>
-                        <td className="px-4 py-3.5">
-                          <p className="font-mono text-xs text-slate-800">
-                            {formatDateOnly(iv.interviewDate)}
-                            {iv.interviewTime ? ` · ${iv.interviewTime}` : ''}
+            {filteredInterviews.length === 0 ? (
+              <div className="px-6 py-10 text-center text-sm text-slate-500">
+                No interviews found.
+              </div>
+            ) : (
+              <>
+                {/* Mobile Interview Cards */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {filteredInterviews.map((iv) => (
+                    <div key={iv.id} className="p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">
+                            {iv.interviewerOrCompany}
                           </p>
-                          <p className="text-xs text-slate-500">{iv.location}</p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span
-                            className={`text-xs font-semibold ${
-                              iv.status === 'Selected' || iv.status === 'Completed'
-                                ? 'text-emerald-700'
-                                : iv.status === 'Rejected'
-                                ? 'text-red-700'
-                                : 'text-blue-700'
-                            }`}
-                          >
-                            {iv.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setInterviewModal({ open: true, item: iv })}
-                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
-                            title="Edit interview"
-                          >
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          {confirmDeleteId === iv.id ? (
-                            <span className="inline-flex items-center gap-1 ml-2">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  setActionError('');
-                                  try {
-                                    await api.deleteInterview(iv.id);
-                                    setConfirmDeleteId(null);
-                                    await onRefresh();
-                                    notifySuccess('Interview record archived. You can restore it from Audit & Archive.');
-                                  } catch (err) {
-                                    setConfirmDeleteId(null);
-                                    setActionError(err instanceof Error ? err.message : 'Failed to archive interview.');
-                                  }
-                                }}
-                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
-                              >
-                                Confirm
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(null)}
-                                className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
-                              >
-                                No
-                              </button>
-                            </span>
-                          ) : (
+                          <p className="text-xs text-slate-600 truncate">
+                            {iv.clientCount} {iv.clientCount === 1 ? 'candidate' : 'candidates'} ·{' '}
+                            {iv.candidateNames}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">
+                            {getStaffLabel(iv.staffId)} · {formatDateOnly(iv.interviewDate)}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-xs font-semibold shrink-0 ${
+                            iv.status === 'Selected' || iv.status === 'Completed'
+                              ? 'text-emerald-700'
+                              : iv.status === 'Rejected'
+                              ? 'text-red-700'
+                              : 'text-blue-700'
+                          }`}
+                        >
+                          {iv.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setInterviewModal({ open: true, item: iv })}
+                          className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          title="Edit interview"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        {confirmDeleteId === iv.id ? (
+                          <span className="inline-flex items-center gap-1">
                             <button
                               type="button"
-                              onClick={() => setConfirmDeleteId(iv.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
-                              title="Delete interview"
+                              onClick={async () => {
+                                setActionError('');
+                                try {
+                                  await api.deleteInterview(iv.id);
+                                  setConfirmDeleteId(null);
+                                  await onRefresh();
+                                  notifySuccess('Interview record archived.');
+                                } catch (err) {
+                                  setConfirmDeleteId(null);
+                                  setActionError(err instanceof Error ? err.message : 'Failed to archive interview.');
+                                }
+                              }}
+                              className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              Confirm
                             </button>
-                          )}
-                        </td>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(iv.id)}
+                            className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                            title="Delete interview"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Interviews Table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                      <tr>
+                        <th className="px-6 py-3 font-medium">Staff</th>
+                        <th className="px-4 py-3 font-medium">Candidates (Jatri)</th>
+                        <th className="px-4 py-3 font-medium text-right">Count</th>
+                        <th className="px-4 py-3 font-medium">Company / Interviewer</th>
+                        <th className="px-4 py-3 font-medium">Date & Location</th>
+                        <th className="px-4 py-3 font-medium">Status</th>
+                        <th className="px-6 py-3 font-medium text-right">Actions</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredInterviews.map((iv) => (
+                        <tr key={iv.id} className="hover:bg-slate-50/70">
+                          <td className="px-6 py-3.5 text-slate-700 font-medium">
+                            {getStaffLabel(iv.staffId)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p className="font-semibold text-slate-900">{iv.candidateNames}</p>
+                            {iv.trade && <p className="text-xs text-slate-500">Trade: {iv.trade}</p>}
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-slate-900">
+                            {iv.clientCount}
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-800">{iv.interviewerOrCompany}</td>
+                          <td className="px-4 py-3.5">
+                            <p className="font-mono text-xs text-slate-800">
+                              {formatDateOnly(iv.interviewDate)}
+                              {iv.interviewTime ? ` · ${iv.interviewTime}` : ''}
+                            </p>
+                            <p className="text-xs text-slate-500">{iv.location}</p>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span
+                              className={`text-xs font-semibold ${
+                                iv.status === 'Selected' || iv.status === 'Completed'
+                                  ? 'text-emerald-700'
+                                  : iv.status === 'Rejected'
+                                  ? 'text-red-700'
+                                  : 'text-blue-700'
+                              }`}
+                            >
+                              {iv.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setInterviewModal({ open: true, item: iv })}
+                              className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                              title="Edit interview"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === iv.id ? (
+                              <span className="inline-flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteInterview(iv.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Interview record archived. You can restore it from Audit & Archive.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(err instanceof Error ? err.message : 'Failed to archive interview.');
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(iv.id)}
+                                className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                                title="Delete interview"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1150,86 +1577,60 @@ export function AdminDashboard({
          ==================================================================== */}
       {activeTab === 'clients' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h2 className="font-display text-base font-bold text-slate-900">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
+            <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
               All Client Profiles ({filteredClients.length})
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="hidden sm:block text-xs text-slate-500">
               Full document, medical, salary, payment, and remaining requirement records
             </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Staff</th>
-                  <th className="px-4 py-3 font-medium">Client & Phone</th>
-                  <th className="px-4 py-3 font-medium">Trade & Country</th>
-                  <th className="px-4 py-3 font-medium">Medical</th>
-                  <th className="px-4 py-3 font-medium text-right">Paid / Due</th>
-                  <th className="px-4 py-3 font-medium">Stage</th>
-                  <th className="px-6 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredClients.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                      No client profiles found.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredClients.map((c) => {
-                    const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
-                    return (
-                      <tr key={c.id} className="hover:bg-slate-50/70">
-                        <td className="px-6 py-3.5 text-slate-700 font-medium">
-                          {getStaffLabel(c.staffId)}
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="font-semibold text-slate-900">{c.name}</p>
-                          <p className="text-xs text-slate-500 font-mono">{c.phone}</p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="text-slate-900">{c.trade || '—'}</p>
-                          <p className="text-xs text-slate-500">
-                            {c.destinationCountry || 'TBD'} · {c.expectedSalary || 'Salary TBD'}
-                          </p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <span
-                            className={`text-xs font-semibold ${
-                              c.medicalStatus === 'Fit'
-                                ? 'text-emerald-700'
-                                : c.medicalStatus === 'Unfit'
-                                ? 'text-red-700'
-                                : 'text-amber-700'
-                            }`}
-                          >
-                            {c.medicalDone ? 'Yes' : 'No'} ({c.medicalStatus})
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums">
-                          <p className="text-xs font-semibold text-emerald-700">
-                            Paid {formatBDT(c.totalPaid)}
-                          </p>
-                          <p className="text-xs text-amber-700">Due {formatBDT(due)}</p>
-                        </td>
-                        <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+          {filteredClients.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No client profiles found.
+            </div>
+          ) : (
+            <>
+              {/* Mobile Client Cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filteredClients.map((c) => {
+                  const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
+                  return (
+                    <div key={c.id} className="p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">{c.name}</p>
+                          <p className="text-xs font-mono text-slate-500">{c.phone}</p>
+                        </div>
+                        <span className="text-xs font-semibold text-blue-700 shrink-0">
                           {c.status}
-                        </td>
-                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 truncate">
+                        {[getStaffLabel(c.staffId), c.trade || 'Trade TBD', c.destinationCountry || 'TBD']
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="font-mono text-xs tabular-nums">
+                          <span className="text-emerald-700 font-semibold">
+                            Paid {formatBDT(c.totalPaid)}
+                          </span>
+                          <span className="text-slate-300 mx-1.5">·</span>
+                          <span className="text-amber-700">Due {formatBDT(due)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => setClientModal({ open: true, item: c })}
-                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                             title="Edit client"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           {confirmDeleteId === c.id ? (
-                            <span className="inline-flex items-center gap-1 ml-2">
+                            <span className="inline-flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -1238,7 +1639,7 @@ export function AdminDashboard({
                                     await api.deleteClient(c.id);
                                     setConfirmDeleteId(null);
                                     await onRefresh();
-                                    notifySuccess('Client profile archived. Restore anytime from Audit & Archive.');
+                                    notifySuccess('Client profile archived.');
                                   } catch (err) {
                                     setConfirmDeleteId(null);
                                     setActionError(err instanceof Error ? err.message : 'Failed to archive client.');
@@ -1260,19 +1661,696 @@ export function AdminDashboard({
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteId(c.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                              className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
                               title="Delete client"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
-                        </td>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Clients Table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Staff</th>
+                      <th className="px-4 py-3 font-medium">Client & Phone</th>
+                      <th className="px-4 py-3 font-medium">Trade & Country</th>
+                      <th className="px-4 py-3 font-medium">Medical</th>
+                      <th className="px-4 py-3 font-medium text-right">Paid / Due</th>
+                      <th className="px-4 py-3 font-medium">Stage</th>
+                      <th className="px-6 py-3 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredClients.map((c) => {
+                      const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
+                      return (
+                        <tr key={c.id} className="hover:bg-slate-50/70">
+                          <td className="px-6 py-3.5 text-slate-700 font-medium">
+                            {getStaffLabel(c.staffId)}
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p className="font-semibold text-slate-900">{c.name}</p>
+                            <p className="text-xs text-slate-500 font-mono">{c.phone}</p>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p className="text-slate-900">{c.trade || '—'}</p>
+                            <p className="text-xs text-slate-500">
+                              {c.destinationCountry || 'TBD'} · {c.expectedSalary || 'Salary TBD'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <span
+                              className={`text-xs font-semibold ${
+                                c.medicalStatus === 'Fit'
+                                  ? 'text-emerald-700'
+                                  : c.medicalStatus === 'Unfit'
+                                  ? 'text-red-700'
+                                  : 'text-amber-700'
+                              }`}
+                            >
+                              {c.medicalDone ? 'Yes' : 'No'} ({c.medicalStatus})
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums">
+                            <p className="text-xs font-semibold text-emerald-700">
+                              Paid {formatBDT(c.totalPaid)}
+                            </p>
+                            <p className="text-xs text-amber-700">Due {formatBDT(due)}</p>
+                          </td>
+                          <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+                            {c.status}
+                          </td>
+                          <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setClientModal({ open: true, item: c })}
+                              className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                              title="Edit client"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === c.id ? (
+                              <span className="inline-flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteClient(c.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Client profile archived. Restore anytime from Audit & Archive.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(err instanceof Error ? err.message : 'Failed to archive client.');
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(c.id)}
+                                className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                                title="Delete client"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ====================================================================
+          ACCOUNTS & DEBIT/CREDIT LEDGER TAB
+         ==================================================================== */}
+      {activeTab === 'accounts' && (
+        <div className="space-y-4 sm:space-y-6">
+          {/* Totals Bar */}
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-xs font-medium text-slate-500">
+                Total Credit<span className="hidden sm:inline"> (Money In)</span>
+              </p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums mt-1 sm:mt-2 truncate">
+                {formatBDT(ledgerTotals.totalCredit)}
+              </p>
+              <p className="hidden sm:block text-xs text-slate-500 font-mono tabular-nums mt-1.5">
+                {ledgerTotals.creditCount} credit {ledgerTotals.creditCount === 1 ? 'entry' : 'entries'}
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-xs font-medium text-slate-500">
+                Total Debit<span className="hidden sm:inline"> (Money Out)</span>
+              </p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-red-700 tabular-nums mt-1 sm:mt-2 truncate">
+                {formatBDT(ledgerTotals.totalDebit)}
+              </p>
+              <p className="hidden sm:block text-xs text-slate-500 font-mono tabular-nums mt-1.5">
+                {ledgerTotals.debitCount} debit {ledgerTotals.debitCount === 1 ? 'entry' : 'entries'}
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-xs font-medium text-slate-500">Net Balance</p>
+              <p
+                className={`font-mono text-xl sm:text-2xl font-bold tabular-nums mt-1 sm:mt-2 truncate ${
+                  ledgerTotals.netBalance < 0 ? 'text-red-700' : 'text-slate-900'
+                }`}
+              >
+                {ledgerTotals.netBalance < 0 ? '-' : ''}
+                {formatBDT(Math.abs(ledgerTotals.netBalance))}
+              </p>
+              <p className="hidden sm:block text-xs text-slate-500 mt-1.5">
+                Credit minus Debit across all entries
+              </p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-xs font-medium text-slate-500">Accounts IDs</p>
+              <p className="font-mono text-xl sm:text-2xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
+                {(data.accountsList || []).length}
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  setStaffModal({ open: true, item: null, defaultRole: 'accounts' })
+                }
+                className="text-xs font-semibold text-blue-700 hover:underline mt-1 sm:mt-1.5 cursor-pointer"
+              >
+                + Create ID
+              </button>
+            </div>
+          </div>
+
+          {/* Accounts Dashboard Logins Management */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                  Accounts Logins ({(data.accountsList || []).length})
+                </h2>
+                <p className="hidden sm:block text-xs text-slate-500 mt-0.5">
+                  Create login IDs &amp; passwords for your Accounts team. They can view the ledger and enter new Debit/Credit transactions; only Admin can edit or remove entries.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setStaffModal({ open: true, item: null, defaultRole: 'accounts' })
+                }
+                className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg cursor-pointer whitespace-nowrap"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span className="sm:hidden">New ID</span>
+                <span className="hidden sm:inline">Create Accounts ID</span>
+              </button>
+            </div>
+
+            {(data.accountsList || []).length === 0 ? (
+              <div className="px-6 py-8 text-center">
+                <p className="text-sm font-medium text-slate-700">
+                  No Accounts Dashboard logins created yet.
+                </p>
+                <p className="hidden sm:block text-xs text-slate-500 mt-1">
+                  Create an Accounts User ID &amp; password so your accounts officer can log in and submit Debit/Credit entries.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Mobile Accounts Logins Cards */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {(data.accountsList || []).map((acc) => (
+                    <div key={acc.id} className="p-4 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{acc.name}</p>
+                        <p className="text-xs font-mono text-slate-500 truncate">
+                          @{acc.userId}
+                          {acc.phone ? ` · ${acc.phone}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setStaffModal({ open: true, item: acc, defaultRole: 'accounts' })
+                          }
+                          className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          title="Edit accounts ID"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        {confirmDeleteId === acc.id ? (
+                          <span className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setActionError('');
+                                try {
+                                  await api.deleteStaff(acc.id);
+                                  setConfirmDeleteId(null);
+                                  await onRefresh();
+                                  notifySuccess('Accounts login removed.');
+                                } catch (err) {
+                                  setConfirmDeleteId(null);
+                                  setActionError(
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'Failed to remove accounts login.'
+                                  );
+                                }
+                              }}
+                              className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(acc.id)}
+                            className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                            title="Remove accounts login"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Accounts Logins Table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                      <tr>
+                        <th className="px-6 py-3 font-medium">Account Officer</th>
+                        <th className="px-4 py-3 font-medium">Login User ID</th>
+                        <th className="px-4 py-3 font-medium">Phone / WhatsApp</th>
+                        <th className="px-6 py-3 font-medium text-right">Actions</th>
                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(data.accountsList || []).map((acc) => (
+                        <tr key={acc.id} className="hover:bg-slate-50/70">
+                          <td className="px-6 py-3.5">
+                            <p className="font-semibold text-slate-900">{acc.name}</p>
+                            <p className="text-xs text-slate-500">
+                              {acc.designation || 'Accounts & Finance Officer'}
+                            </p>
+                          </td>
+                          <td className="px-4 py-3.5 font-mono text-xs text-slate-800">
+                            @{acc.userId}
+                          </td>
+                          <td className="px-4 py-3.5 font-mono text-xs text-slate-600">
+                            {acc.phone || acc.whatsapp || '—'}
+                          </td>
+                          <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setStaffModal({ open: true, item: acc, defaultRole: 'accounts' })
+                              }
+                              className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                            >
+                              Edit / Reset Pass
+                            </button>
+                            {confirmDeleteId === acc.id ? (
+                              <span className="inline-flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteStaff(acc.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Accounts dashboard login removed.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(
+                                        err instanceof Error
+                                          ? err.message
+                                          : 'Failed to remove accounts login.'
+                                      );
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(acc.id)}
+                                className="px-2.5 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 rounded ml-1 cursor-pointer"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Ledger Filter Toolbar */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 flex flex-col sm:flex-row gap-2.5 sm:gap-3 items-stretch sm:items-center justify-between">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={ledgerSearchQuery}
+                onChange={(e) => setLedgerSearchQuery(e.target.value)}
+                placeholder="Search title, party, category, ref..."
+                className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700 focus:bg-white min-h-[40px]"
+              />
+            </div>
+
+            <div className="inline-flex items-center border border-slate-200 rounded-lg p-1 bg-slate-50 self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setLedgerTypeFilter('all')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  ledgerTypeFilter === 'all'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                All ({ledgerEntries.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setLedgerTypeFilter('credit')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  ledgerTypeFilter === 'credit'
+                    ? 'bg-emerald-700 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Credit ({ledgerTotals.creditCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setLedgerTypeFilter('debit')}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  ledgerTypeFilter === 'debit'
+                    ? 'bg-red-700 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Debit ({ledgerTotals.debitCount})
+              </button>
+            </div>
+          </div>
+
+          {/* Debit & Credit Ledger Table (Admin has Edit + Remove) */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                  Debit &amp; Credit Ledger ({filteredLedgerEntries.length})
+                </h2>
+                <p className="hidden sm:block text-xs text-slate-500 mt-0.5">
+                  All entries submitted from Admin or Accounts Dashboard. Admin can add, edit, and archive entries.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLedgerModal({ open: true, item: null })}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Entry</span>
+              </button>
+            </div>
+
+            {filteredLedgerEntries.length === 0 ? (
+              <div className="px-6 py-10 text-center text-sm text-slate-500">
+                {ledgerEntries.length === 0
+                  ? 'No Debit or Credit entries yet.'
+                  : 'No ledger entries match your search or filter.'}
+              </div>
+            ) : (
+              <>
+                {/* Mobile Ledger Cards */}
+                <div className="sm:hidden divide-y divide-slate-100">
+                  {filteredLedgerEntries.map((item) => {
+                    const isCredit = item.entryType === 'credit';
+                    return (
+                      <div key={item.id} className="p-4 space-y-2">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 truncate">{item.title}</p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {[item.category || 'General', item.partyName]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p
+                              className={`font-mono text-sm font-bold tabular-nums ${
+                                isCredit ? 'text-emerald-700' : 'text-red-700'
+                              }`}
+                            >
+                              {isCredit ? '+' : '-'}
+                              {formatBDT(item.amount)}
+                            </p>
+                            <p className="text-[11px] font-mono text-slate-500 tabular-nums">
+                              {formatDateOnly(item.entryDate)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <span
+                            className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                              isCredit ? 'text-emerald-700' : 'text-red-700'
+                            }`}
+                          >
+                            {isCredit ? (
+                              <ArrowDownLeft className="w-3.5 h-3.5" />
+                            ) : (
+                              <ArrowUpRight className="w-3.5 h-3.5" />
+                            )}
+                            <span>
+                              {isCredit ? 'Credit' : 'Debit'} · {item.paymentMethod || 'Cash'}
+                            </span>
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setLedgerModal({ open: true, item })}
+                              className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                              title="Edit ledger entry"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === item.id ? (
+                              <span className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteLedgerEntry(item.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Ledger entry archived.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(
+                                        err instanceof Error
+                                          ? err.message
+                                          : 'Failed to archive ledger entry.'
+                                      );
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(item.id)}
+                                className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                                title="Remove ledger entry"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
+                  })}
+                </div>
+
+                {/* Desktop Ledger Table */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                      <tr>
+                        <th className="px-6 py-3 font-medium">Date</th>
+                        <th className="px-4 py-3 font-medium">Type</th>
+                        <th className="px-4 py-3 font-medium">Particulars &amp; Category</th>
+                        <th className="px-4 py-3 font-medium">Party &amp; Ref</th>
+                        <th className="px-4 py-3 font-medium">Method</th>
+                        <th className="px-4 py-3 font-medium">Entered By</th>
+                        <th className="px-4 py-3 font-medium text-right">Amount (BDT)</th>
+                        <th className="px-6 py-3 font-medium text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredLedgerEntries.map((item) => {
+                        const isCredit = item.entryType === 'credit';
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/70 align-top">
+                            <td className="px-6 py-3.5 font-mono text-xs text-slate-700 whitespace-nowrap tabular-nums">
+                              {formatDateOnly(item.entryDate)}
+                            </td>
+                            <td className="px-4 py-3.5 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                                  isCredit ? 'text-emerald-700' : 'text-red-700'
+                                }`}
+                              >
+                                {isCredit ? (
+                                  <ArrowDownLeft className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ArrowUpRight className="w-3.5 h-3.5" />
+                                )}
+                                <span>{isCredit ? 'Credit' : 'Debit'}</span>
+                              </span>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <p className="font-semibold text-slate-900">{item.title}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">
+                                {item.category || 'General'}
+                                {item.notes ? ` · ${item.notes}` : ''}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <p className="text-slate-800">{item.partyName || '—'}</p>
+                              {item.referenceNo && (
+                                <p className="text-xs font-mono text-slate-500 mt-0.5">
+                                  Ref: {item.referenceNo}
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3.5 text-slate-700 whitespace-nowrap">
+                              {item.paymentMethod || 'Cash'}
+                            </td>
+                            <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap">
+                              {item.createdByName || 'Admin'}
+                            </td>
+                            <td
+                              className={`px-4 py-3.5 text-right font-mono tabular-nums font-semibold whitespace-nowrap ${
+                                isCredit ? 'text-emerald-700' : 'text-red-700'
+                              }`}
+                            >
+                              {isCredit ? '+' : '-'}
+                              {formatBDT(item.amount)}
+                            </td>
+                            <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                onClick={() => setLedgerModal({ open: true, item })}
+                                className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                                title="Edit ledger entry"
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              {confirmDeleteId === item.id ? (
+                                <span className="inline-flex items-center gap-1 ml-2">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      setActionError('');
+                                      try {
+                                        await api.deleteLedgerEntry(item.id);
+                                        setConfirmDeleteId(null);
+                                        await onRefresh();
+                                        notifySuccess(
+                                          'Ledger entry archived. Restore anytime from Audit & Archive.'
+                                        );
+                                      } catch (err) {
+                                        setConfirmDeleteId(null);
+                                        setActionError(
+                                          err instanceof Error
+                                            ? err.message
+                                            : 'Failed to archive ledger entry.'
+                                        );
+                                      }
+                                    }}
+                                    className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                  >
+                                    Confirm
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteId(null)}
+                                    className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                  >
+                                    No
+                                  </button>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(item.id)}
+                                  className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                                  title="Remove ledger entry"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -1290,7 +2368,7 @@ export function AdminDashboard({
               </p>
               <button
                 type="button"
-                onClick={() => setStaffModal({ open: true, item: null })}
+                onClick={() => setStaffModal({ open: true, item: null, defaultRole: 'staff' })}
                 className="mt-4 inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg cursor-pointer"
               >
                 <UserPlus className="w-4 h-4" />
@@ -1312,7 +2390,9 @@ export function AdminDashboard({
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => setStaffModal({ open: true, item: staff })}
+                        onClick={() =>
+                          setStaffModal({ open: true, item: staff, defaultRole: 'staff' })
+                        }
                         className="px-2.5 py-1 font-semibold text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
                       >
                         Edit / Reset Pass
@@ -1418,6 +2498,13 @@ export function AdminDashboard({
                     id: item.id,
                     typeLabel: 'Interview',
                     title: `${item.candidateNames} (${item.interviewerOrCompany})`,
+                    deletedAt: item.deletedAt,
+                  })),
+                  ...(data.archivedLedgerEntries || []).map((item) => ({
+                    table: 'account_ledger' as const,
+                    id: item.id,
+                    typeLabel: item.entryType === 'credit' ? 'Credit Entry' : 'Debit Entry',
+                    title: `${item.title} (${formatBDT(item.amount)})`,
                     deletedAt: item.deletedAt,
                   })),
                 ].map((rec) => (
@@ -1848,22 +2935,43 @@ export function AdminDashboard({
       {staffModal.open && (
         <StaffAccountModal
           initial={staffModal.item}
-          onClose={() => setStaffModal({ open: false, item: null })}
+          defaultRole={staffModal.defaultRole}
+          onClose={() => setStaffModal({ open: false, item: null, defaultRole: 'staff' })}
           onSave={async (payload) => {
+            const label = payload.role === 'accounts' ? 'Accounts dashboard ID' : 'Staff account';
             if (staffModal.item) {
               await api.updateStaff(staffModal.item.id, payload);
               await onRefresh();
-              notifySuccess('Staff account update confirmed in database.');
+              notifySuccess(`${label} update confirmed in database.`);
             } else {
               if (!payload.password) {
-                throw new Error('Password is required to create a staff account.');
+                throw new Error('Password is required to create an account.');
               }
               await api.createStaff({
                 ...payload,
                 password: payload.password,
               });
               await onRefresh();
-              notifySuccess('Staff account created and saved in database.');
+              notifySuccess(`${label} created and saved in database.`);
+            }
+          }}
+        />
+      )}
+
+      {ledgerModal.open && (
+        <LedgerEntryModal
+          initial={ledgerModal.item}
+          ownerId={data.user.id}
+          onClose={() => setLedgerModal({ open: false, item: null })}
+          onSave={async (payload) => {
+            if (ledgerModal.item) {
+              await api.updateLedgerEntry(ledgerModal.item.id, payload);
+              await onRefresh();
+              notifySuccess('Debit / Credit entry updated in database.');
+            } else {
+              await api.createLedgerEntry(payload);
+              await onRefresh();
+              notifySuccess('Debit / Credit entry saved permanently in database.');
             }
           }}
         />

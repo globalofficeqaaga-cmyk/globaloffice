@@ -118,8 +118,8 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
       {/* First Page Focal Split: Track by Phone Number + Running Poster Slider */}
       {(hasTracker || hasSlider) && (
         <section id="track-status" className="bg-white border-b border-slate-200">
-          <div className="max-w-[1280px] mx-auto px-6 py-10 lg:py-14">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
+          <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-5 sm:py-10 lg:py-14">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-8 lg:gap-10 items-stretch">
               {/* Left Column: Track by Phone Number */}
               {hasTracker && (
                 <div
@@ -128,18 +128,15 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                   } flex flex-col justify-center`}
                 >
                   {siteSettings.heroKicker && (
-                    <p className="text-xs font-medium text-slate-500 tracking-wide mb-3">
+                    <p className="hidden sm:block text-xs font-medium text-slate-500 tracking-wide mb-3">
                       {siteSettings.heroKicker}
                     </p>
                   )}
-                  <h1
-                    className="font-display font-bold tracking-tight text-slate-900 text-balance"
-                    style={{ fontSize: 'clamp(2.1rem, 3.8vw, 3.2rem)', lineHeight: 1.08 }}
-                  >
+                  <h1 className="font-display font-bold tracking-tight text-slate-900 text-balance text-[1.65rem] leading-[1.15] sm:text-4xl sm:leading-[1.1] lg:text-[3.1rem] lg:leading-[1.08]">
                     {siteSettings.heroTitle}
                   </h1>
                   {siteSettings.heroSubtitle && (
-                    <p className="mt-4 text-base text-slate-600 leading-relaxed max-w-xl">
+                    <p className="hidden sm:block mt-4 text-base text-slate-600 leading-relaxed max-w-xl">
                       {siteSettings.heroSubtitle}
                     </p>
                   )}
@@ -147,15 +144,15 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                   {/* Phone Number Search Box */}
                   <form
                     onSubmit={handleSubmit}
-                    className="mt-7 p-5 bg-slate-50 border border-slate-200 rounded-xl"
+                    className="mt-4 sm:mt-7 p-3.5 sm:p-5 bg-slate-50 border border-slate-200 rounded-xl"
                   >
                     <label
                       htmlFor="client-phone-input"
-                      className="block text-sm font-semibold text-slate-900 mb-2"
+                      className="block text-xs sm:text-sm font-semibold text-slate-800 sm:text-slate-900 mb-2"
                     >
                       {siteSettings.trackerTitle || 'Client Phone Number'}
                     </label>
-                    <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
                       <div className="relative flex-1">
                         <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
@@ -164,13 +161,13 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                           value={phone}
                           onChange={(e) => setPhone(e.target.value)}
                           placeholder={siteSettings.trackerPlaceholder || 'e.g. 01712345678'}
-                          className="w-full pl-10 pr-4 py-3 text-base bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
+                          className="w-full pl-10 pr-4 py-2.5 sm:py-3 min-h-[44px] text-base bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:border-blue-700"
                         />
                       </div>
                       <button
                         type="submit"
                         disabled={loading}
-                        className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+                        className="inline-flex items-center justify-center gap-2 px-6 py-2.5 sm:py-3 min-h-[44px] text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
                       >
                         <Search className="w-4 h-4" />
                         <span>
@@ -195,7 +192,7 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                   className={`${hasTracker ? 'lg:col-span-6' : 'lg:col-span-12'} flex flex-col`}
                 >
                   <div
-                    className="relative h-[380px] sm:h-[420px] lg:h-full lg:min-h-[420px] rounded-xl overflow-hidden border border-slate-200 bg-gradient-to-br from-slate-800 to-slate-950"
+                    className="relative h-[230px] sm:h-[380px] lg:h-full lg:min-h-[420px] rounded-xl overflow-hidden border border-slate-200 bg-gradient-to-br from-slate-800 to-slate-950"
                     onMouseEnter={() => setIsPaused(true)}
                     onMouseLeave={() => setIsPaused(false)}
                     onFocusCapture={() => setIsPaused(true)}
@@ -222,26 +219,26 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                               className="w-full h-full object-cover"
                             />
                           )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/40 to-slate-950/15" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-slate-950/10" />
 
-                          <div className="absolute bottom-14 left-5 right-5 sm:left-6 sm:right-6 text-white">
+                          <div className="absolute bottom-10 left-4 right-4 sm:bottom-14 sm:left-6 sm:right-6 text-white">
                             {slide.kicker && (
-                              <p className="font-mono text-xs font-medium text-blue-300 tracking-wide">
+                              <p className="hidden sm:block font-mono text-xs font-medium text-blue-300 tracking-wide">
                                 {slide.kicker}
                               </p>
                             )}
-                            <h2 className="font-display text-xl sm:text-2xl font-bold tracking-tight text-white mt-1.5 text-balance">
+                            <h2 className="font-display text-lg sm:text-2xl font-bold tracking-tight text-white sm:mt-1.5 text-balance line-clamp-2">
                               {slide.title}
                             </h2>
                             {slide.subtitle && (
-                              <p className="text-xs sm:text-sm text-slate-200 mt-2 leading-relaxed line-clamp-2 max-w-lg">
+                              <p className="hidden sm:block text-sm text-slate-200 mt-2 leading-relaxed line-clamp-2 max-w-lg">
                                 {slide.subtitle}
                               </p>
                             )}
                             {slide.actionLabel && slide.actionHref && (
                               <a
                                 href={slide.actionHref}
-                                className="mt-3 inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-white hover:text-blue-200 underline underline-offset-4"
+                                className="hidden sm:inline-flex mt-3 items-center gap-1.5 text-sm font-semibold text-white hover:text-blue-200 underline underline-offset-4"
                               >
                                 <span>{slide.actionLabel}</span>
                                 <ArrowRight className="w-3.5 h-3.5" />
@@ -332,36 +329,37 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
         <section
           ref={resultRef}
           aria-live="polite"
-          className="bg-slate-50 border-b border-slate-200 py-10"
+          className="bg-slate-50 border-b border-slate-200 py-6 sm:py-10"
         >
-          <div className="max-w-[1280px] mx-auto px-6">
+          <div className="max-w-[1280px] mx-auto px-4 sm:px-6">
             {/* Client Status Banner */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-slate-200">
+            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-5 sm:pb-6 border-b border-slate-200">
               <div>
                 <p className="text-xs font-medium text-slate-500">
-                  Candidate Status File · Registered Phone {result.client.phone}
+                  <span className="hidden sm:inline">Candidate Status File · </span>
+                  <span className="font-mono">{result.client.phone}</span>
                 </p>
-                <h2 className="font-display text-2xl lg:text-3xl font-bold text-slate-900 mt-1">
+                <h2 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 mt-1">
                   {result.client.name}
                 </h2>
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+                <div className="mt-1.5 sm:mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs sm:text-sm text-slate-600">
                   <span>{result.client.trade || 'Trade Pending'}</span>
                   <span aria-hidden="true">·</span>
-                  <span>Target: {result.client.destinationCountry || 'TBD'}</span>
+                  <span>{result.client.destinationCountry || 'TBD'}</span>
                   <span aria-hidden="true">·</span>
-                  <span>Salary: {result.client.expectedSalary || 'As per contract'}</span>
+                  <span>{result.client.expectedSalary || 'As per contract'}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm">
-                  <span className="text-slate-500 mr-2">Current Stage:</span>
+              <div className="flex items-center justify-between sm:justify-start gap-2.5">
+                <div className="px-3.5 py-2 bg-white border border-slate-200 rounded-lg text-xs sm:text-sm">
+                  <span className="hidden sm:inline text-slate-500 mr-2">Current Stage:</span>
                   <span className="font-semibold text-blue-700">{result.client.status}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setResult(null)}
                   aria-label="Hide tracking result"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 min-h-[38px] bg-white border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                   <span>Close</span>
@@ -369,30 +367,30 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
               </div>
             </div>
 
-            <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            <div className="mt-6 sm:mt-8 grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
               {/* Left 8 Columns: Full Client Details, Financials, Documents, Medical, Schedules */}
-              <div className="lg:col-span-8 space-y-6">
+              <div className="lg:col-span-8 space-y-5 sm:space-y-6">
                 {/* Profile & Financial Snapshot */}
-                <div className="bg-white border border-slate-200 rounded-xl p-6">
-                  <h3 className="font-display text-base font-bold text-slate-900 mb-4">
-                    Candidate Profile & Financial Summary
+                <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+                  <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 mb-3.5 sm:mb-4">
+                    Candidate Profile &amp; Financial Summary
                   </h3>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pb-6 border-b border-slate-100 text-sm">
-                    <div>
-                      <p className="text-xs text-slate-500">Full Address</p>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 pb-4 sm:pb-6 border-b border-slate-100 text-xs sm:text-sm">
+                    <div className="col-span-2 lg:col-span-1">
+                      <p className="text-xs text-slate-500">Address</p>
                       <p className="font-medium text-slate-900 mt-0.5">
                         {result.client.address || 'Not provided'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Passport Number</p>
+                      <p className="text-xs text-slate-500">Passport No</p>
                       <p className="font-mono font-medium text-slate-900 mt-0.5">
                         {result.client.passportNumber || 'Pending'}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Medical Completed</p>
+                      <p className="text-xs text-slate-500">Medical</p>
                       <p className="font-medium text-slate-900 mt-0.5">
                         {result.client.medicalDone ? 'Yes' : 'No'} · {result.client.medicalStatus}
                       </p>
@@ -400,22 +398,22 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                   </div>
 
                   {/* Financial Totals */}
-                  <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-                      <p className="text-xs text-slate-500">Total Package / Payable</p>
-                      <p className="font-mono text-xl font-bold text-slate-900 tabular-nums mt-1">
+                  <div className="mt-4 sm:mt-5 grid grid-cols-3 gap-2.5 sm:gap-4">
+                    <div className="p-2.5 sm:p-4 bg-slate-50 border border-slate-200 rounded-lg">
+                      <p className="text-[11px] sm:text-xs text-slate-500 truncate">Total</p>
+                      <p className="font-mono text-sm sm:text-xl font-bold text-slate-900 tabular-nums mt-0.5 sm:mt-1 truncate">
                         {formatBDT(result.client.totalPayable)}
                       </p>
                     </div>
-                    <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-lg">
-                      <p className="text-xs text-emerald-800">Total Paid</p>
-                      <p className="font-mono text-xl font-bold text-emerald-700 tabular-nums mt-1">
+                    <div className="p-2.5 sm:p-4 bg-emerald-50/70 border border-emerald-200 rounded-lg">
+                      <p className="text-[11px] sm:text-xs text-emerald-800 truncate">Paid</p>
+                      <p className="font-mono text-sm sm:text-xl font-bold text-emerald-700 tabular-nums mt-0.5 sm:mt-1 truncate">
                         {formatBDT(result.client.totalPaid)}
                       </p>
                     </div>
-                    <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-lg">
-                      <p className="text-xs text-amber-800">Remaining Due</p>
-                      <p className="font-mono text-xl font-bold text-amber-700 tabular-nums mt-1">
+                    <div className="p-2.5 sm:p-4 bg-amber-50/70 border border-amber-200 rounded-lg">
+                      <p className="text-[11px] sm:text-xs text-amber-800 truncate">Due</p>
+                      <p className="font-mono text-sm sm:text-xl font-bold text-amber-700 tabular-nums mt-0.5 sm:mt-1 truncate">
                         {formatBDT(dueAmount)}
                       </p>
                     </div>
@@ -492,46 +490,67 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                 </div>
 
                 {/* Payment History */}
-                <div className="bg-white border border-slate-200 rounded-xl p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
+                <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+                  <div className="flex items-center justify-between mb-3.5 sm:mb-4">
+                    <h3 className="font-display text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
                       <Wallet className="w-4 h-4 text-blue-700" />
-                      <span>Payment History & Purpose</span>
+                      <span>Payment History</span>
                     </h3>
                     <span className="text-xs text-slate-500 font-mono tabular-nums">
-                      {result.client.payments.length} transactions
+                      {result.client.payments.length} items
                     </span>
                   </div>
 
                   {result.client.payments.length === 0 ? (
                     <p className="text-sm text-slate-500">No payment receipts logged yet.</p>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-200 text-xs text-slate-500">
-                            <th className="pb-2 font-medium">Date</th>
-                            <th className="pb-2 font-medium">Purpose</th>
-                            <th className="pb-2 font-medium">Note</th>
-                            <th className="pb-2 font-medium text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {result.client.payments.map((pay) => (
-                            <tr key={pay.id}>
-                              <td className="py-2.5 text-slate-600 font-mono text-xs whitespace-nowrap">
+                    <>
+                      {/* Mobile Stacked Payment Rows */}
+                      <div className="sm:hidden divide-y divide-slate-100">
+                        {result.client.payments.map((pay) => (
+                          <div key={pay.id} className="py-2.5 flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-slate-900">{pay.purpose}</p>
+                              <p className="text-xs text-slate-500 font-mono mt-0.5">
                                 {formatDateOnly(pay.date)}
-                              </td>
-                              <td className="py-2.5 font-medium text-slate-900">{pay.purpose}</td>
-                              <td className="py-2.5 text-slate-500">{pay.note || '—'}</td>
-                              <td className="py-2.5 text-right font-mono font-semibold text-emerald-700 tabular-nums">
-                                {formatBDT(pay.amount)}
-                              </td>
+                                {pay.note ? ` · ${pay.note}` : ''}
+                              </p>
+                            </div>
+                            <span className="font-mono text-sm font-semibold text-emerald-700 tabular-nums shrink-0">
+                              {formatBDT(pay.amount)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Desktop Payment Table */}
+                      <div className="hidden sm:block overflow-x-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-200 text-xs text-slate-500">
+                              <th className="pb-2 font-medium">Date</th>
+                              <th className="pb-2 font-medium">Purpose</th>
+                              <th className="pb-2 font-medium">Note</th>
+                              <th className="pb-2 font-medium text-right">Amount</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {result.client.payments.map((pay) => (
+                              <tr key={pay.id}>
+                                <td className="py-2.5 text-slate-600 font-mono text-xs whitespace-nowrap">
+                                  {formatDateOnly(pay.date)}
+                                </td>
+                                <td className="py-2.5 font-medium text-slate-900">{pay.purpose}</td>
+                                <td className="py-2.5 text-slate-500">{pay.note || '—'}</td>
+                                <td className="py-2.5 text-right font-mono font-semibold text-emerald-700 tabular-nums">
+                                  {formatBDT(pay.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
                   )}
                 </div>
 
@@ -686,24 +705,24 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
 
       {/* Direct Contact Numbers Strip */}
       {siteSettings.showContactSection && (
-        <section id="contact" className="bg-slate-50 py-10 flex-1">
-          <div className="max-w-[1280px] mx-auto px-6">
-            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-6">
+        <section id="contact" className="bg-slate-50 py-6 sm:py-10 flex-1">
+          <div className="max-w-[1280px] mx-auto px-4 sm:px-6">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 mb-4 sm:mb-6">
               <div>
-                <p className="text-xs font-medium text-blue-700">Contact Numbers</p>
-                <h2 className="font-display text-2xl font-bold tracking-tight text-slate-900 mt-0.5">
+                <p className="hidden sm:block text-xs font-medium text-blue-700">Contact Numbers</p>
+                <h2 className="font-display text-lg sm:text-2xl font-bold tracking-tight text-slate-900 sm:mt-0.5">
                   {siteSettings.contactSectionTitle || 'Direct Hotline & WhatsApp Desk'}
                 </h2>
               </div>
               {(siteSettings.officeAddress || siteSettings.officeHours) && (
-                <p className="text-xs text-slate-500">
+                <p className="hidden sm:block text-xs text-slate-500">
                   {[siteSettings.officeAddress, siteSettings.officeHours].filter(Boolean).join(' · ')}
                 </p>
               )}
             </div>
 
             {siteSettings.contacts.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
                 {siteSettings.contacts.map((item) => {
                   const isWa = item.type === 'whatsapp';
                   const href = isWa
@@ -717,11 +736,11 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                       rel={isWa ? 'noopener noreferrer' : undefined}
                       className={`bg-white border border-slate-200 ${
                         isWa ? 'hover:border-emerald-700' : 'hover:border-blue-700'
-                      } rounded-xl p-5 flex items-center justify-between gap-4 transition-colors group`}
+                      } rounded-xl p-3.5 sm:p-5 flex items-center justify-between gap-3 sm:gap-4 transition-colors group`}
                     >
-                      <div className="flex items-center gap-3.5">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className={`w-10 h-10 rounded-lg ${
+                          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg ${
                             isWa ? 'bg-emerald-700' : 'bg-slate-900'
                           } text-white flex items-center justify-center shrink-0`}
                         >
@@ -731,9 +750,9 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                             <Phone className="w-4 h-4" />
                           )}
                         </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-500">{item.label}</p>
-                          <p className="font-mono text-base font-bold text-slate-900 tabular-nums mt-0.5">
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-500 truncate">{item.label}</p>
+                          <p className="font-mono text-sm sm:text-base font-bold text-slate-900 tabular-nums mt-0.5 truncate">
                             {item.value}
                           </p>
                         </div>
@@ -743,7 +762,9 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
                           isWa ? 'text-emerald-700' : 'text-blue-700'
                         } group-hover:underline shrink-0`}
                       >
-                        <span>{item.actionLabel || (isWa ? 'Chat' : 'Call')}</span>
+                        <span className="hidden sm:inline">
+                          {item.actionLabel || (isWa ? 'Chat' : 'Call')}
+                        </span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </span>
                     </a>
@@ -759,20 +780,26 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
 
       {/* Compact Footer */}
       <footer className="bg-slate-900 text-slate-300 border-t border-slate-800">
-        <div className="max-w-[1280px] mx-auto px-6 py-7 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-5 sm:py-7 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
           <BrandLogo
             variant="dark"
             brandName={siteSettings.brandName}
             logoUrl={siteSettings.logoUrl}
           />
-          <div className="flex flex-wrap items-center gap-5 text-xs text-slate-400">
+          <div className="flex flex-wrap items-center gap-4 sm:gap-5 text-xs text-slate-400">
             {siteSettings.showTracker && (
-              <a href="#track-status" className="hover:text-white transition-colors whitespace-nowrap">
+              <a
+                href="#track-status"
+                className="hidden sm:inline hover:text-white transition-colors whitespace-nowrap"
+              >
                 Track Status
               </a>
             )}
             {siteSettings.showPosterSlider && posters.length > 0 && (
-              <a href="#posters" className="hover:text-white transition-colors whitespace-nowrap">
+              <a
+                href="#posters"
+                className="hidden sm:inline hover:text-white transition-colors whitespace-nowrap"
+              >
                 Posters
               </a>
             )}

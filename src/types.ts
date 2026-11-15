@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'staff';
+export type UserRole = 'admin' | 'staff' | 'accounts';
 
 export interface PublicUser {
   id: string;
@@ -159,17 +159,43 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+export type LedgerEntryType = 'credit' | 'debit';
+
+export interface AccountLedgerEntry {
+  id: string;
+  accountOwnerId: string;
+  entryType: LedgerEntryType;
+  amount: number;
+  title: string;
+  category: string;
+  partyName: string;
+  referenceNo: string;
+  entryDate: string;
+  paymentMethod: string;
+  notes: string;
+  createdByName?: string;
+  version?: number;
+  clientRequestId?: string;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface DashboardData {
   user: PublicUser;
   staffList: PublicUser[];
+  accountsList?: PublicUser[];
   clients: ClientProfile[];
   meetings: MeetingRecord[];
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
+  ledgerEntries?: AccountLedgerEntry[];
   archivedClients?: ClientProfile[];
   archivedMeetings?: MeetingRecord[];
   archivedMedicals?: MedicalRecord[];
   archivedInterviews?: InterviewRecord[];
+  archivedLedgerEntries?: AccountLedgerEntry[];
   auditLogs?: AuditLogEntry[];
 }
 

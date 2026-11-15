@@ -1,4 +1,5 @@
 import type {
+  AccountLedgerEntry,
   AuditAction,
   AuditLogEntry,
   ClientDocument,
@@ -9,6 +10,7 @@ import type {
   DashboardData,
   InterviewRecord,
   InterviewStatus,
+  LedgerEntryType,
   MedicalOutcome,
   MedicalRecord,
   MedicalRecordResult,
@@ -34,6 +36,31 @@ export class ConflictError extends Error {
     super(message);
     this.name = 'ConflictError';
   }
+}
+
+export class DatabaseSetupError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseSetupError';
+  }
+}
+
+function isMissingSupabaseSchemaError(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  const code = (err.code || '').toUpperCase();
+  const msg = (err.message || '').toLowerCase();
+  return (
+    code === 'PGRST202' ||
+    code === 'PGRST205' ||
+    code === '42883' ||
+    code === '42P01' ||
+    msg.includes('schema cache') ||
+    msg.includes('could not find the function') ||
+    msg.includes('could not find the table') ||
+    msg.includes('resolve_login_email') ||
+    msg.includes('lookup_client_by_phone') ||
+    (msg.includes('relation') && msg.includes('does not exist'))
+  );
 }
 
 export function getAuthToken(): string | null {
@@ -248,6 +275,27 @@ interface AuditLogRow {
   created_at: string;
 }
 
+interface AccountLedgerRow {
+  id: string;
+  account_owner_id: string;
+  entry_type: LedgerEntryType;
+  amount: number;
+  title: string;
+  category: string;
+  party_name: string;
+  reference_no: string;
+  entry_date: string;
+  payment_method: string;
+  notes: string;
+  created_by_name?: string;
+  version?: number;
+  client_request_id?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 function mapProfileRow(row: ProfileRow): PublicUser {
   return {
     id: row.id,
@@ -376,6 +424,29 @@ function mapAuditLogRow(row: AuditLogRow): AuditLogEntry {
   };
 }
 
+function mapAccountLedgerRow(row: AccountLedgerRow): AccountLedgerEntry {
+  return {
+    id: row.id,
+    accountOwnerId: row.account_owner_id,
+    entryType: row.entry_type === 'debit' ? 'debit' : 'credit',
+    amount: Number(row.amount) || 0,
+    title: row.title,
+    category: row.category || 'General',
+    partyName: row.party_name || '',
+    referenceNo: row.reference_no || '',
+    entryDate: row.entry_date,
+    paymentMethod: row.payment_method || 'Cash',
+    notes: row.notes || '',
+    createdByName: row.created_by_name || '',
+    version: row.version ?? 1,
+    clientRequestId: row.client_request_id || undefined,
+    deletedAt: row.deleted_at || null,
+    deletedBy: row.deleted_by || null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 async function getCurrentSupabaseUser(): Promise<PublicUser> {
   if (!supabase) throw new Error('Supabase is not configured.');
   const {
@@ -393,6 +464,11 @@ async function getCurrentSupabaseUser(): Promise<PublicUser> {
     .maybeSingle();
 
   if (profError) {
+    if (isMissingSupabaseSchemaError(profError)) {
+      throw new DatabaseSetupError(
+        'Supabase database tables are not installed yet. Run the SQL Setup script once in your Supabase Dashboard → SQL Editor.'
+      );
+    }
     throw new Error(profError.message);
   }
 
@@ -624,13 +700,9 @@ export const api = {
         supabase!.rpc('lookup_client_by_phone', { p_phone: clean })
       );
       if (error) {
-        if (
-          error.code === 'PGRST202' ||
-          error.message.toLowerCase().includes('schema cache') ||
-          error.message.toLowerCase().includes('lookup_client_by_phone')
-        ) {
-          throw new Error(
-            'Supabase database functions are not installed yet. Please run supabase/setup_all.sql once in your Supabase Dashboard → SQL Editor.'
+        if (isMissingSupabaseSchemaError(error)) {
+          throw new DatabaseSetupError(
+            'Supabase database functions are not installed yet. Run the SQL Setup script once in your Supabase Dashboard → SQL Editor.'
           );
         }
         throw new Error(error.message);
@@ -661,6 +733,7 @@ export const api = {
 
       let emailToUse = cleanIdentifier;
       let missingSchemaRpc = false;
+      let unseededAdminAttempt = false;
 
       if (!cleanIdentifier.includes('@')) {
         const { data: resolvedEmail, error: resolveErr } = await supabase.rpc(
@@ -668,14 +741,7 @@ export const api = {
           { p_identifier: cleanIdentifier }
         );
         if (resolveErr) {
-          const msg = resolveErr.message.toLowerCase();
-          const isMissingRpc =
-            resolveErr.code === 'PGRST202' ||
-            resolveErr.code === '42883' ||
-            msg.includes('schema cache') ||
-            msg.includes('resolve_login_email');
-
-          if (!isMissingRpc) {
+          if (!isMissingSupabaseSchemaError(resolveErr)) {
             throw new Error(resolveErr.message);
           }
 
@@ -686,12 +752,16 @@ export const api = {
             cleanIdentifier.toLowerCase() === 'admin'
               ? 'admin@globalpathways.local'
               : `${slug}@staff.globalpathways.local`;
-        } else {
-          if (!resolvedEmail) {
+        } else if (!resolvedEmail) {
+          if (cleanIdentifier.toLowerCase() === 'admin') {
+            unseededAdminAttempt = true;
+            emailToUse = 'admin@globalpathways.local';
+          } else {
             throw new Error(
-              'No account found for this User ID. Please check your User ID or verify Supabase database setup.'
+              'No account found for this User ID. Please check your User ID or verify the staff account exists.'
             );
           }
+        } else {
           emailToUse = String(resolvedEmail);
         }
       }
@@ -701,9 +771,9 @@ export const api = {
         password,
       });
       if (error) {
-        if (missingSchemaRpc) {
-          throw new Error(
-            'Supabase database setup is incomplete (missing resolve_login_email function). Run supabase/setup_all.sql once in your Supabase Dashboard → SQL Editor, then sign in with admin / admin.'
+        if (missingSchemaRpc || unseededAdminAttempt) {
+          throw new DatabaseSetupError(
+            'Supabase database setup is incomplete. Click "Copy Setup SQL" below, run it once in your Supabase Dashboard → SQL Editor, then sign in with admin / admin.'
           );
         }
         throw new Error(error.message);
@@ -789,17 +859,21 @@ export const api = {
     if (supabase) {
       const user = await getCurrentSupabaseUser();
       const isAdmin = user.role === 'admin';
+      const isAccounts = user.role === 'accounts';
 
       const [
         profilesRes,
+        accountsRes,
         clientsRes,
         meetingsRes,
         medicalsRes,
         interviewsRes,
+        ledgerRes,
         archivedClientsRes,
         archivedMeetingsRes,
         archivedMedicalsRes,
         archivedInterviewsRes,
+        archivedLedgerRes,
         auditLogsRes,
       ] = await Promise.all([
         isAdmin
@@ -809,26 +883,49 @@ export const api = {
               .eq('role', 'staff')
               .order('created_at', { ascending: false })
           : Promise.resolve({ data: null, error: null }),
-        supabase
-          .from('clients')
-          .select('*')
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('meetings')
-          .select('*')
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('medicals')
-          .select('*')
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('interviews')
-          .select('*')
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
+        isAdmin
+          ? supabase
+              .from('profiles')
+              .select('*')
+              .eq('role', 'accounts')
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: null, error: null }),
+        user.role !== 'accounts'
+          ? supabase
+              .from('clients')
+              .select('*')
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        user.role !== 'accounts'
+          ? supabase
+              .from('meetings')
+              .select('*')
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        user.role !== 'accounts'
+          ? supabase
+              .from('medicals')
+              .select('*')
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        user.role !== 'accounts'
+          ? supabase
+              .from('interviews')
+              .select('*')
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        isAdmin || isAccounts
+          ? supabase
+              .from('account_ledger')
+              .select('*')
+              .is('deleted_at', null)
+              .order('entry_date', { ascending: false })
+              .order('created_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
         isAdmin
           ? supabase
               .from('clients')
@@ -859,6 +956,13 @@ export const api = {
           : Promise.resolve({ data: [], error: null }),
         isAdmin
           ? supabase
+              .from('account_ledger')
+              .select('*')
+              .not('deleted_at', 'is', null)
+              .order('deleted_at', { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
+        isAdmin
+          ? supabase
               .from('audit_logs')
               .select('*')
               .order('created_at', { ascending: false })
@@ -867,6 +971,7 @@ export const api = {
       ]);
 
       if (profilesRes.error) throw new Error(profilesRes.error.message);
+      if (accountsRes.error) throw new Error(accountsRes.error.message);
       if (clientsRes.error) throw new Error(clientsRes.error.message);
       if (meetingsRes.error) throw new Error(meetingsRes.error.message);
       if (medicalsRes.error) throw new Error(medicalsRes.error.message);
@@ -876,17 +981,30 @@ export const api = {
         user,
         staffList: isAdmin
           ? ((profilesRes.data || []) as ProfileRow[]).map(mapProfileRow)
-          : [user],
+          : user.role === 'staff'
+          ? [user]
+          : [],
+        accountsList: isAdmin
+          ? ((accountsRes.data || []) as ProfileRow[]).map(mapProfileRow)
+          : isAccounts
+          ? [user]
+          : [],
         clients: ((clientsRes.data || []) as ClientRow[]).map(mapClientRow),
         meetings: ((meetingsRes.data || []) as MeetingRow[]).map(mapMeetingRow),
         medicals: ((medicalsRes.data || []) as MedicalRow[]).map(mapMedicalRow),
         interviews: ((interviewsRes.data || []) as InterviewRow[]).map(mapInterviewRow),
+        ledgerEntries: ledgerRes.error
+          ? []
+          : ((ledgerRes.data || []) as AccountLedgerRow[]).map(mapAccountLedgerRow),
         archivedClients: ((archivedClientsRes.data || []) as ClientRow[]).map(mapClientRow),
         archivedMeetings: ((archivedMeetingsRes.data || []) as MeetingRow[]).map(mapMeetingRow),
         archivedMedicals: ((archivedMedicalsRes.data || []) as MedicalRow[]).map(mapMedicalRow),
         archivedInterviews: ((archivedInterviewsRes.data || []) as InterviewRow[]).map(
           mapInterviewRow
         ),
+        archivedLedgerEntries: archivedLedgerRes.error
+          ? []
+          : ((archivedLedgerRes.data || []) as AccountLedgerRow[]).map(mapAccountLedgerRow),
         auditLogs: auditLogsRes.error
           ? []
           : ((auditLogsRes.data || []) as AuditLogRow[]).map(mapAuditLogRow),
@@ -997,6 +1115,7 @@ export const api = {
     email?: string;
     password: string;
     name: string;
+    role?: 'staff' | 'accounts';
     designation?: string;
     phone?: string;
     whatsapp?: string;
@@ -1009,20 +1128,56 @@ export const api = {
       const cleanUserId = payload.userId.trim();
       const cleanPass = (payload.password || '').trim();
       const cleanName = payload.name.trim();
+      const targetRole: 'staff' | 'accounts' = payload.role === 'accounts' ? 'accounts' : 'staff';
       if (!cleanUserId || !cleanName || cleanPass.length < 4) {
-        throw new Error('Staff Name, User ID, and Password (min 4 chars) are required.');
+        throw new Error('Name, User ID, and Password (min 4 chars) are required.');
       }
 
-      const safeSlug = cleanUserId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'staff';
-      const staffEmail = (payload.email || '').trim() || `${safeSlug}@staff.globalpathways.local`;
+      const safeSlug = cleanUserId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || targetRole;
+      const staffEmail =
+        (payload.email || '').trim() || `${safeSlug}@${targetRole}.globalpathways.local`;
+      const defaultDesig =
+        targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
 
-      // Prefer Admin RPC so Staff accounts are immediately active with User ID + Password
+      // Prefer role-aware Admin RPC (supports both staff and accounts dashboards)
+      const { data: userRpcRow, error: userRpcErr } = await supabase.rpc(
+        'admin_create_user_account',
+        {
+          p_user_id: cleanUserId,
+          p_password: cleanPass,
+          p_name: cleanName,
+          p_role: targetRole,
+          p_email: staffEmail,
+          p_designation: (payload.designation || defaultDesig).trim(),
+          p_phone: (payload.phone || '').trim(),
+          p_whatsapp: (payload.whatsapp || payload.phone || '').trim(),
+          p_social_link: (payload.socialLink || '').trim(),
+          p_photo_url: (payload.photoUrl || '').trim(),
+          p_cover_url: (payload.coverUrl || '').trim(),
+        }
+      );
+
+      if (!userRpcErr && userRpcRow) {
+        return { staff: mapProfileRow(userRpcRow as ProfileRow) };
+      }
+
+      if (userRpcErr && !isMissingSupabaseSchemaError(userRpcErr)) {
+        throw new Error(userRpcErr.message);
+      }
+
+      if (targetRole === 'accounts') {
+        throw new Error(
+          'Accounts Dashboard SQL setup is needed. Run supabase/migrations/20261118_accounts_role_and_ledger.sql (or supabase/setup_all.sql) in your Supabase Dashboard → SQL Editor.'
+        );
+      }
+
+      // Fallback to legacy staff-only RPC if only 20261116 was run
       const { data: rpcRow, error: rpcErr } = await supabase.rpc('admin_create_staff_account', {
         p_user_id: cleanUserId,
         p_password: cleanPass,
         p_name: cleanName,
         p_email: staffEmail,
-        p_designation: (payload.designation || 'Visa & Recruitment Coordinator').trim(),
+        p_designation: (payload.designation || defaultDesig).trim(),
         p_phone: (payload.phone || '').trim(),
         p_whatsapp: (payload.whatsapp || payload.phone || '').trim(),
         p_social_link: (payload.socialLink || '').trim(),
@@ -1034,14 +1189,8 @@ export const api = {
         return { staff: mapProfileRow(rpcRow as ProfileRow) };
       }
 
-      if (rpcErr) {
-        const isMissingRpc =
-          rpcErr.code === 'PGRST202' ||
-          rpcErr.code === '42883' ||
-          rpcErr.message.toLowerCase().includes('admin_create_staff_account');
-        if (!isMissingRpc) {
-          throw new Error(rpcErr.message);
-        }
+      if (rpcErr && !isMissingSupabaseSchemaError(rpcErr)) {
+        throw new Error(rpcErr.message);
       }
 
       // Fallback to ephemeral Auth signUp if migration RPC isn't installed yet
@@ -1057,7 +1206,7 @@ export const api = {
           data: {
             user_id: cleanUserId,
             name: cleanName,
-            designation: (payload.designation || 'Visa & Recruitment Coordinator').trim(),
+            designation: (payload.designation || defaultDesig).trim(),
             phone: (payload.phone || '').trim(),
             whatsapp: (payload.whatsapp || payload.phone || '').trim(),
             social_link: (payload.socialLink || '').trim(),
@@ -1080,7 +1229,7 @@ export const api = {
       if (fetchErr) throw new Error(fetchErr.message);
       if (!profileRow) {
         throw new Error(
-          'Staff auth user created, waiting for profile sync. Run supabase/migrations/20261116_admin_seed_and_credentials.sql to enable instant staff creation.'
+          'Staff auth user created, waiting for profile sync. Run supabase/setup_all.sql to enable instant staff creation.'
         );
       }
 
@@ -1327,7 +1476,7 @@ export const api = {
   },
 
   restoreRecord: async (
-    table: 'clients' | 'meetings' | 'medicals' | 'interviews',
+    table: 'clients' | 'meetings' | 'medicals' | 'interviews' | 'account_ledger',
     id: string
   ): Promise<{ ok: boolean }> => {
     assertProductionBackend();
@@ -1692,6 +1841,130 @@ export const api = {
     }
 
     return apiFetch<{ ok: boolean }>(`/api/interviews/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  createLedgerEntry: async (
+    payload: Partial<AccountLedgerEntry>
+  ): Promise<{ entry: AccountLedgerEntry }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const rowData = await withRetry(async () => {
+        const { data, error } = await supabase!
+          .from('account_ledger')
+          .insert({
+            account_owner_id: current.id,
+            entry_type: payload.entryType === 'debit' ? 'debit' : 'credit',
+            amount: Number(payload.amount) || 0,
+            title: payload.title || '',
+            category: payload.category || 'General',
+            party_name: payload.partyName || '',
+            reference_no: payload.referenceNo || '',
+            entry_date: payload.entryDate || new Date().toISOString().slice(0, 10),
+            payment_method: payload.paymentMethod || 'Cash',
+            notes: payload.notes || '',
+            created_by_name: current.name,
+            client_request_id: payload.clientRequestId || null,
+          })
+          .select('*')
+          .single();
+
+        if (error) {
+          if (error.code === '23505' && payload.clientRequestId) {
+            const { data: existing } = await supabase!
+              .from('account_ledger')
+              .select('*')
+              .eq('client_request_id', payload.clientRequestId)
+              .maybeSingle();
+            if (existing) return existing as AccountLedgerRow;
+          }
+          if (isMissingSupabaseSchemaError(error)) {
+            throw new DatabaseSetupError(
+              'Accounts ledger table is not installed yet. Run supabase/migrations/20261118_accounts_role_and_ledger.sql (or supabase/setup_all.sql) in Supabase SQL Editor.'
+            );
+          }
+          throw new Error(error.message);
+        }
+        return data as AccountLedgerRow;
+      });
+
+      return { entry: mapAccountLedgerRow(rowData) };
+    }
+
+    return apiFetch<{ entry: AccountLedgerEntry }>('/api/ledger', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateLedgerEntry: async (
+    id: string,
+    payload: Partial<AccountLedgerEntry> & { expectedVersion?: number }
+  ): Promise<{ entry: AccountLedgerEntry }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const updateBody: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (payload.entryType !== undefined) updateBody.entry_type = payload.entryType;
+      if (payload.amount !== undefined) updateBody.amount = Number(payload.amount) || 0;
+      if (payload.title !== undefined) updateBody.title = payload.title;
+      if (payload.category !== undefined) updateBody.category = payload.category;
+      if (payload.partyName !== undefined) updateBody.party_name = payload.partyName;
+      if (payload.referenceNo !== undefined) updateBody.reference_no = payload.referenceNo;
+      if (payload.entryDate !== undefined) updateBody.entry_date = payload.entryDate;
+      if (payload.paymentMethod !== undefined) updateBody.payment_method = payload.paymentMethod;
+      if (payload.notes !== undefined) updateBody.notes = payload.notes;
+
+      const rowData = await withRetry(async () => {
+        let query = supabase!.from('account_ledger').update(updateBody).eq('id', id);
+        if (payload.expectedVersion !== undefined) {
+          query = query.eq('version', payload.expectedVersion);
+        }
+        const { data, error } = await query.select('*').maybeSingle();
+        if (error) {
+          if (isMissingSupabaseSchemaError(error)) {
+            throw new DatabaseSetupError(
+              'Accounts ledger table is not installed yet. Run supabase/setup_all.sql in Supabase SQL Editor.'
+            );
+          }
+          throw new Error(error.message);
+        }
+        if (!data) {
+          throw new ConflictError(
+            'Conflict detected or permission denied: reload the ledger before saving.'
+          );
+        }
+        return data as AccountLedgerRow;
+      });
+
+      return { entry: mapAccountLedgerRow(rowData) };
+    }
+
+    return apiFetch<{ entry: AccountLedgerEntry }>(`/api/ledger/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  deleteLedgerEntry: async (id: string): Promise<{ ok: boolean }> => {
+    assertProductionBackend();
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const { error } = await supabase
+        .from('account_ledger')
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: current.id,
+        })
+        .eq('id', id);
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    }
+
+    return apiFetch<{ ok: boolean }>(`/api/ledger/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   },

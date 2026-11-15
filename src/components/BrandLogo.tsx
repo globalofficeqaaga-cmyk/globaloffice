@@ -13,22 +13,22 @@ export function BrandLogo({
   const boxBg = variant === 'dark' ? 'bg-blue-600' : 'bg-slate-900';
 
   return (
-    <span className="inline-flex items-center gap-2.5 whitespace-nowrap shrink-0">
+    <span className="inline-flex items-center gap-2 sm:gap-2.5 min-w-0 whitespace-nowrap shrink-0">
       {logoUrl ? (
         <img
           src={logoUrl}
           alt={brandName}
           referrerPolicy="no-referrer"
-          className="w-8 h-8 rounded-lg object-cover border border-slate-200 bg-white shrink-0"
+          className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg object-cover border border-slate-200 bg-white shrink-0"
         />
       ) : (
         <span
-          className={`w-8 h-8 rounded-lg ${boxBg} flex items-center justify-center shrink-0`}
+          className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg ${boxBg} flex items-center justify-center shrink-0`}
           aria-hidden="true"
         >
           <svg
             viewBox="0 0 24 24"
-            className="w-4.5 h-4.5 text-white"
+            className="w-4 h-4 sm:w-4.5 sm:h-4.5 text-white"
             fill="none"
             stroke="currentColor"
             strokeWidth="2"
@@ -41,7 +41,9 @@ export function BrandLogo({
           </svg>
         </span>
       )}
-      <span className={`font-display text-lg font-bold tracking-tight ${textColor}`}>
+      <span
+        className={`font-display text-base sm:text-lg font-bold tracking-tight max-w-[180px] sm:max-w-none truncate ${textColor}`}
+      >
         {brandName || 'Global Pathways'}
       </span>
     </span>

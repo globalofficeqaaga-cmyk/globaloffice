@@ -6,12 +6,32 @@
 
 create extension if not exists pgcrypto;
 
+-- 0. Ensure login identifier resolver RPC exists & is executable by anon/authenticated
+create or replace function public.resolve_login_email(p_identifier text)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select email
+  from public.profiles
+  where lower(user_id) = lower(trim(p_identifier))
+     or lower(email) = lower(trim(p_identifier))
+  limit 1;
+$$;
+
+revoke all on function public.resolve_login_email(text) from public;
+grant execute on function public.resolve_login_email(text) to anon, authenticated;
+
 -- 1. Seed default Admin account (User ID: admin, Password: admin) ONLY if no admin exists yet
 do $$
 declare
   v_admin_uid uuid;
   v_admin_email text := 'admin@globalpathways.local';
 begin
+  perform set_config('search_path', 'public, auth, extensions', true);
+
   if not exists (select 1 from public.profiles where role = 'admin') then
     select id into v_admin_uid from auth.users where lower(email) = v_admin_email limit 1;
 
@@ -51,29 +71,34 @@ begin
         '',
         ''
       );
-
-      insert into auth.identities (
-        id,
-        user_id,
-        provider_id,
-        identity_data,
-        provider,
-        last_sign_in_at,
-        created_at,
-        updated_at
-      )
-      values (
-        gen_random_uuid(),
-        v_admin_uid,
-        v_admin_uid::text,
-        jsonb_build_object('sub', v_admin_uid::text, 'email', v_admin_email),
-        'email',
-        now(),
-        now(),
-        now()
-      )
-      on conflict do nothing;
+    else
+      update auth.users
+      set email_confirmed_at = coalesce(email_confirmed_at, now()),
+          updated_at = now()
+      where id = v_admin_uid;
     end if;
+
+    insert into auth.identities (
+      id,
+      user_id,
+      provider_id,
+      identity_data,
+      provider,
+      last_sign_in_at,
+      created_at,
+      updated_at
+    )
+    values (
+      gen_random_uuid(),
+      v_admin_uid,
+      v_admin_uid::text,
+      jsonb_build_object('sub', v_admin_uid::text, 'email', v_admin_email),
+      'email',
+      now(),
+      now(),
+      now()
+    )
+    on conflict do nothing;
 
     insert into public.profiles (
       id,

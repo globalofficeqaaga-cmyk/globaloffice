@@ -5,6 +5,7 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import type {
+  AccountLedgerEntry,
   AuditAction,
   AuditLogEntry,
   ClientLookupResponse,
@@ -29,6 +30,7 @@ interface DatabaseSchema {
   meetings: MeetingRecord[];
   medicals: MedicalRecord[];
   interviews: InterviewRecord[];
+  ledgerEntries?: AccountLedgerEntry[];
   auditLogs?: AuditLogEntry[];
   siteSettings?: Partial<SiteSettings>;
 }
@@ -497,6 +499,14 @@ function requireAdmin(req: AuthedRequest, res: Response, next: NextFunction): vo
   next();
 }
 
+function requireAdminOrAccounts(req: AuthedRequest, res: Response, next: NextFunction): void {
+  if (!req.currentUser || (req.currentUser.role !== 'admin' && req.currentUser.role !== 'accounts')) {
+    res.status(403).json({ error: 'Administrator or Accounts access required.' });
+    return;
+  }
+  next();
+}
+
 function generateId(prefix: string): string {
   return `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
 }
@@ -755,40 +765,67 @@ async function startServer() {
     const db = loadDb();
     const current = req.currentUser!;
     const isAdmin = current.role === 'admin';
+    const isAccounts = current.role === 'accounts';
 
     const activeClients = db.clients.filter((c) => !c.deletedAt);
     const activeMeetings = db.meetings.filter((m) => !m.deletedAt);
     const activeMedicals = db.medicals.filter((m) => !m.deletedAt);
     const activeInterviews = db.interviews.filter((i) => !i.deletedAt);
+    const allLedger = db.ledgerEntries || [];
+    const activeLedger = allLedger.filter((l) => !l.deletedAt);
 
     const payload: DashboardData = {
       user: toPublicUser(current),
       staffList: isAdmin
         ? db.users.filter((u) => u.role === 'staff').map(toPublicUser)
-        : [toPublicUser(current)],
-      clients: isAdmin ? activeClients : activeClients.filter((c) => c.staffId === current.id),
-      meetings: isAdmin ? activeMeetings : activeMeetings.filter((m) => m.staffId === current.id),
-      medicals: isAdmin ? activeMedicals : activeMedicals.filter((m) => m.staffId === current.id),
+        : current.role === 'staff'
+        ? [toPublicUser(current)]
+        : [],
+      accountsList: isAdmin
+        ? db.users.filter((u) => u.role === 'accounts').map(toPublicUser)
+        : isAccounts
+        ? [toPublicUser(current)]
+        : [],
+      clients: isAdmin
+        ? activeClients
+        : current.role === 'staff'
+        ? activeClients.filter((c) => c.staffId === current.id)
+        : [],
+      meetings: isAdmin
+        ? activeMeetings
+        : current.role === 'staff'
+        ? activeMeetings.filter((m) => m.staffId === current.id)
+        : [],
+      medicals: isAdmin
+        ? activeMedicals
+        : current.role === 'staff'
+        ? activeMedicals.filter((m) => m.staffId === current.id)
+        : [],
       interviews: isAdmin
         ? activeInterviews
-        : activeInterviews.filter((i) => i.staffId === current.id),
+        : current.role === 'staff'
+        ? activeInterviews.filter((i) => i.staffId === current.id)
+        : [],
+      ledgerEntries: isAdmin || isAccounts ? activeLedger : [],
       archivedClients: isAdmin ? db.clients.filter((c) => Boolean(c.deletedAt)) : [],
       archivedMeetings: isAdmin ? db.meetings.filter((m) => Boolean(m.deletedAt)) : [],
       archivedMedicals: isAdmin ? db.medicals.filter((m) => Boolean(m.deletedAt)) : [],
       archivedInterviews: isAdmin ? db.interviews.filter((i) => Boolean(i.deletedAt)) : [],
+      archivedLedgerEntries: isAdmin ? allLedger.filter((l) => Boolean(l.deletedAt)) : [],
       auditLogs: isAdmin ? (db.auditLogs || []).slice(0, 100) : [],
     };
 
     res.json(payload);
   });
 
-  // Admin: Create Staff Account
+  // Admin: Create Staff or Accounts Account
   app.post('/api/staff', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const {
       userId,
       password,
       name,
+      role,
       designation,
       phone,
       whatsapp,
@@ -800,6 +837,7 @@ async function startServer() {
     const cleanUserId = String(userId || '').trim();
     const cleanPass = String(password || '').trim();
     const cleanName = String(name || '').trim();
+    const targetRole: 'staff' | 'accounts' = role === 'accounts' ? 'accounts' : 'staff';
 
     if (!cleanUserId || !cleanPass || !cleanName) {
       res.status(400).json({ error: 'Name, User ID, and Password are required.' });
@@ -811,12 +849,15 @@ async function startServer() {
       return;
     }
 
+    const defaultDesig =
+      targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
+
     const newStaff: StoredUser = {
-      id: generateId('usr_staff'),
+      id: generateId(targetRole === 'accounts' ? 'usr_acc' : 'usr_staff'),
       userId: cleanUserId,
-      role: 'staff',
+      role: targetRole,
       name: cleanName,
-      designation: String(designation || 'Visa & Recruitment Coordinator').trim(),
+      designation: String(designation || defaultDesig).trim(),
       phone: String(phone || '').trim(),
       whatsapp: String(whatsapp || phone || '').trim(),
       socialLink: String(socialLink || '').trim(),
@@ -831,12 +872,14 @@ async function startServer() {
     res.status(201).json({ staff: toPublicUser(newStaff) });
   });
 
-  // Admin: Edit Staff Account
+  // Admin: Edit Staff or Accounts Account
   app.put('/api/staff/:id', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
     const db = loadDb();
-    const idx = db.users.findIndex((u) => u.id === req.params.id && u.role === 'staff');
+    const idx = db.users.findIndex(
+      (u) => u.id === req.params.id && (u.role === 'staff' || u.role === 'accounts')
+    );
     if (idx === -1) {
-      res.status(404).json({ error: 'Staff member not found.' });
+      res.status(404).json({ error: 'User account not found.' });
       return;
     }
 
@@ -888,12 +931,14 @@ async function startServer() {
     res.json({ staff: toPublicUser(updated) });
   });
 
-  // Admin: Delete Staff Account
+  // Admin: Delete Staff or Accounts Account
   app.delete('/api/staff/:id', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
     const db = loadDb();
-    const target = db.users.find((u) => u.id === req.params.id && u.role === 'staff');
+    const target = db.users.find(
+      (u) => u.id === req.params.id && (u.role === 'staff' || u.role === 'accounts')
+    );
     if (!target) {
-      res.status(404).json({ error: 'Staff member not found.' });
+      res.status(404).json({ error: 'User account not found.' });
       return;
     }
 
@@ -907,6 +952,11 @@ async function startServer() {
       db.interviews = db.interviews.map((i) =>
         i.staffId === target.id ? { ...i, staffId: adminUser.id } : i
       );
+      if (db.ledgerEntries) {
+        db.ledgerEntries = db.ledgerEntries.map((l) =>
+          l.accountOwnerId === target.id ? { ...l, accountOwnerId: adminUser.id } : l
+        );
+      }
     }
 
     await saveDb(db);
@@ -917,20 +967,26 @@ async function startServer() {
   app.post('/api/restore', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
     const db = loadDb();
     const current = req.currentUser!;
-    const rawTable = req.body?.table;
+    const rawTable = typeof req.body?.table === 'string' ? req.body.table : '';
     const id = typeof req.body?.id === 'string' ? req.body.id : '';
-    if (
-      !id ||
-      (rawTable !== 'clients' &&
-        rawTable !== 'meetings' &&
-        rawTable !== 'medicals' &&
-        rawTable !== 'interviews')
-    ) {
+    const tableMap = {
+      clients: db.clients,
+      meetings: db.meetings,
+      medicals: db.medicals,
+      interviews: db.interviews,
+      account_ledger: db.ledgerEntries || [],
+    } as const;
+    if (!id || !(rawTable in tableMap)) {
       res.status(400).json({ error: 'Valid table and record id required.' });
       return;
     }
-    const table: 'clients' | 'meetings' | 'medicals' | 'interviews' = rawTable;
-    const list = db[table] as Array<{ id: string; deletedAt?: string | null; deletedBy?: string | null; version?: number }>;
+    const tableName = rawTable as keyof typeof tableMap;
+    const list = tableMap[tableName] as Array<{
+      id: string;
+      deletedAt?: string | null;
+      deletedBy?: string | null;
+      version?: number;
+    }>;
     const idx = list.findIndex((item) => item.id === id);
     if (idx === -1) {
       res.status(404).json({ error: 'Archived record not found.' });
@@ -942,7 +998,7 @@ async function startServer() {
       deletedBy: null,
       version: (list[idx].version ?? 1) + 1,
     };
-    appendAudit(db, table, id, 'RESTORE', current, { restored: { old: 'archived', new: 'active' } });
+    appendAudit(db, rawTable, id, 'RESTORE', current, { restored: { old: 'archived', new: 'active' } });
     await saveDb(db);
     res.json({ ok: true });
   });
@@ -1537,6 +1593,137 @@ async function startServer() {
       version: (target.version ?? 1) + 1,
     };
     appendAudit(db, 'interviews', target.id, 'SOFT_DELETE', current, { candidate_names: { old: target.candidateNames, new: 'archived' } });
+    await saveDb(db);
+    res.json({ ok: true });
+  });
+
+  // Account Ledger (Debit / Credit) — Accounts & Admin can create; Admin can edit & remove
+  app.post('/api/ledger', requireAuth, requireAdminOrAccounts, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    const body = req.body || {};
+    if (!db.ledgerEntries) db.ledgerEntries = [];
+
+    if (body.clientRequestId) {
+      const existingByReq = db.ledgerEntries.find((l) => l.clientRequestId === body.clientRequestId);
+      if (existingByReq) {
+        res.status(200).json({ entry: existingByReq });
+        return;
+      }
+    }
+
+    const entryType = body.entryType === 'debit' ? 'debit' : body.entryType === 'credit' ? 'credit' : null;
+    const amount = Number(body.amount);
+    const title = String(body.title || '').trim();
+    const entryDate = String(body.entryDate || new Date().toISOString().slice(0, 10)).trim();
+
+    if (!entryType || !Number.isFinite(amount) || amount <= 0 || !title) {
+      res.status(400).json({ error: 'Type (Credit/Debit), positive amount, and title are required.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const entry: AccountLedgerEntry = {
+      id: generateId('ldg'),
+      accountOwnerId: current.id,
+      entryType,
+      amount,
+      title,
+      category: String(body.category || 'General').trim(),
+      partyName: String(body.partyName || '').trim(),
+      referenceNo: String(body.referenceNo || '').trim(),
+      entryDate,
+      paymentMethod: String(body.paymentMethod || 'Cash').trim(),
+      notes: String(body.notes || '').trim(),
+      createdByName: current.name,
+      version: 1,
+      clientRequestId: body.clientRequestId || undefined,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    db.ledgerEntries.unshift(entry);
+    appendAudit(db, 'account_ledger', entry.id, 'INSERT', current, {
+      title: { new: `${entry.entryType.toUpperCase()} ৳${entry.amount} — ${entry.title}` },
+    });
+    await saveDb(db);
+    res.status(201).json({ entry });
+  });
+
+  app.put('/api/ledger/:id', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.ledgerEntries) db.ledgerEntries = [];
+    const idx = db.ledgerEntries.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Ledger entry not found.' });
+      return;
+    }
+
+    const existing = db.ledgerEntries[idx];
+    const body = req.body || {};
+    if (
+      body.expectedVersion !== undefined &&
+      (existing.version ?? 1) !== Number(body.expectedVersion)
+    ) {
+      res.status(409).json({
+        conflict: true,
+        error: 'Conflict detected: this ledger entry was modified elsewhere. Reload before saving.',
+      });
+      return;
+    }
+
+    const nextAmount = body.amount !== undefined ? Number(body.amount) : existing.amount;
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      res.status(400).json({ error: 'Amount must be greater than zero.' });
+      return;
+    }
+
+    const updated: AccountLedgerEntry = {
+      ...existing,
+      version: (existing.version ?? 1) + 1,
+      entryType: body.entryType === 'debit' || body.entryType === 'credit' ? body.entryType : existing.entryType,
+      amount: nextAmount,
+      title: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : existing.title,
+      category: typeof body.category === 'string' ? body.category.trim() : existing.category,
+      partyName: typeof body.partyName === 'string' ? body.partyName.trim() : existing.partyName,
+      referenceNo: typeof body.referenceNo === 'string' ? body.referenceNo.trim() : existing.referenceNo,
+      entryDate: typeof body.entryDate === 'string' ? body.entryDate.trim() : existing.entryDate,
+      paymentMethod: typeof body.paymentMethod === 'string' ? body.paymentMethod.trim() : existing.paymentMethod,
+      notes: typeof body.notes === 'string' ? body.notes.trim() : existing.notes,
+      updatedAt: new Date().toISOString(),
+    };
+
+    db.ledgerEntries[idx] = updated;
+    appendAudit(db, 'account_ledger', updated.id, 'UPDATE', current, {
+      amount: { old: existing.amount, new: updated.amount },
+      entry_type: { old: existing.entryType, new: updated.entryType },
+    });
+    await saveDb(db);
+    res.json({ entry: updated });
+  });
+
+  app.delete('/api/ledger/:id', requireAuth, requireAdmin, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.ledgerEntries) db.ledgerEntries = [];
+    const idx = db.ledgerEntries.findIndex((l) => l.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Ledger entry not found.' });
+      return;
+    }
+
+    const target = db.ledgerEntries[idx];
+    db.ledgerEntries[idx] = {
+      ...target,
+      deletedAt: new Date().toISOString(),
+      deletedBy: current.id,
+      version: (target.version ?? 1) + 1,
+    };
+    appendAudit(db, 'account_ledger', target.id, 'SOFT_DELETE', current, {
+      title: { old: target.title, new: 'archived' },
+    });
     await saveDb(db);
     res.json({ ok: true });
   });

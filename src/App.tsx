@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccountsDashboard } from './components/AccountsDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { LandingPage } from './components/LandingPage';
 import { LoginModal } from './components/LoginModal';
@@ -159,6 +160,16 @@ export default function App() {
           data={dashboardData}
           siteSettings={siteSettings}
           onSiteSettingsSaved={setSiteSettings}
+          onRefresh={loadDashboard}
+          onGoHome={() => setView('landing')}
+          onLogout={handleLogout}
+        />
+      );
+    }
+    if (currentUser.role === 'accounts') {
+      return (
+        <AccountsDashboard
+          data={dashboardData}
           onRefresh={loadDashboard}
           onGoHome={() => setView('landing')}
           onLogout={handleLogout}

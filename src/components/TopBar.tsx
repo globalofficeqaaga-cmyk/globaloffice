@@ -19,13 +19,13 @@ export function TopBar({
 }: TopBarProps) {
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-sm border-b border-slate-200">
-      <div className="max-w-[1280px] mx-auto px-6 py-3.5 flex items-center justify-between gap-8">
+      <div className="max-w-[1280px] mx-auto px-4 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-4 sm:gap-8">
         {/* Zone 1: Website logo mark + single-line brand wordmark */}
         <button
           type="button"
           onClick={onGoHome}
           aria-label={`${siteSettings.brandName || 'Global Pathways'} Home`}
-          className="whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 rounded-lg"
+          className="min-w-0 whitespace-nowrap shrink cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 rounded-lg"
         >
           <BrandLogo
             variant="light"
@@ -68,7 +68,7 @@ export function TopBar({
             <button
               type="button"
               onClick={onGoDashboard}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 min-h-[40px] text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2"
             >
               <LayoutDashboard className="w-4 h-4" />
               <span>Dashboard</span>
@@ -78,7 +78,7 @@ export function TopBar({
               type="button"
               onClick={onOpenLogin}
               aria-label="Staff and Admin Login"
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-2 min-h-[40px] text-xs sm:text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-settle whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2"
             >
               <LogIn className="w-4 h-4" />
               <span>{siteSettings.loginButtonLabel || 'Login'}</span>

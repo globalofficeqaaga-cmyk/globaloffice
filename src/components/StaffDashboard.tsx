@@ -267,10 +267,11 @@ export function StaffDashboard({
         <button
           type="button"
           onClick={() => setMeetingModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[38px] text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Meeting</span>
+          <span className="sm:hidden">Meeting</span>
+          <span className="hidden sm:inline">Add Meeting</span>
         </button>
       );
     }
@@ -279,10 +280,11 @@ export function StaffDashboard({
         <button
           type="button"
           onClick={() => setMedicalModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[38px] text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Medical</span>
+          <span className="sm:hidden">Medical</span>
+          <span className="hidden sm:inline">Add Medical</span>
         </button>
       );
     }
@@ -291,10 +293,11 @@ export function StaffDashboard({
         <button
           type="button"
           onClick={() => setInterviewModal({ open: true, item: null })}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[38px] text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Interview</span>
+          <span className="sm:hidden">Interview</span>
+          <span className="hidden sm:inline">Add Interview</span>
         </button>
       );
     }
@@ -303,10 +306,11 @@ export function StaffDashboard({
       <button
         type="button"
         onClick={() => setClientModal({ open: true, item: null })}
-        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
+        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 min-h-[38px] text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap"
       >
         <Plus className="w-4 h-4" />
-        <span>New Client Profile</span>
+        <span className="sm:hidden">New Client</span>
+        <span className="hidden sm:inline">New Client Profile</span>
       </button>
     );
   })();
@@ -379,42 +383,42 @@ export function StaffDashboard({
           OVERVIEW TAB
          ==================================================================== */}
       {activeTab === 'overview' && (
-        <div className="space-y-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <p className="text-xs font-medium text-slate-500">My Client Profiles</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+        <div className="space-y-6 sm:space-y-8">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-[11px] sm:text-xs font-medium text-slate-500">My Clients</p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {data.clients.length}
               </p>
               <button
                 type="button"
                 onClick={() => setClientModal({ open: true, item: null })}
-                className="mt-3 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                className="mt-2 sm:mt-3 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
               >
-                + Add Client Profile
+                + Add Client
               </button>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <p className="text-xs font-medium text-slate-500">My Meetings</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-[11px] sm:text-xs font-medium text-slate-500">My Meetings</p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {data.meetings.length}
               </p>
               <button
                 type="button"
                 onClick={() => setMeetingModal({ open: true, item: null })}
-                className="mt-3 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                className="mt-2 sm:mt-3 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
               >
-                + Log New Meeting
+                + Log Meeting
               </button>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <p className="text-xs font-medium text-slate-500">My Medical Candidates</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-[11px] sm:text-xs font-medium text-slate-500">My Medicals</p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {data.medicals.length}
               </p>
-              <p className="text-xs font-mono text-slate-600 tabular-nums mt-1">
+              <p className="hidden sm:block text-xs font-mono text-slate-600 tabular-nums mt-1">
                 Paid {formatBDT(medicalPaid)} · Due {formatBDT(medicalDue)}
               </p>
               <button
@@ -422,16 +426,16 @@ export function StaffDashboard({
                 onClick={() => setMedicalModal({ open: true, item: null })}
                 className="mt-2 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
               >
-                + Add Medical Entry
+                + Add Medical
               </button>
             </div>
 
-            <div className="bg-white border border-slate-200 rounded-xl p-5">
-              <p className="text-xs font-medium text-slate-500">My Interview Candidates</p>
-              <p className="font-mono text-3xl font-bold text-slate-900 tabular-nums mt-2">
+            <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+              <p className="text-[11px] sm:text-xs font-medium text-slate-500">My Interviews</p>
+              <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {totalInterviewCandidates}
               </p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="hidden sm:block text-xs text-slate-500 mt-1">
                 Across {data.interviews.length} interview dates
               </p>
               <button
@@ -439,7 +443,7 @@ export function StaffDashboard({
                 onClick={() => setInterviewModal({ open: true, item: null })}
                 className="mt-2 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
               >
-                + Add Interview Date
+                + Add Interview
               </button>
             </div>
           </div>
@@ -496,77 +500,60 @@ export function StaffDashboard({
          ==================================================================== */}
       {activeTab === 'clients' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h2 className="font-display text-base font-bold text-slate-900">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
+            <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
               My Client Profiles ({filteredClients.length})
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="hidden sm:block text-xs text-slate-500">
               Only clients created under your staff account are shown here
             </p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Client & Phone</th>
-                  <th className="px-4 py-3 font-medium">Trade & Country</th>
-                  <th className="px-4 py-3 font-medium">Salary</th>
-                  <th className="px-4 py-3 font-medium">Medical</th>
-                  <th className="px-4 py-3 font-medium text-right">Paid / Due</th>
-                  <th className="px-4 py-3 font-medium">Stage</th>
-                  <th className="px-6 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredClients.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                      No clients found. Click &ldquo;New Client Profile&rdquo; to create one.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredClients.map((c) => {
-                    const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
-                    return (
-                      <tr key={c.id} className="hover:bg-slate-50/70">
-                        <td className="px-6 py-3.5">
-                          <p className="font-semibold text-slate-900">{c.name}</p>
-                          <p className="text-xs text-slate-500 font-mono">{c.phone}</p>
-                        </td>
-                        <td className="px-4 py-3.5">
-                          <p className="text-slate-900">{c.trade || '—'}</p>
-                          <p className="text-xs text-slate-500">{c.destinationCountry || 'TBD'}</p>
-                        </td>
-                        <td className="px-4 py-3.5 text-slate-700">{c.expectedSalary || '—'}</td>
-                        <td className="px-4 py-3.5 text-xs font-semibold">
-                          <span
-                            className={
-                              c.medicalStatus === 'Fit' ? 'text-emerald-700' : 'text-amber-700'
-                            }
-                          >
-                            {c.medicalDone ? 'Yes' : 'No'} ({c.medicalStatus})
-                          </span>
-                        </td>
-                        <td className="px-4 py-3.5 text-right font-mono tabular-nums">
-                          <p className="text-xs font-semibold text-emerald-700">
-                            Paid {formatBDT(c.totalPaid)}
-                          </p>
-                          <p className="text-xs text-amber-700">Due {formatBDT(due)}</p>
-                        </td>
-                        <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+
+          {filteredClients.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No clients found. Click &ldquo;New Client&rdquo; to create one.
+            </div>
+          ) : (
+            <>
+              {/* Mobile Client Cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filteredClients.map((c) => {
+                  const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
+                  return (
+                    <div key={c.id} className="p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 truncate">{c.name}</p>
+                          <p className="text-xs font-mono text-slate-500">{c.phone}</p>
+                        </div>
+                        <span className="text-xs font-semibold text-blue-700 shrink-0">
                           {c.status}
-                        </td>
-                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600">
+                        {[c.trade || 'Trade TBD', c.destinationCountry || 'TBD', c.expectedSalary]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </p>
+                      <div className="flex items-center justify-between pt-1">
+                        <div className="font-mono text-xs tabular-nums">
+                          <span className="text-emerald-700 font-semibold">
+                            Paid {formatBDT(c.totalPaid)}
+                          </span>
+                          <span className="text-slate-300 mx-1.5">·</span>
+                          <span className="text-amber-700">Due {formatBDT(due)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => setClientModal({ open: true, item: c })}
-                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                             title="Edit client"
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
                           {confirmDeleteId === c.id ? (
-                            <span className="inline-flex items-center gap-1 ml-2">
+                            <span className="inline-flex items-center gap-1">
                               <button
                                 type="button"
                                 onClick={async () => {
@@ -575,7 +562,7 @@ export function StaffDashboard({
                                     await api.deleteClient(c.id);
                                     setConfirmDeleteId(null);
                                     await onRefresh();
-                                    notifySuccess('Client profile archived. Administrators can restore it from Audit & Archive.');
+                                    notifySuccess('Client profile archived.');
                                   } catch (err) {
                                     setConfirmDeleteId(null);
                                     setActionError(err instanceof Error ? err.message : 'Failed to archive client.');
@@ -597,20 +584,121 @@ export function StaffDashboard({
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteId(c.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                              className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
                               title="Delete client"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Client &amp; Phone</th>
+                      <th className="px-4 py-3 font-medium">Trade &amp; Country</th>
+                      <th className="px-4 py-3 font-medium">Salary</th>
+                      <th className="px-4 py-3 font-medium">Medical</th>
+                      <th className="px-4 py-3 font-medium text-right">Paid / Due</th>
+                      <th className="px-4 py-3 font-medium">Stage</th>
+                      <th className="px-6 py-3 font-medium text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredClients.map((c) => {
+                      const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
+                      return (
+                        <tr key={c.id} className="hover:bg-slate-50/70">
+                          <td className="px-6 py-3.5">
+                            <p className="font-semibold text-slate-900">{c.name}</p>
+                            <p className="text-xs text-slate-500 font-mono">{c.phone}</p>
+                          </td>
+                          <td className="px-4 py-3.5">
+                            <p className="text-slate-900">{c.trade || '—'}</p>
+                            <p className="text-xs text-slate-500">{c.destinationCountry || 'TBD'}</p>
+                          </td>
+                          <td className="px-4 py-3.5 text-slate-700">{c.expectedSalary || '—'}</td>
+                          <td className="px-4 py-3.5 text-xs font-semibold">
+                            <span
+                              className={
+                                c.medicalStatus === 'Fit' ? 'text-emerald-700' : 'text-amber-700'
+                              }
+                            >
+                              {c.medicalDone ? 'Yes' : 'No'} ({c.medicalStatus})
+                            </span>
+                          </td>
+                          <td className="px-4 py-3.5 text-right font-mono tabular-nums">
+                            <p className="text-xs font-semibold text-emerald-700">
+                              Paid {formatBDT(c.totalPaid)}
+                            </p>
+                            <p className="text-xs text-amber-700">Due {formatBDT(due)}</p>
+                          </td>
+                          <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+                            {c.status}
+                          </td>
+                          <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setClientModal({ open: true, item: c })}
+                              className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                              title="Edit client"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            {confirmDeleteId === c.id ? (
+                              <span className="inline-flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setActionError('');
+                                    try {
+                                      await api.deleteClient(c.id);
+                                      setConfirmDeleteId(null);
+                                      await onRefresh();
+                                      notifySuccess('Client profile archived. Administrators can restore it from Audit & Archive.');
+                                    } catch (err) {
+                                      setConfirmDeleteId(null);
+                                      setActionError(err instanceof Error ? err.message : 'Failed to archive client.');
+                                    }
+                                  }}
+                                  className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDeleteId(null)}
+                                  className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(c.id)}
+                                className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                                title="Delete client"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -619,57 +707,56 @@ export function StaffDashboard({
          ==================================================================== */}
       {activeTab === 'meetings' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h2 className="font-display text-base font-bold text-slate-900">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
+            <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
               My Scheduled Meetings ({filteredMeetings.length})
             </h2>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Client</th>
-                  <th className="px-4 py-3 font-medium">Meeting With</th>
-                  <th className="px-4 py-3 font-medium">Location</th>
-                  <th className="px-4 py-3 font-medium">Date & Time</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredMeetings.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                      No meetings logged yet.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMeetings.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50/70">
-                      <td className="px-6 py-3.5">
-                        <p className="font-semibold text-slate-900">{m.clientName}</p>
-                        {m.clientPhone && (
-                          <p className="text-xs font-mono text-slate-500">{m.clientPhone}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-800">{m.meetingWith}</td>
-                      <td className="px-4 py-3.5 text-slate-700">{m.location}</td>
-                      <td className="px-4 py-3.5 font-mono text-xs text-slate-700 whitespace-nowrap">
-                        {formatDateTime(m.dateTime)}
-                      </td>
-                      <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+
+          {filteredMeetings.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No meetings logged yet.
+            </div>
+          ) : (
+            <>
+              {/* Mobile Meeting Cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filteredMeetings.map((m) => (
+                  <div key={m.id} className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{m.clientName}</p>
+                        <p className="text-xs text-slate-600 truncate">
+                          With {m.meetingWith} · {m.location}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-xs font-semibold shrink-0 ${
+                          m.status === 'Completed'
+                            ? 'text-emerald-700'
+                            : m.status === 'Cancelled'
+                            ? 'text-red-700'
+                            : 'text-blue-700'
+                        }`}
+                      >
                         {m.status}
-                      </td>
-                      <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-xs font-mono text-slate-500">
+                        {formatDateTime(m.dateTime)}
+                      </p>
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setMeetingModal({ open: true, item: m })}
-                          className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          title="Edit meeting"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         {confirmDeleteId === m.id ? (
-                          <span className="inline-flex items-center gap-1 ml-2">
+                          <span className="inline-flex items-center gap-1">
                             <button
                               type="button"
                               onClick={async () => {
@@ -700,18 +787,101 @@ export function StaffDashboard({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(m.id)}
-                            className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                            title="Delete meeting"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                      </td>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Meetings Table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Client</th>
+                      <th className="px-4 py-3 font-medium">Meeting With</th>
+                      <th className="px-4 py-3 font-medium">Location</th>
+                      <th className="px-4 py-3 font-medium">Date & Time</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-6 py-3 font-medium text-right">Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMeetings.map((m) => (
+                      <tr key={m.id} className="hover:bg-slate-50/70">
+                        <td className="px-6 py-3.5">
+                          <p className="font-semibold text-slate-900">{m.clientName}</p>
+                          {m.clientPhone && (
+                            <p className="text-xs font-mono text-slate-500">{m.clientPhone}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-800">{m.meetingWith}</td>
+                        <td className="px-4 py-3.5 text-slate-700">{m.location}</td>
+                        <td className="px-4 py-3.5 font-mono text-xs text-slate-700 whitespace-nowrap">
+                          {formatDateTime(m.dateTime)}
+                        </td>
+                        <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+                          {m.status}
+                        </td>
+                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setMeetingModal({ open: true, item: m })}
+                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          {confirmDeleteId === m.id ? (
+                            <span className="inline-flex items-center gap-1 ml-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setActionError('');
+                                  try {
+                                    await api.deleteMeeting(m.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Meeting record archived.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive meeting.');
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(m.id)}
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -720,69 +890,65 @@ export function StaffDashboard({
          ==================================================================== */}
       {activeTab === 'medicals' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 className="font-display text-base font-bold text-slate-900">
+              <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
                 My Medical Candidates ({filteredMedicals.length})
               </h2>
               <p className="text-xs font-mono text-slate-500 tabular-nums mt-0.5">
-                Paid: {formatBDT(medicalPaid)} · Receivable: {formatBDT(medicalDue)}
+                Paid {formatBDT(medicalPaid)} · Due {formatBDT(medicalDue)}
               </p>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Candidate</th>
-                  <th className="px-4 py-3 font-medium">Medical Center & Location</th>
-                  <th className="px-4 py-3 font-medium">Purpose</th>
-                  <th className="px-4 py-3 font-medium text-right">Paid</th>
-                  <th className="px-4 py-3 font-medium text-right">Receivable</th>
-                  <th className="px-4 py-3 font-medium">Result</th>
-                  <th className="px-6 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredMedicals.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-10 text-center text-slate-500">
-                      No medical records logged yet.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredMedicals.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50/70">
-                      <td className="px-6 py-3.5">
-                        <p className="font-semibold text-slate-900">{m.candidateName}</p>
-                        <p className="text-xs font-mono text-slate-500">
-                          {m.candidatePhone || formatDateOnly(m.testDate)}
+
+          {filteredMedicals.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No medical records logged yet.
+            </div>
+          ) : (
+            <>
+              {/* Mobile Medical Cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filteredMedicals.map((m) => (
+                  <div key={m.id} className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">{m.candidateName}</p>
+                        <p className="text-xs text-slate-600 truncate">
+                          {m.medicalCenter} · {m.medicalLocation}
                         </p>
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <p className="font-medium text-slate-900">{m.medicalCenter}</p>
-                        <p className="text-xs text-slate-500">{m.medicalLocation}</p>
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-700">{m.paymentPurpose || '—'}</td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-emerald-700">
-                        {formatBDT(m.amountPaid)}
-                      </td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-amber-700">
-                        {formatBDT(m.amountReceivable)}
-                      </td>
-                      <td className="px-4 py-3.5 text-xs font-semibold text-slate-800">
+                      </div>
+                      <span
+                        className={`text-xs font-semibold shrink-0 ${
+                          m.result === 'Fit'
+                            ? 'text-emerald-700'
+                            : m.result === 'Unfit'
+                            ? 'text-red-700'
+                            : 'text-amber-700'
+                        }`}
+                      >
                         {m.result}
-                      </td>
-                      <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="font-mono text-xs tabular-nums">
+                        <span className="text-emerald-700 font-semibold">
+                          Paid {formatBDT(m.amountPaid)}
+                        </span>
+                        <span className="text-slate-300 mx-1.5">·</span>
+                        <span className="text-amber-700">Due {formatBDT(m.amountReceivable)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setMedicalModal({ open: true, item: m })}
-                          className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          title="Edit medical"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         {confirmDeleteId === m.id ? (
-                          <span className="inline-flex items-center gap-1 ml-2">
+                          <span className="inline-flex items-center gap-1">
                             <button
                               type="button"
                               onClick={async () => {
@@ -813,18 +979,108 @@ export function StaffDashboard({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(m.id)}
-                            className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                            title="Delete medical"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                      </td>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Medicals Table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Candidate</th>
+                      <th className="px-4 py-3 font-medium">Medical Center & Location</th>
+                      <th className="px-4 py-3 font-medium">Purpose</th>
+                      <th className="px-4 py-3 font-medium text-right">Paid</th>
+                      <th className="px-4 py-3 font-medium text-right">Receivable</th>
+                      <th className="px-4 py-3 font-medium">Result</th>
+                      <th className="px-6 py-3 font-medium text-right">Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMedicals.map((m) => (
+                      <tr key={m.id} className="hover:bg-slate-50/70">
+                        <td className="px-6 py-3.5">
+                          <p className="font-semibold text-slate-900">{m.candidateName}</p>
+                          <p className="text-xs font-mono text-slate-500">
+                            {m.candidatePhone || formatDateOnly(m.testDate)}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <p className="font-medium text-slate-900">{m.medicalCenter}</p>
+                          <p className="text-xs text-slate-500">{m.medicalLocation}</p>
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-700">{m.paymentPurpose || '—'}</td>
+                        <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-emerald-700">
+                          {formatBDT(m.amountPaid)}
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold text-amber-700">
+                          {formatBDT(m.amountReceivable)}
+                        </td>
+                        <td className="px-4 py-3.5 text-xs font-semibold text-slate-800">
+                          {m.result}
+                        </td>
+                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setMedicalModal({ open: true, item: m })}
+                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          {confirmDeleteId === m.id ? (
+                            <span className="inline-flex items-center gap-1 ml-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setActionError('');
+                                  try {
+                                    await api.deleteMedical(m.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Medical record archived.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive medical record.');
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(m.id)}
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -833,61 +1089,60 @@ export function StaffDashboard({
          ==================================================================== */}
       {activeTab === 'interviews' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
-            <h2 className="font-display text-base font-bold text-slate-900">
+          <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
+            <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
               My Interview Schedules ({filteredInterviews.length})
             </h2>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Candidates</th>
-                  <th className="px-4 py-3 font-medium text-right">Count</th>
-                  <th className="px-4 py-3 font-medium">Company / Interviewer</th>
-                  <th className="px-4 py-3 font-medium">Date & Location</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-6 py-3 font-medium text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredInterviews.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                      No interviews scheduled yet.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredInterviews.map((iv) => (
-                    <tr key={iv.id} className="hover:bg-slate-50/70">
-                      <td className="px-6 py-3.5">
-                        <p className="font-semibold text-slate-900">{iv.candidateNames}</p>
-                        {iv.trade && <p className="text-xs text-slate-500">{iv.trade}</p>}
-                      </td>
-                      <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold">
-                        {iv.clientCount}
-                      </td>
-                      <td className="px-4 py-3.5 text-slate-800">{iv.interviewerOrCompany}</td>
-                      <td className="px-4 py-3.5">
-                        <p className="font-mono text-xs text-slate-800">
-                          {formatDateOnly(iv.interviewDate)}
-                          {iv.interviewTime ? ` · ${iv.interviewTime}` : ''}
+
+          {filteredInterviews.length === 0 ? (
+            <div className="px-6 py-10 text-center text-sm text-slate-500">
+              No interviews scheduled yet.
+            </div>
+          ) : (
+            <>
+              {/* Mobile Interview Cards */}
+              <div className="sm:hidden divide-y divide-slate-100">
+                {filteredInterviews.map((iv) => (
+                  <div key={iv.id} className="p-4 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 truncate">
+                          {iv.interviewerOrCompany}
                         </p>
-                        <p className="text-xs text-slate-500">{iv.location}</p>
-                      </td>
-                      <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+                        <p className="text-xs text-slate-600 truncate">
+                          {iv.clientCount} {iv.clientCount === 1 ? 'candidate' : 'candidates'} ·{' '}
+                          {iv.candidateNames}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-xs font-semibold shrink-0 ${
+                          iv.status === 'Selected' || iv.status === 'Completed'
+                            ? 'text-emerald-700'
+                            : iv.status === 'Rejected'
+                            ? 'text-red-700'
+                            : 'text-blue-700'
+                        }`}
+                      >
                         {iv.status}
-                      </td>
-                      <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-xs font-mono text-slate-500">
+                        {formatDateOnly(iv.interviewDate)}
+                        {iv.location ? ` · ${iv.location}` : ''}
+                      </p>
+                      <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => setInterviewModal({ open: true, item: iv })}
-                          className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          title="Edit interview"
                         >
                           <Pencil className="w-4 h-4" />
                         </button>
                         {confirmDeleteId === iv.id ? (
-                          <span className="inline-flex items-center gap-1 ml-2">
+                          <span className="inline-flex items-center gap-1">
                             <button
                               type="button"
                               onClick={async () => {
@@ -918,18 +1173,105 @@ export function StaffDashboard({
                           <button
                             type="button"
                             onClick={() => setConfirmDeleteId(iv.id)}
-                            className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                            className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                            title="Delete interview"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         )}
-                      </td>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop Interviews Table */}
+              <div className="hidden sm:block overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                    <tr>
+                      <th className="px-6 py-3 font-medium">Candidates</th>
+                      <th className="px-4 py-3 font-medium text-right">Count</th>
+                      <th className="px-4 py-3 font-medium">Company / Interviewer</th>
+                      <th className="px-4 py-3 font-medium">Date & Location</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-6 py-3 font-medium text-right">Actions</th>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredInterviews.map((iv) => (
+                      <tr key={iv.id} className="hover:bg-slate-50/70">
+                        <td className="px-6 py-3.5">
+                          <p className="font-semibold text-slate-900">{iv.candidateNames}</p>
+                          {iv.trade && <p className="text-xs text-slate-500">{iv.trade}</p>}
+                        </td>
+                        <td className="px-4 py-3.5 text-right font-mono tabular-nums font-semibold">
+                          {iv.clientCount}
+                        </td>
+                        <td className="px-4 py-3.5 text-slate-800">{iv.interviewerOrCompany}</td>
+                        <td className="px-4 py-3.5">
+                          <p className="font-mono text-xs text-slate-800">
+                            {formatDateOnly(iv.interviewDate)}
+                            {iv.interviewTime ? ` · ${iv.interviewTime}` : ''}
+                          </p>
+                          <p className="text-xs text-slate-500">{iv.location}</p>
+                        </td>
+                        <td className="px-4 py-3.5 text-xs font-semibold text-blue-700">
+                          {iv.status}
+                        </td>
+                        <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => setInterviewModal({ open: true, item: iv })}
+                            className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          {confirmDeleteId === iv.id ? (
+                            <span className="inline-flex items-center gap-1 ml-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setActionError('');
+                                  try {
+                                    await api.deleteInterview(iv.id);
+                                    setConfirmDeleteId(null);
+                                    await onRefresh();
+                                    notifySuccess('Interview record archived.');
+                                  } catch (err) {
+                                    setConfirmDeleteId(null);
+                                    setActionError(err instanceof Error ? err.message : 'Failed to archive interview.');
+                                  }
+                                }}
+                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(null)}
+                                className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
+                              >
+                                No
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(iv.id)}
+                              className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 

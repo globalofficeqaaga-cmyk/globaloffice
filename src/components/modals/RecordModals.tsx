@@ -1,5 +1,15 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
-import { AlertTriangle, ExternalLink, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ExternalLink,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import { api, ConflictError, formatBDT } from '../../lib/api';
 import { APP_IMAGES } from '../../lib/assets';
 import {
@@ -10,6 +20,7 @@ import {
 } from '../../lib/drafts';
 import { useUnsavedChangesWarning } from '../../lib/useUnsavedChanges';
 import type {
+  AccountLedgerEntry,
   ClientDocument,
   ClientPayment,
   ClientProfile,
@@ -17,6 +28,7 @@ import type {
   DocumentStatus,
   InterviewRecord,
   InterviewStatus,
+  LedgerEntryType,
   MedicalOutcome,
   MedicalRecord,
   MedicalRecordResult,
@@ -2122,12 +2134,14 @@ export function InterviewModal({
  * ========================================================================== */
 interface StaffAccountModalProps {
   initial?: PublicUser | null;
+  defaultRole?: 'staff' | 'accounts';
   onClose: () => void;
   onSave: (payload: {
     userId: string;
     email?: string;
     password?: string;
     name: string;
+    role: 'staff' | 'accounts';
     designation: string;
     phone: string;
     whatsapp: string;
@@ -2137,10 +2151,22 @@ interface StaffAccountModalProps {
   }) => Promise<void>;
 }
 
-export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModalProps) {
+export function StaffAccountModal({
+  initial,
+  defaultRole = 'staff',
+  onClose,
+  onSave,
+}: StaffAccountModalProps) {
+  const effectiveRole: 'staff' | 'accounts' =
+    initial?.role === 'accounts' || (!initial && defaultRole === 'accounts')
+      ? 'accounts'
+      : 'staff';
+  const isAccounts = effectiveRole === 'accounts';
+
   const [name, setName] = useState(initial?.name || '');
   const [designation, setDesignation] = useState(
-    initial?.designation || 'Visa & Recruitment Coordinator'
+    initial?.designation ||
+      (isAccounts ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator')
   );
   const [userId, setUserId] = useState(initial?.userId || '');
   const [email, setEmail] = useState(initial?.email || '');
@@ -2200,7 +2226,7 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
     e.preventDefault();
     setError('');
     if (!name.trim() || !userId.trim()) {
-      setError('Staff Name and User ID are required.');
+      setError('Full Name and User ID are required.');
       return;
     }
     if (!initial && password.trim().length < 4) {
@@ -2216,6 +2242,7 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
     try {
       await onSave({
         name: name.trim(),
+        role: effectiveRole,
         designation: designation.trim(),
         userId: userId.trim(),
         email: email.trim() || undefined,
@@ -2229,7 +2256,7 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
       setIsDirty(false);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save staff account.');
+      setError(err instanceof Error ? err.message : 'Failed to save account.');
     } finally {
       setSaving(false);
     }
@@ -2241,10 +2268,18 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-display text-lg font-bold text-slate-900">
-              {initial ? 'Edit Staff Account' : 'Create Staff Account'}
+              {initial
+                ? isAccounts
+                  ? 'Edit Accounts Dashboard ID'
+                  : 'Edit Staff Account'
+                : isAccounts
+                ? 'Create Accounts Dashboard ID'
+                : 'Create Staff Account'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Staff will use this User ID and Password to sign in and create client accounts.
+              {isAccounts
+                ? 'Accounts officers sign in with this ID & password to enter Debit and Credit records.'
+                : 'Staff will use this User ID and Password to sign in and create client accounts.'}
             </p>
           </div>
           <button
@@ -2466,8 +2501,488 @@ export function StaffAccountModal({ initial, onClose, onSave }: StaffAccountModa
               disabled={saving || uploadingKind !== null}
               className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
             >
-              {saving ? 'Saving...' : initial ? 'Update Staff' : 'Create Staff'}
+              {saving
+                ? 'Saving...'
+                : initial
+                ? isAccounts
+                  ? 'Update Accounts ID'
+                  : 'Update Staff'
+                : isAccounts
+                ? 'Create Accounts ID'
+                : 'Create Staff'}
             </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================================
+ * 6. DEBIT / CREDIT LEDGER ENTRY MODAL (Accounts Create, Admin Create/Edit)
+ * ========================================================================== */
+const LEDGER_CATEGORIES = [
+  'Client Payment',
+  'Medical Fee',
+  'Visa Stamping',
+  'Air Ticket',
+  'Office Rent & Utilities',
+  'Staff Salary',
+  'Delegate / Hospitality',
+  'Refund',
+  'General',
+];
+
+const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'bKash', 'Nagad', 'Check / Card'];
+
+interface LedgerEntryModalProps {
+  initial?: AccountLedgerEntry | null;
+  ownerId: string;
+  onClose: () => void;
+  onSave: (
+    payload: Partial<AccountLedgerEntry> & { expectedVersion?: number }
+  ) => Promise<void>;
+}
+
+export function LedgerEntryModal({
+  initial,
+  ownerId,
+  onClose,
+  onSave,
+}: LedgerEntryModalProps) {
+  const isCreate = !initial;
+  const draftKey = `ledger_create_${ownerId}`;
+  const [clientRequestId] = useState(() => generateRequestId());
+
+  const [entryType, setEntryType] = useState<LedgerEntryType>(initial?.entryType || 'credit');
+  const [amount, setAmount] = useState<number>(initial?.amount || 0);
+  const [entryDate, setEntryDate] = useState(
+    initial?.entryDate || new Date().toISOString().slice(0, 10)
+  );
+  const [title, setTitle] = useState(initial?.title || '');
+  const [category, setCategory] = useState(initial?.category || 'Client Payment');
+  const [partyName, setPartyName] = useState(initial?.partyName || '');
+  const [paymentMethod, setPaymentMethod] = useState(initial?.paymentMethod || 'Cash');
+  const [referenceNo, setReferenceNo] = useState(initial?.referenceNo || '');
+  const [notes, setNotes] = useState(initial?.notes || '');
+
+  const [isDirty, setIsDirty] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [restoredDraftBanner, setRestoredDraftBanner] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [conflictDetected, setConflictDetected] = useState(false);
+
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  useEffect(() => {
+    if (!isCreate) return;
+    const saved = loadSafeDraft<{
+      entryType?: LedgerEntryType;
+      amount?: number;
+      entryDate?: string;
+      title?: string;
+      category?: string;
+      partyName?: string;
+      paymentMethod?: string;
+      referenceNo?: string;
+      notes?: string;
+    }>(draftKey);
+    if (saved?.data && (saved.data.title || saved.data.amount || saved.data.partyName)) {
+      const d = saved.data;
+      if (d.entryType) setEntryType(d.entryType);
+      if (d.amount !== undefined) setAmount(d.amount);
+      if (d.entryDate) setEntryDate(d.entryDate);
+      if (d.title) setTitle(d.title);
+      if (d.category) setCategory(d.category);
+      if (d.partyName) setPartyName(d.partyName);
+      if (d.paymentMethod) setPaymentMethod(d.paymentMethod);
+      if (d.referenceNo) setReferenceNo(d.referenceNo);
+      if (d.notes) setNotes(d.notes);
+      setIsDirty(true);
+      setRestoredDraftBanner(true);
+    }
+  }, [draftKey, isCreate]);
+
+  useEffect(() => {
+    if (!isCreate || !isDirty) return;
+    saveSafeDraft(draftKey, {
+      entryType,
+      amount,
+      entryDate,
+      title,
+      category,
+      partyName,
+      paymentMethod,
+      referenceNo,
+      notes,
+    });
+  }, [
+    isCreate,
+    isDirty,
+    draftKey,
+    entryType,
+    amount,
+    entryDate,
+    title,
+    category,
+    partyName,
+    paymentMethod,
+    referenceNo,
+    notes,
+  ]);
+
+  function markDirty() {
+    if (!isDirty) setIsDirty(true);
+    if (confirmClose) setConfirmClose(false);
+  }
+
+  function handleCloseAttempt() {
+    if (saving) return;
+    if (isDirty && !confirmClose) {
+      setConfirmClose(true);
+      return;
+    }
+    if (isCreate) clearSafeDraft(draftKey);
+    onClose();
+  }
+
+  async function executeSave() {
+    setError('');
+    setConflictDetected(false);
+
+    if (!title.trim()) {
+      setError('Particulars / description is required.');
+      return;
+    }
+    if (!Number.isFinite(amount) || Number(amount) <= 0) {
+      setError('Amount must be greater than 0.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave({
+        entryType,
+        amount: Number(amount),
+        entryDate: entryDate || new Date().toISOString().slice(0, 10),
+        title: title.trim(),
+        category: category.trim() || 'General',
+        partyName: partyName.trim(),
+        paymentMethod: paymentMethod.trim() || 'Cash',
+        referenceNo: referenceNo.trim(),
+        notes: notes.trim(),
+        clientRequestId: isCreate ? clientRequestId : undefined,
+        expectedVersion: initial?.version,
+      });
+      if (isCreate) clearSafeDraft(draftKey);
+      setIsDirty(false);
+      onClose();
+    } catch (err) {
+      if (err instanceof ConflictError) {
+        setConflictDetected(true);
+      }
+      setError(err instanceof Error ? err.message : 'Failed to save ledger entry.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    executeSave();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto">
+      <div className="w-full max-w-xl bg-white border border-slate-200 rounded-xl shadow-2xl my-8 overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="font-display text-lg font-bold text-slate-900">
+              {initial ? 'Edit Debit / Credit Entry' : 'New Debit / Credit Entry'}
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Saved directly to the Accounts Ledger and visible to both Admin and Accounts dashboards.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={handleCloseAttempt}
+            className="p-2 text-slate-400 hover:text-slate-700 rounded-lg cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {confirmClose && (
+          <UnsavedClosePrompt
+            onKeepEditing={() => setConfirmClose(false)}
+            onDiscard={() => {
+              if (isCreate) clearSafeDraft(draftKey);
+              onClose();
+            }}
+          />
+        )}
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+          {restoredDraftBanner && (
+            <div className="px-4 py-2.5 text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded-lg flex items-center justify-between gap-2">
+              <span>Restored an unsaved Debit/Credit draft from your last session.</span>
+              <button
+                type="button"
+                onClick={() => {
+                  clearSafeDraft(draftKey);
+                  setEntryType('credit');
+                  setAmount(0);
+                  setEntryDate(new Date().toISOString().slice(0, 10));
+                  setTitle('');
+                  setCategory('Client Payment');
+                  setPartyName('');
+                  setPaymentMethod('Cash');
+                  setReferenceNo('');
+                  setNotes('');
+                  setIsDirty(false);
+                  setRestoredDraftBanner(false);
+                }}
+                className="font-semibold underline cursor-pointer shrink-0"
+              >
+                Clear Draft
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg space-y-2">
+              <p>{error}</p>
+              {!conflictDetected && (
+                <button
+                  type="button"
+                  onClick={executeSave}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Retry Save</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Entry Type Switcher */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              Transaction Type *
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  markDirty();
+                  setEntryType('credit');
+                }}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg border transition-colors cursor-pointer ${
+                  entryType === 'credit'
+                    ? 'bg-emerald-50 border-emerald-600 text-emerald-800'
+                    : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <ArrowDownLeft className="w-4 h-4 text-emerald-700" />
+                <span>Credit (Money In)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  markDirty();
+                  setEntryType('debit');
+                }}
+                className={`flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-lg border transition-colors cursor-pointer ${
+                  entryType === 'debit'
+                    ? 'bg-red-50 border-red-600 text-red-800'
+                    : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <ArrowUpRight className="w-4 h-4 text-red-700" />
+                <span>Debit (Money Out)</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Amount (BDT) *
+              </label>
+              <input
+                type="number"
+                required
+                min={1}
+                step="any"
+                value={amount || ''}
+                onChange={(e) => {
+                  markDirty();
+                  setAmount(Number(e.target.value));
+                }}
+                placeholder="e.g. 25000"
+                className="w-full px-3.5 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Entry Date *
+              </label>
+              <input
+                type="date"
+                required
+                value={entryDate}
+                onChange={(e) => {
+                  markDirty();
+                  setEntryDate(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Particulars / Description *
+            </label>
+            <input
+              type="text"
+              required
+              value={title}
+              onChange={(e) => {
+                markDirty();
+                setTitle(e.target.value);
+              }}
+              placeholder={
+                entryType === 'credit'
+                  ? 'e.g. Saudi Arabia visa processing advance from Kamrul'
+                  : 'e.g. Gulf Medical Center screening payment'
+              }
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Category
+              </label>
+              <input
+                type="text"
+                list="ledger-category-options"
+                value={category}
+                onChange={(e) => {
+                  markDirty();
+                  setCategory(e.target.value);
+                }}
+                placeholder="e.g. Client Payment"
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+              <datalist id="ledger-category-options">
+                {LEDGER_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat} />
+                ))}
+              </datalist>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                {entryType === 'credit' ? 'Received From' : 'Paid To'}
+              </label>
+              <input
+                type="text"
+                value={partyName}
+                onChange={(e) => {
+                  markDirty();
+                  setPartyName(e.target.value);
+                }}
+                placeholder="Client, agency, or vendor name"
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Payment Method
+              </label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => {
+                  markDirty();
+                  setPaymentMethod(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                {PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Voucher / Slip / Ref No
+              </label>
+              <input
+                type="text"
+                value={referenceNo}
+                onChange={(e) => {
+                  markDirty();
+                  setReferenceNo(e.target.value);
+                }}
+                placeholder="e.g. VCH-204"
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Remarks / Notes
+            </label>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => {
+                markDirty();
+                setNotes(e.target.value);
+              }}
+              placeholder="Optional internal remarks"
+              className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+            />
+          </div>
+
+          <div className="pt-3 border-t border-slate-200 flex items-center justify-between gap-3">
+            <span className="text-xs font-mono tabular-nums text-slate-600">
+              {entryType === 'credit' ? '+ Credit:' : '- Debit:'}{' '}
+              <strong className={entryType === 'credit' ? 'text-emerald-700' : 'text-red-700'}>
+                {formatBDT(amount || 0)}
+              </strong>
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleCloseAttempt}
+                disabled={saving}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
+              >
+                {saving ? 'Saving...' : initial ? 'Update Entry' : 'Save Entry'}
+              </button>
+            </div>
           </div>
         </form>
       </div>
