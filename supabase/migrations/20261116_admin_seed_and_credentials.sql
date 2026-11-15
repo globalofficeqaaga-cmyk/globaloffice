@@ -105,7 +105,7 @@ create or replace function public.update_own_credentials(
 returns void
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   v_uid uuid := auth.uid();
@@ -170,7 +170,7 @@ create or replace function public.admin_create_staff_account(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   v_clean_uid text := trim(coalesce(p_user_id, ''));
@@ -303,7 +303,7 @@ create or replace function public.admin_update_staff_credentials(
 returns void
 language plpgsql
 security definer
-set search_path = public, auth
+set search_path = public, auth, extensions
 as $$
 declare
   v_clean_uid text;
@@ -345,3 +345,5 @@ $$;
 
 revoke all on function public.admin_update_staff_credentials(uuid, text, text) from public;
 grant execute on function public.admin_update_staff_credentials(uuid, text, text) to authenticated;
+
+notify pgrst, 'reload schema';

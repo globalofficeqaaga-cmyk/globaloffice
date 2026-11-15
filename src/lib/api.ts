@@ -624,6 +624,15 @@ export const api = {
         supabase!.rpc('lookup_client_by_phone', { p_phone: clean })
       );
       if (error) {
+        if (
+          error.code === 'PGRST202' ||
+          error.message.toLowerCase().includes('schema cache') ||
+          error.message.toLowerCase().includes('lookup_client_by_phone')
+        ) {
+          throw new Error(
+            'Supabase database functions are not installed yet. Please run supabase/setup_all.sql once in your Supabase Dashboard → SQL Editor.'
+          );
+        }
         throw new Error(error.message);
       }
       if (!data) {
@@ -647,24 +656,44 @@ export const api = {
     if (supabase) {
       const cleanIdentifier = identifier.trim();
       if (!cleanIdentifier || !password) {
-        throw new Error('Email / User ID and password are required.');
+        throw new Error('User ID and password are required.');
       }
 
       let emailToUse = cleanIdentifier;
+      let missingSchemaRpc = false;
+
       if (!cleanIdentifier.includes('@')) {
         const { data: resolvedEmail, error: resolveErr } = await supabase.rpc(
           'resolve_login_email',
           { p_identifier: cleanIdentifier }
         );
         if (resolveErr) {
-          throw new Error(resolveErr.message);
+          const msg = resolveErr.message.toLowerCase();
+          const isMissingRpc =
+            resolveErr.code === 'PGRST202' ||
+            resolveErr.code === '42883' ||
+            msg.includes('schema cache') ||
+            msg.includes('resolve_login_email');
+
+          if (!isMissingRpc) {
+            throw new Error(resolveErr.message);
+          }
+
+          // Fallback email guesses in case user exists in auth.users while PostgREST schema cache is stale
+          missingSchemaRpc = true;
+          const slug = cleanIdentifier.toLowerCase().replace(/[^a-z0-9._-]/g, '');
+          emailToUse =
+            cleanIdentifier.toLowerCase() === 'admin'
+              ? 'admin@globalpathways.local'
+              : `${slug}@staff.globalpathways.local`;
+        } else {
+          if (!resolvedEmail) {
+            throw new Error(
+              'No account found for this User ID. Please check your User ID or verify Supabase database setup.'
+            );
+          }
+          emailToUse = String(resolvedEmail);
         }
-        if (!resolvedEmail) {
-          throw new Error(
-            'No account found for this User ID. Try signing in with your email address.'
-          );
-        }
-        emailToUse = String(resolvedEmail);
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -672,6 +701,11 @@ export const api = {
         password,
       });
       if (error) {
+        if (missingSchemaRpc) {
+          throw new Error(
+            'Supabase database setup is incomplete (missing resolve_login_email function). Run supabase/setup_all.sql once in your Supabase Dashboard → SQL Editor, then sign in with admin / admin.'
+          );
+        }
         throw new Error(error.message);
       }
 
