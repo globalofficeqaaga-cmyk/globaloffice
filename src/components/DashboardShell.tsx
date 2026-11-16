@@ -316,15 +316,15 @@ export function DashboardShell({
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex dashboard-shell-root">
       {/* Desktop Sidebar */}
-      <aside className="hidden lg:block w-[256px] shrink-0 bg-white border-r border-slate-200 sticky top-0 h-screen">
+      <aside className="hidden lg:block w-[256px] shrink-0 bg-white border-r border-slate-200 sticky top-0 h-screen no-print">
         {sidebarContent}
       </aside>
 
       {/* Mobile Drawer */}
       {mobileNavOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden flex">
+        <div className="fixed inset-0 z-50 lg:hidden flex no-print">
           <div
             className="fixed inset-0 bg-slate-950/50"
             onClick={() => setMobileNavOpen(false)}
@@ -336,8 +336,8 @@ export function DashboardShell({
       )}
 
       {/* Main Content Viewport */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-2 sm:gap-3">
+      <div className="flex-1 min-w-0 flex flex-col dashboard-main-viewport">
+        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-2 sm:gap-3 no-print">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
@@ -376,7 +376,7 @@ export function DashboardShell({
         </header>
 
         {!isOnline && (
-          <div className="bg-red-50 border-b border-red-200 px-4 sm:px-6 py-2.5 flex items-center gap-2 text-xs font-medium text-red-800">
+          <div className="bg-red-50 border-b border-red-200 px-4 sm:px-6 py-2.5 flex items-center gap-2 text-xs font-medium text-red-800 no-print">
             <WifiOff className="w-4 h-4 text-red-700 shrink-0" />
             <span>
               Offline mode — changes will confirm once connected.
@@ -384,7 +384,7 @@ export function DashboardShell({
           </div>
         )}
 
-        <main className="flex-1 p-4 sm:p-6 max-w-[1400px] w-full mx-auto">{children}</main>
+        <main className="flex-1 p-4 sm:p-6 max-w-[1400px] w-full mx-auto dashboard-main-content">{children}</main>
       </div>
 
       <TeamMessenger

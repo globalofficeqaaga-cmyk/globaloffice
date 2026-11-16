@@ -11,6 +11,7 @@ import {
   Search,
   Upload,
   UserCircle2,
+  Users,
   Wallet,
   X,
 } from 'lucide-react';
@@ -32,6 +33,8 @@ import type {
 } from '../types';
 import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
+import { StaffContactCard } from './StaffContactCard';
+import { TeamProfilesPanel } from './TeamProfilesPanel';
 import { AttendanceModal, DailyLogModal, LedgerEntryModal } from './modals/RecordModals';
 
 interface AccountsDashboardProps {
@@ -41,7 +44,7 @@ interface AccountsDashboardProps {
   onLogout: () => void;
 }
 
-type AccountsTab = 'ledger' | 'daily' | 'profile';
+type AccountsTab = 'ledger' | 'daily' | 'team' | 'profile';
 
 export function AccountsDashboard({
   data,
@@ -72,7 +75,10 @@ export function AccountsDashboard({
     data.user.designation || 'Accounts & Finance Officer'
   );
   const [profPhone, setProfPhone] = useState(data.user.phone);
+  const [profPersonalPhone, setProfPersonalPhone] = useState(data.user.personalPhone || '');
   const [profWhatsapp, setProfWhatsapp] = useState(data.user.whatsapp);
+  const [profSocial, setProfSocial] = useState(data.user.socialLink || '');
+  const [profJoiningDate, setProfJoiningDate] = useState(data.user.joiningDate || '');
   const [profPhoto, setProfPhoto] = useState(data.user.photoUrl);
   const [profCover, setProfCover] = useState(data.user.coverUrl);
   const [profPassword, setProfPassword] = useState('');
@@ -90,7 +96,10 @@ export function AccountsDashboard({
       setProfName(data.user.name);
       setProfDesignation(data.user.designation || 'Accounts & Finance Officer');
       setProfPhone(data.user.phone);
+      setProfPersonalPhone(data.user.personalPhone || '');
       setProfWhatsapp(data.user.whatsapp);
+      setProfSocial(data.user.socialLink || '');
+      setProfJoiningDate(data.user.joiningDate || '');
       setProfPhoto(data.user.photoUrl);
       setProfCover(data.user.coverUrl);
     }
@@ -180,7 +189,10 @@ export function AccountsDashboard({
         name: profName.trim(),
         designation: profDesignation.trim(),
         phone: profPhone.trim(),
+        personalPhone: profPersonalPhone.trim(),
         whatsapp: profWhatsapp.trim(),
+        socialLink: profSocial.trim(),
+        joiningDate: profJoiningDate.trim(),
         photoUrl: profPhoto,
         coverUrl: profCover,
         newPassword: profPassword.trim() || undefined,
@@ -237,11 +249,12 @@ export function AccountsDashboard({
   );
   const teamRoster = useMemo(() => {
     const map = new Map<string, (typeof data.staffList)[number]>();
+    (data.teamProfiles || []).forEach((m) => map.set(m.id, m));
     (data.staffList || []).forEach((s) => map.set(s.id, s));
     (data.accountsList || []).forEach((a) => map.set(a.id, a));
     map.set(data.user.id, data.user);
     return Array.from(map.values());
-  }, [data.staffList, data.accountsList, data.user]);
+  }, [data.teamProfiles, data.staffList, data.accountsList, data.user]);
 
   const todayTalksCount = useMemo(
     () => dailyLogs.filter((l) => l.logDate === todayStr).length,
@@ -290,6 +303,12 @@ export function AccountsDashboard({
       label: 'Staff Daily Report',
       icon: <CalendarCheck className="w-4 h-4" />,
       count: todayTalksCount,
+    },
+    {
+      id: 'team',
+      label: 'Team Profiles',
+      icon: <Users className="w-4 h-4" />,
+      count: teamRoster.length,
     },
     {
       id: 'profile',
@@ -644,20 +663,31 @@ export function AccountsDashboard({
       )}
 
       {/* ====================================================================
+          TEAM PROFILES DIRECTORY TAB
+         ==================================================================== */}
+      {activeTab === 'team' && (
+        <TeamProfilesPanel
+          currentUser={data.user}
+          members={teamRoster}
+          onEditOwnProfile={() => setActiveTab('profile')}
+        />
+      )}
+
+      {/* ====================================================================
           MY PROFILE TAB
          ==================================================================== */}
       {activeTab === 'profile' && (
-        <div className="max-w-2xl">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <form
             onSubmit={handleProfileSubmit}
-            className="bg-white border border-slate-200 rounded-xl p-6 space-y-5"
+            className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 space-y-5"
           >
             <div>
               <h2 className="font-display text-lg font-bold text-slate-900">
                 Accounts Officer Profile &amp; Password
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Update your contact details or change your login password.
+                Update your contact details, joining date, or login password.
               </p>
             </div>
 
@@ -811,7 +841,7 @@ export function AccountsDashboard({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Phone Number
+                  Official Phone Number
                 </label>
                 <input
                   type="tel"
@@ -820,9 +850,28 @@ export function AccountsDashboard({
                     setProfDirty(true);
                     setProfPhone(e.target.value);
                   }}
+                  placeholder="+88017..."
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Personal Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={profPersonalPhone}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfPersonalPhone(e.target.value);
+                  }}
+                  placeholder="+88018..."
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   WhatsApp Number
@@ -834,9 +883,40 @@ export function AccountsDashboard({
                     setProfDirty(true);
                     setProfWhatsapp(e.target.value);
                   }}
+                  placeholder="+88017..."
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Joining Date
+                </label>
+                <input
+                  type="date"
+                  value={profJoiningDate}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfJoiningDate(e.target.value);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Facebook / Social Link
+              </label>
+              <input
+                type="text"
+                value={profSocial}
+                onChange={(e) => {
+                  setProfDirty(true);
+                  setProfSocial(e.target.value);
+                }}
+                placeholder="https://facebook.com/..."
+                className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
+              />
             </div>
 
             <div className="pt-2 flex justify-end">
@@ -849,6 +929,25 @@ export function AccountsDashboard({
               </button>
             </div>
           </form>
+
+          <div className="lg:col-span-5">
+            <StaffContactCard
+              staff={{
+                ...data.user,
+                name: profName,
+                designation: profDesignation,
+                phone: profPhone,
+                personalPhone: profPersonalPhone,
+                whatsapp: profWhatsapp,
+                socialLink: profSocial,
+                joiningDate: profJoiningDate,
+                photoUrl: profPhoto,
+                coverUrl: profCover,
+              }}
+              heading="Live Profile Preview"
+              showInternalDetails={true}
+            />
+          </div>
         </div>
       )}
 

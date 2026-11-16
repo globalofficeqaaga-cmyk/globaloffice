@@ -27,3 +27,75 @@
   transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   transition-duration: 180ms;
 }
+
+.print-only-block {
+  display: none;
+}
+
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  body.printing-attendance-a4 .non-attendance-print-block {
+    display: none !important;
+  }
+
+  .dashboard-shell-root,
+  .dashboard-main-viewport,
+  .dashboard-main-content {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .print-only-block {
+    display: block !important;
+  }
+
+  .print-mobile-cards {
+    display: none !important;
+  }
+
+  .print-desktop-table {
+    display: block !important;
+    overflow: visible !important;
+  }
+
+  #attendance-a4-print-sheet {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+  }
+
+  table {
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+}

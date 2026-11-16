@@ -3,7 +3,7 @@ import {
   handleDeleteManagedUser,
   handleUpdateManagedUser,
   type AdminUserPayload,
-} from '../../_lib/supabaseAdminService';
+} from '../../_lib/supabaseAdminService.js';
 
 interface VercelRequestLike extends IncomingMessage {
   body?: unknown;
@@ -64,24 +64,32 @@ export default async function handler(req: VercelRequestLike, res: VercelRespons
       : undefined;
 
   if (req.method === 'PUT') {
+    let body: AdminUserPayload;
     try {
-      const body = await readJsonBody(req);
+      body = await readJsonBody(req);
+    } catch {
+      sendJson(res, 400, { error: 'Invalid JSON request payload.' });
+      return;
+    }
+
+    try {
       const result = await handleUpdateManagedUser(authHeader, targetId, body);
       sendJson(res, result.status, result.body);
     } catch (err) {
-      sendJson(res, 400, {
-        error:
-          err instanceof SyntaxError
-            ? 'Invalid JSON request payload.'
-            : 'Unexpected server error while updating user account.',
-      });
+      console.error('[api/supabase-admin/users/:id PUT] Unexpected error:', err instanceof Error ? err.message : err);
+      sendJson(res, 500, { error: 'Unexpected server error while updating user account.' });
     }
     return;
   }
 
   if (req.method === 'DELETE') {
-    const result = await handleDeleteManagedUser(authHeader, targetId);
-    sendJson(res, result.status, result.body);
+    try {
+      const result = await handleDeleteManagedUser(authHeader, targetId);
+      sendJson(res, result.status, result.body);
+    } catch (err) {
+      console.error('[api/supabase-admin/users/:id DELETE] Unexpected error:', err instanceof Error ? err.message : err);
+      sendJson(res, 500, { error: 'Unexpected server error while deleting user account.' });
+    }
     return;
   }
 

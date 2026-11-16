@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { handleVerifySupabaseSetup } from '../_lib/supabaseAdminService';
+import { handleVerifySupabaseSetup } from '../_lib/supabaseAdminService.js';
 
 interface VercelResponseLike extends ServerResponse {
   status?: (code: number) => VercelResponseLike;

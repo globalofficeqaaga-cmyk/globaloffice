@@ -4,12 +4,14 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   ExternalLink,
+  Lock,
   Plus,
   RefreshCw,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
+import { PasswordConfirmModal } from '../PasswordConfirmModal';
 import {
   api,
   ConflictError,
@@ -285,6 +287,12 @@ export function ClientModal({
     markDirty();
     setPayments((prev) => prev.map((p, i) => (i === index ? { ...p, ...patch } : p)));
   }
+
+  const [pendingRemoveItem, setPendingRemoveItem] = useState<{
+    kind: 'payment' | 'document';
+    index: number;
+    label: string;
+  } | null>(null);
 
   async function submitSave() {
     setError('');
@@ -770,10 +778,13 @@ export function ClientModal({
                       />
                       <button
                         type="button"
-                        onClick={() => {
-                          markDirty();
-                          setPayments((prev) => prev.filter((_, i) => i !== idx));
-                        }}
+                        onClick={() =>
+                          setPendingRemoveItem({
+                            kind: 'payment',
+                            index: idx,
+                            label: `Payment Entry: ${pay.purpose || 'Payment'} (${formatBDT(Number(pay.amount) || 0)})`,
+                          })
+                        }
                         className="sm:col-span-1 p-1.5 text-red-600 hover:bg-red-50 rounded justify-self-end cursor-pointer"
                         aria-label="Remove payment"
                       >
@@ -867,10 +878,13 @@ export function ClientModal({
                     </div>
                     <button
                       type="button"
-                      onClick={() => {
-                        markDirty();
-                        setDocuments((prev) => prev.filter((_, i) => i !== idx));
-                      }}
+                      onClick={() =>
+                        setPendingRemoveItem({
+                          kind: 'document',
+                          index: idx,
+                          label: `Client Document: ${doc.name || `Document #${idx + 1}`}`,
+                        })
+                      }
                       className="sm:col-span-1 p-1.5 text-red-600 hover:bg-red-50 rounded justify-self-end cursor-pointer"
                       aria-label="Remove document"
                     >
@@ -922,6 +936,22 @@ export function ClientModal({
           </div>
         </form>
       </div>
+
+      <PasswordConfirmModal
+        open={pendingRemoveItem !== null}
+        title="Confirm Remove Entry"
+        itemLabel={pendingRemoveItem?.label || ''}
+        onClose={() => setPendingRemoveItem(null)}
+        onConfirm={() => {
+          if (!pendingRemoveItem) return;
+          markDirty();
+          if (pendingRemoveItem.kind === 'payment') {
+            setPayments((prev) => prev.filter((_, i) => i !== pendingRemoveItem.index));
+          } else {
+            setDocuments((prev) => prev.filter((_, i) => i !== pendingRemoveItem.index));
+          }
+        }}
+      />
     </div>
   );
 }
@@ -2156,10 +2186,12 @@ interface StaffAccountModalProps {
     role: 'staff' | 'accounts';
     designation: string;
     phone: string;
+    personalPhone: string;
     whatsapp: string;
     socialLink: string;
     photoUrl: string;
     coverUrl: string;
+    joiningDate: string;
   }) => Promise<void>;
 }
 
@@ -2184,7 +2216,11 @@ export function StaffAccountModal({
   const [email, setEmail] = useState(initial?.email || '');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState(initial?.phone || '');
+  const [personalPhone, setPersonalPhone] = useState(initial?.personalPhone || '');
   const [whatsapp, setWhatsapp] = useState(initial?.whatsapp || '');
+  const [joiningDate, setJoiningDate] = useState(
+    initial?.joiningDate || (initial ? '' : getTodayLocalDateStr())
+  );
   const [socialLink, setSocialLink] = useState(initial?.socialLink || '');
   const [photoUrl, setPhotoUrl] = useState(
     initial?.photoUrl || APP_IMAGES.staffAvatarDefault
@@ -2277,10 +2313,12 @@ export function StaffAccountModal({
         email: email.trim() || undefined,
         password: password.trim() || undefined,
         phone: phone.trim(),
+        personalPhone: personalPhone.trim(),
         whatsapp: whatsapp.trim() || phone.trim(),
         socialLink: socialLink.trim(),
         photoUrl: photoUrl.trim(),
         coverUrl: coverUrl.trim(),
+        joiningDate: joiningDate.trim(),
       });
       setIsDirty(false);
       onClose();
@@ -2422,7 +2460,7 @@ export function StaffAccountModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Phone Number
+                Official Phone Number
               </label>
               <input
                 type="tel"
@@ -2437,6 +2475,24 @@ export function StaffAccountModal({
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Personal Phone Number
+              </label>
+              <input
+                type="tel"
+                value={personalPhone}
+                onChange={(e) => {
+                  markDirty();
+                  setPersonalPhone(e.target.value);
+                }}
+                placeholder="+88018..."
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
                 WhatsApp Number
               </label>
               <input
@@ -2447,6 +2503,20 @@ export function StaffAccountModal({
                   setWhatsapp(e.target.value);
                 }}
                 placeholder="+88017..."
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Joining Date
+              </label>
+              <input
+                type="date"
+                value={joiningDate}
+                onChange={(e) => {
+                  markDirty();
+                  setJoiningDate(e.target.value);
+                }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
               />
             </div>
@@ -3084,7 +3154,13 @@ export function AttendanceModal({
     onClose();
   }
 
+  const isLockedExisting = Boolean(initial);
+
   async function executeSave() {
+    if (isLockedExisting) {
+      setError('Attendance records are locked and cannot be edited once saved.');
+      return;
+    }
     setError('');
     setConflictDetected(false);
     if (!attendanceDate.trim()) {
@@ -3129,10 +3205,12 @@ export function AttendanceModal({
         <div className="px-5 sm:px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
           <div>
             <h2 className="font-display text-base sm:text-lg font-bold">
-              {initial ? 'Update Daily Attendance' : 'Mark Daily Attendance'}
+              {isLockedExisting ? 'Attendance Record Locked' : 'Mark Daily Attendance'}
             </h2>
             <p className="text-xs text-slate-300">
-              Record check-in, check-out, work location &amp; attendance status
+              {isLockedExisting
+                ? 'Attendance entries are permanent and cannot be modified once recorded'
+                : 'Record initial check-in, work location & attendance status'}
             </p>
           </div>
           <button
@@ -3152,6 +3230,14 @@ export function AttendanceModal({
         )}
 
         <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4">
+          {isLockedExisting && (
+            <div className="px-4 py-3 text-xs font-medium text-amber-900 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>
+                This attendance entry is locked against edits. Use the one-time Check Out button if check-out time is still empty.
+              </span>
+            </div>
+          )}
           {error && (
             <div className="px-4 py-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg space-y-2">
               <p>{error}</p>
@@ -3308,15 +3394,17 @@ export function AttendanceModal({
               disabled={saving}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
-              Cancel
+              {isLockedExisting ? 'Close' : 'Cancel'}
             </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
-            >
-              {saving ? 'Saving...' : 'Save Attendance'}
-            </button>
+            {!isLockedExisting && (
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
+              >
+                {saving ? 'Saving...' : 'Save Attendance'}
+              </button>
+            )}
           </div>
         </form>
       </div>

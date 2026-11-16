@@ -17,6 +17,7 @@ import {
   Trash2,
   Upload,
   UserCircle2,
+  Users,
   X,
 } from 'lucide-react';
 import {
@@ -42,6 +43,7 @@ import type {
 import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
+import { TeamProfilesPanel } from './TeamProfilesPanel';
 import {
   AttendanceModal,
   ClientModal,
@@ -65,6 +67,7 @@ type StaffTab =
   | 'meetings'
   | 'medicals'
   | 'interviews'
+  | 'team'
   | 'profile';
 
 export function StaffDashboard({
@@ -112,8 +115,10 @@ export function StaffDashboard({
   const [profName, setProfName] = useState(data.user.name);
   const [profDesignation, setProfDesignation] = useState(data.user.designation);
   const [profPhone, setProfPhone] = useState(data.user.phone);
+  const [profPersonalPhone, setProfPersonalPhone] = useState(data.user.personalPhone || '');
   const [profWhatsapp, setProfWhatsapp] = useState(data.user.whatsapp);
   const [profSocial, setProfSocial] = useState(data.user.socialLink);
+  const [profJoiningDate, setProfJoiningDate] = useState(data.user.joiningDate || '');
   const [profPhoto, setProfPhoto] = useState(data.user.photoUrl);
   const [profCover, setProfCover] = useState(data.user.coverUrl);
   const [profPassword, setProfPassword] = useState('');
@@ -131,8 +136,10 @@ export function StaffDashboard({
       setProfName(data.user.name);
       setProfDesignation(data.user.designation);
       setProfPhone(data.user.phone);
+      setProfPersonalPhone(data.user.personalPhone || '');
       setProfWhatsapp(data.user.whatsapp);
       setProfSocial(data.user.socialLink);
+      setProfJoiningDate(data.user.joiningDate || '');
       setProfPhoto(data.user.photoUrl);
       setProfCover(data.user.coverUrl);
     }
@@ -307,8 +314,10 @@ export function StaffDashboard({
         name: profName.trim(),
         designation: profDesignation.trim(),
         phone: profPhone.trim(),
+        personalPhone: profPersonalPhone.trim(),
         whatsapp: profWhatsapp.trim(),
         socialLink: profSocial.trim(),
+        joiningDate: profJoiningDate.trim(),
         photoUrl: profPhoto.trim(),
         coverUrl: profCover.trim(),
         newPassword: profPassword.trim() || undefined,
@@ -330,6 +339,13 @@ export function StaffDashboard({
     e.preventDefault();
     saveOwnProfile();
   }
+
+  const teamProfiles = useMemo(() => {
+    const map = new Map<string, (typeof data.user)>();
+    (data.teamProfiles || data.staffList || []).forEach((m) => map.set(m.id, m));
+    map.set(data.user.id, data.user);
+    return Array.from(map.values());
+  }, [data.teamProfiles, data.staffList, data.user]);
 
   const tabs: NavTab[] = [
     { id: 'overview', label: 'My Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -362,6 +378,12 @@ export function StaffDashboard({
       label: 'My Interviews',
       icon: <Briefcase className="w-4 h-4" />,
       count: data.interviews.length,
+    },
+    {
+      id: 'team',
+      label: 'Team Profiles',
+      icon: <Users className="w-4 h-4" />,
+      count: teamProfiles.length,
     },
     { id: 'profile', label: 'My Profile', icon: <UserCircle2 className="w-4 h-4" /> },
   ];
@@ -419,7 +441,7 @@ export function StaffDashboard({
         </button>
       );
     }
-    if (activeTab === 'profile') return null;
+    if (activeTab === 'profile' || activeTab === 'team') return null;
     return (
       <button
         type="button"
@@ -482,7 +504,10 @@ export function StaffDashboard({
       )}
 
       {/* Search Filter for list tabs */}
-      {activeTab !== 'overview' && activeTab !== 'daily' && activeTab !== 'profile' && (
+      {activeTab !== 'overview' &&
+        activeTab !== 'daily' &&
+        activeTab !== 'team' &&
+        activeTab !== 'profile' && (
         <div className="mb-6 bg-white border border-slate-200 rounded-xl p-4">
           <div className="relative max-w-md">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -720,7 +745,11 @@ export function StaffDashboard({
             </div>
 
             <div className="lg:col-span-4">
-              <StaffContactCard staff={data.user} heading="Your Public Contact Card" />
+              <StaffContactCard
+                staff={data.user}
+                heading="Your Profile Card"
+                showInternalDetails={true}
+              />
             </div>
           </div>
         </div>
@@ -1507,6 +1536,17 @@ export function StaffDashboard({
       )}
 
       {/* ====================================================================
+          TEAM PROFILES DIRECTORY TAB
+         ==================================================================== */}
+      {activeTab === 'team' && (
+        <TeamProfilesPanel
+          currentUser={data.user}
+          members={teamProfiles}
+          onEditOwnProfile={() => setActiveTab('profile')}
+        />
+      )}
+
+      {/* ====================================================================
           MY PROFILE TAB
          ==================================================================== */}
       {activeTab === 'profile' && (
@@ -1675,7 +1715,7 @@ export function StaffDashboard({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Phone Number
+                  Official Phone Number
                 </label>
                 <input
                   type="tel"
@@ -1684,9 +1724,28 @@ export function StaffDashboard({
                     setProfDirty(true);
                     setProfPhone(e.target.value);
                   }}
+                  placeholder="+88017..."
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
               </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Personal Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={profPersonalPhone}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfPersonalPhone(e.target.value);
+                  }}
+                  placeholder="+88018..."
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   WhatsApp Number
@@ -1697,6 +1756,21 @@ export function StaffDashboard({
                   onChange={(e) => {
                     setProfDirty(true);
                     setProfWhatsapp(e.target.value);
+                  }}
+                  placeholder="+88017..."
+                  className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Joining Date
+                </label>
+                <input
+                  type="date"
+                  value={profJoiningDate}
+                  onChange={(e) => {
+                    setProfDirty(true);
+                    setProfJoiningDate(e.target.value);
                   }}
                   className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
                 />
@@ -1737,12 +1811,15 @@ export function StaffDashboard({
                 name: profName,
                 designation: profDesignation,
                 phone: profPhone,
+                personalPhone: profPersonalPhone,
                 whatsapp: profWhatsapp,
                 socialLink: profSocial,
+                joiningDate: profJoiningDate,
                 photoUrl: profPhoto,
                 coverUrl: profCover,
               }}
-              heading="Live Client View Preview"
+              heading="Live Profile Preview"
+              showInternalDetails={true}
             />
           </div>
         </div>

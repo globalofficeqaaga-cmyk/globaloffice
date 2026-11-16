@@ -14,6 +14,7 @@ import { DEFAULT_SITE_SETTINGS } from '../lib/siteDefaults';
 import { useUnsavedChangesWarning } from '../lib/useUnsavedChanges';
 import type { SiteContactItem, SitePosterSlide, SiteSettings } from '../types';
 import { BrandLogo } from './BrandLogo';
+import { PasswordConfirmModal } from './PasswordConfirmModal';
 
 interface WebsiteControlPanelProps {
   siteSettings: SiteSettings;
@@ -31,7 +32,12 @@ export function WebsiteControlPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [uploadingTarget, setUploadingTarget] = useState<string | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [pendingRemoval, setPendingRemoval] = useState<{
+    title: string;
+    label: string;
+    confirmLabel: string;
+    action: () => Promise<void> | void;
+  } | null>(null);
 
   useUnsavedChangesWarning(isDirty && !saving);
 
@@ -155,7 +161,6 @@ export function WebsiteControlPanel({
       const saved = await api.updateSiteSettings(targetSettings);
       setDraft(saved);
       setIsDirty(false);
-      setConfirmReset(false);
       onSiteSettingsSaved(saved);
       onNotifySuccess('Website logo, slider posters, functions, and contacts saved to database.');
     } catch (err) {
@@ -189,34 +194,21 @@ export function WebsiteControlPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
-          {confirmReset ? (
-            <div className="inline-flex items-center gap-2">
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => saveSettings(DEFAULT_SITE_SETTINGS)}
-                className="px-3.5 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg cursor-pointer"
-              >
-                Confirm Reset Defaults
-              </button>
-              <button
-                type="button"
-                onClick={() => setConfirmReset(false)}
-                className="px-3 py-2 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg cursor-pointer"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmReset(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Defaults</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() =>
+              setPendingRemoval({
+                title: 'Confirm Reset Website Defaults',
+                label: 'Reset all website branding, posters & contacts to defaults',
+                confirmLabel: 'Verify & Reset',
+                action: () => saveSettings(DEFAULT_SITE_SETTINGS),
+              })
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Reset Defaults</span>
+          </button>
           <button
             type="submit"
             disabled={saving || uploadingTarget !== null}
@@ -290,7 +282,14 @@ export function WebsiteControlPanel({
               {draft.logoUrl && (
                 <button
                   type="button"
-                  onClick={() => patchDraft({ logoUrl: '' })}
+                  onClick={() =>
+                    setPendingRemoval({
+                      title: 'Confirm Remove Website Logo',
+                      label: 'Remove Website Logo Photo',
+                      confirmLabel: 'Verify & Remove Logo',
+                      action: () => patchDraft({ logoUrl: '' }),
+                    })
+                  }
                   className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -537,7 +536,14 @@ export function WebsiteControlPanel({
                       </button>
                       <button
                         type="button"
-                        onClick={() => removePoster(slide.id)}
+                        onClick={() =>
+                          setPendingRemoval({
+                            title: 'Confirm Remove Poster Slide',
+                            label: `Poster Slide #${idx + 1}: ${slide.title || 'Untitled Poster'}`,
+                            confirmLabel: 'Verify & Remove',
+                            action: () => removePoster(slide.id),
+                          })
+                        }
                         aria-label={`Remove poster ${slide.title}`}
                         className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-red-200 cursor-pointer"
                       >
@@ -734,7 +740,14 @@ export function WebsiteControlPanel({
               <div className="sm:col-span-1 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => removeContact(item.id)}
+                  onClick={() =>
+                    setPendingRemoval({
+                      title: 'Confirm Remove Contact Number',
+                      label: `${item.label || 'Contact'}: ${item.value}`,
+                      confirmLabel: 'Verify & Remove',
+                      action: () => removeContact(item.id),
+                    })
+                  }
                   aria-label={`Remove contact ${item.label}`}
                   className="p-2 text-red-600 hover:bg-red-50 rounded-lg border border-red-200 cursor-pointer"
                 >
@@ -757,6 +770,19 @@ export function WebsiteControlPanel({
           <span>{saving ? 'Saving Website...' : 'Save Website Changes'}</span>
         </button>
       </div>
+
+      <PasswordConfirmModal
+        open={pendingRemoval !== null}
+        title={pendingRemoval?.title || 'Password Required to Remove'}
+        itemLabel={pendingRemoval?.label || ''}
+        confirmLabel={pendingRemoval?.confirmLabel || 'Verify & Remove'}
+        onClose={() => setPendingRemoval(null)}
+        onConfirm={async () => {
+          if (pendingRemoval) {
+            await pendingRemoval.action();
+          }
+        }}
+      />
     </form>
   );
 }

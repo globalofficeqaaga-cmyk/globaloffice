@@ -1,16 +1,25 @@
-import { ExternalLink, MessageCircle, Phone, UserCheck } from 'lucide-react';
+import { Calendar, ExternalLink, MessageCircle, Phone, Smartphone, UserCheck } from 'lucide-react';
 import { useState } from 'react';
-import { buildWhatsAppUrl } from '../lib/api';
+import { buildWhatsAppUrl, formatDateOnly } from '../lib/api';
 import type { PublicTrackedStaff, PublicUser } from '../types';
 
 interface StaffContactCardProps {
   staff: PublicTrackedStaff | PublicUser;
   heading?: string;
+  showInternalDetails?: boolean;
 }
 
-export function StaffContactCard({ staff, heading = 'Your Assigned Coordinator' }: StaffContactCardProps) {
+export function StaffContactCard({
+  staff,
+  heading = 'Your Assigned Coordinator',
+  showInternalDetails = false,
+}: StaffContactCardProps) {
   const [coverError, setCoverError] = useState(false);
   const [avatarError, setAvatarError] = useState(false);
+
+  const internalUser = 'personalPhone' in staff ? (staff as PublicUser) : null;
+  const personalPhone = showInternalDetails ? internalUser?.personalPhone?.trim() || '' : '';
+  const joiningDate = showInternalDetails ? internalUser?.joiningDate?.trim() || '' : '';
 
   const whatsappHref = staff.whatsapp ? buildWhatsAppUrl(staff.whatsapp) : '';
   const hasSocial = Boolean(staff.socialLink && staff.socialLink.trim());
@@ -54,6 +63,12 @@ export function StaffContactCard({ staff, heading = 'Your Assigned Coordinator' 
               </div>
             )}
           </div>
+          {joiningDate && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
+              <Calendar className="w-3.5 h-3.5 text-slate-500" />
+              <span>Joined {formatDateOnly(joiningDate)}</span>
+            </span>
+          )}
         </div>
 
         <h3 className="font-display text-lg font-bold text-slate-900">{staff.name}</h3>
@@ -70,9 +85,22 @@ export function StaffContactCard({ staff, heading = 'Your Assigned Coordinator' 
             >
               <span className="inline-flex items-center gap-2.5">
                 <Phone className="w-4 h-4 text-blue-700" />
-                <span>Call Coordinator</span>
+                <span>{showInternalDetails ? 'Official Phone' : 'Call Coordinator'}</span>
               </span>
               <span className="font-mono text-xs text-slate-600 tabular-nums">{staff.phone}</span>
+            </a>
+          )}
+
+          {personalPhone && (
+            <a
+              href={`tel:${personalPhone.replace(/\s+/g, '')}`}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
+            >
+              <span className="inline-flex items-center gap-2.5">
+                <Smartphone className="w-4 h-4 text-slate-600" />
+                <span>Personal Phone</span>
+              </span>
+              <span className="font-mono text-xs text-slate-600 tabular-nums">{personalPhone}</span>
             </a>
           )}
 

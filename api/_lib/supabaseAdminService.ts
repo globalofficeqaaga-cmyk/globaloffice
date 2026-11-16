@@ -8,10 +8,12 @@ export interface AdminUserPayload {
   role?: string;
   designation?: string;
   phone?: string;
+  personalPhone?: string;
   whatsapp?: string;
   socialLink?: string;
   photoUrl?: string;
   coverUrl?: string;
+  joiningDate?: string;
 }
 
 export interface ServiceResult {
@@ -278,6 +280,207 @@ async function authenticateAdminCaller(
   return { adminClient, adminId: profile.id };
 }
 
+async function authenticateTeamCaller(
+  authHeader: string | undefined
+): Promise<{ adminClient: SupabaseClient; userId: string } | ServiceResult> {
+  let adminClient: SupabaseClient;
+  try {
+    adminClient = getSupabaseAdminClient();
+  } catch (err) {
+    return {
+      status: 503,
+      body: {
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Supabase Admin API is not configured on this server.',
+      },
+    };
+  }
+
+  const header = (authHeader || '').trim();
+  const jwt = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!jwt) {
+    return {
+      status: 401,
+      body: { error: 'Sign-in session is required.' },
+    };
+  }
+
+  const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
+  if (userErr || !userData?.user) {
+    return {
+      status: 401,
+      body: { error: 'Your session has expired or is invalid. Please sign in again.' },
+    };
+  }
+
+  const { data: profile, error: profErr } = await adminClient
+    .from('profiles')
+    .select('id')
+    .eq('id', userData.user.id)
+    .maybeSingle();
+
+  if (profErr || !profile) {
+    return {
+      status: 403,
+      body: { error: 'Active team profile is required.' },
+    };
+  }
+
+  return { adminClient, userId: profile.id };
+}
+
+export async function handleListTeamProfiles(
+  authHeader: string | undefined
+): Promise<ServiceResult> {
+  const auth = await authenticateTeamCaller(authHeader);
+  if ('status' in auth) return auth;
+  const { adminClient } = auth;
+
+  const fullCols =
+    'id, user_id, role, name, designation, phone, personal_phone, whatsapp, social_link, photo_url, cover_url, joining_date, version, created_at';
+  const legacyCols =
+    'id, user_id, role, name, designation, phone, whatsapp, social_link, photo_url, cover_url, version, created_at';
+
+  let { data, error } = await adminClient
+    .from('profiles')
+    .select(fullCols)
+    .order('created_at', { ascending: false });
+
+  if (
+    error &&
+    (error.code === '42703' || error.code === 'PGRST204') &&
+    (error.message?.includes('personal_phone') || error.message?.includes('joining_date'))
+  ) {
+    const fallback = await adminClient
+      .from('profiles')
+      .select(legacyCols)
+      .order('created_at', { ascending: false });
+    data = fallback.data as typeof data;
+    error = fallback.error;
+  }
+
+  if (error) {
+    console.error('[Supabase Admin] List team profiles failed:', error.code, error.message);
+    return { status: 500, body: { error: 'Unable to load team profiles.' } };
+  }
+
+  return {
+    status: 200,
+    body: { profiles: data || [] },
+  };
+}
+
+export async function handleListTeamAttendance(
+  authHeader: string | undefined
+): Promise<ServiceResult> {
+  const auth = await authenticateTeamCaller(authHeader);
+  if ('status' in auth) return auth;
+  const { adminClient } = auth;
+
+  const { data, error } = await adminClient
+    .from('staff_attendance')
+    .select('*')
+    .is('deleted_at', null)
+    .order('attendance_date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[Supabase Admin] List team attendance failed:', error.code, error.message);
+    return { status: 500, body: { error: 'Unable to load team attendance records.' } };
+  }
+
+  return {
+    status: 200,
+    body: { attendance: data || [] },
+  };
+}
+
+export async function handleVerifyCallerPassword(
+  authHeader: string | undefined,
+  password: unknown
+): Promise<ServiceResult> {
+  const rawPassword = typeof password === 'string' ? password : '';
+  if (!rawPassword) {
+    return { status: 400, body: { error: 'Password is required to confirm deletion.' } };
+  }
+
+  let adminClient: SupabaseClient;
+  try {
+    adminClient = getSupabaseAdminClient();
+  } catch (err) {
+    return {
+      status: 503,
+      body: {
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Supabase Admin API is not configured on this server.',
+      },
+    };
+  }
+
+  const header = (authHeader || '').trim();
+  const jwt = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!jwt) {
+    return { status: 401, body: { error: 'Sign-in session is required.' } };
+  }
+
+  const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
+  if (userErr || !userData?.user) {
+    return {
+      status: 401,
+      body: { error: 'Your session has expired or is invalid. Please sign in again.' },
+    };
+  }
+
+  const email = (userData.user.email || '').trim();
+  if (!email) {
+    return {
+      status: 400,
+      body: { error: 'Account email is missing; unable to verify password.' },
+    };
+  }
+
+  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const publishableKey = (
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+
+  if (!supabaseUrl || !publishableKey) {
+    return {
+      status: 503,
+      body: { error: 'Supabase public client key is not configured for password verification.' },
+    };
+  }
+
+  const anonVerifier = createClient(supabaseUrl, publishableKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { error: signInErr } = await anonVerifier.auth.signInWithPassword({
+    email,
+    password: rawPassword,
+  });
+
+  if (signInErr) {
+    return {
+      status: 401,
+      body: { error: 'Incorrect password. Removal cancelled.' },
+    };
+  }
+
+  return {
+    status: 200,
+    body: { verified: true },
+  };
+}
+
 function buildSafeNonDeliverableSlug(userId: string, role: 'staff' | 'accounts'): string {
   const normalized = userId
     .toLowerCase()
@@ -288,6 +491,10 @@ function buildSafeNonDeliverableSlug(userId: string, role: 'staff' | 'accounts')
 
 function isValidEmailSyntax(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function escapeIlikePattern(val: string): string {
+  return val.replace(/[\\%_]/g, '\\$&');
 }
 
 function mapSupabaseAuthCreateError(message: string): { status: number; message: string } {
@@ -310,20 +517,82 @@ function mapSupabaseAuthCreateError(message: string): { status: number; message:
       message: 'Please provide a valid email address or leave it blank for automatic assignment.',
     };
   }
+  if (lower.includes('database error saving new user')) {
+    return {
+      status: 500,
+      message:
+        'Supabase Auth trigger failed while saving the new user profile. Run supabase/migrations/20261120_fix_staff_account_creation.sql (or supabase/setup_all.sql) in Supabase SQL Editor.',
+    };
+  }
   return {
     status: 400,
     message: 'Unable to create authentication credentials. Please verify inputs and try again.',
   };
 }
 
-export async function handleCreateManagedUser(
-  authHeader: string | undefined,
+function mapProfileSaveError(err: { code?: string; message?: string } | null | undefined): ServiceResult {
+  const code = String(err?.code || '').toUpperCase();
+  const msg = String(err?.message || '').toLowerCase();
+
+  if (code === '23505' || msg.includes('duplicate key')) {
+    return {
+      status: 409,
+      body: { error: 'This Login User ID or Email is already taken.' },
+    };
+  }
+  if (code === '23514' || msg.includes('profiles_role_check')) {
+    return {
+      status: 500,
+      body: {
+        error:
+          'Database profiles role check constraint is outdated. Run supabase/migrations/20261120_fix_staff_account_creation.sql in Supabase SQL Editor.',
+      },
+    };
+  }
+  if (code === '42703' || code === 'PGRST204' || msg.includes('column')) {
+    if (msg.includes('personal_phone') || msg.includes('joining_date')) {
+      return {
+        status: 500,
+        body: {
+          error:
+            'Database profiles table needs personal_phone & joining_date columns. Run supabase/migrations/20261121_staff_profile_fields_and_team_directory.sql in Supabase SQL Editor.',
+        },
+      };
+    }
+    return {
+      status: 500,
+      body: {
+        error:
+          'Database profiles table is missing required columns. Run supabase/migrations/20261120_fix_staff_account_creation.sql in Supabase SQL Editor.',
+      },
+    };
+  }
+  if (
+    code === 'P0001' ||
+    msg.includes('only administrators can change') ||
+    msg.includes('email cannot be altered')
+  ) {
+    return {
+      status: 500,
+      body: {
+        error:
+          'Database trigger blocked server profile update. Run supabase/migrations/20261120_fix_staff_account_creation.sql in Supabase SQL Editor to permit server service_role updates.',
+      },
+    };
+  }
+  return {
+    status: 500,
+    body: {
+      error:
+        'Unable to save user profile details. Check database schema & trigger permissions (run latest supabase/setup_all.sql).',
+    },
+  };
+}
+
+export async function createManagedUserRecord(
+  adminClient: SupabaseClient,
   body: AdminUserPayload
 ): Promise<ServiceResult> {
-  const auth = await authenticateAdminCaller(authHeader);
-  if ('status' in auth) return auth;
-  const { adminClient } = auth;
-
   const cleanUserId = String(body.userId || '').trim();
   const cleanPass = String(body.password || '').trim();
   const cleanName = String(body.name || '').trim();
@@ -347,23 +616,24 @@ export async function handleCreateManagedUser(
     return { status: 400, body: { error: pwErr } };
   }
 
-  const { data: existingUid, error: uidErr } = await adminClient
+  const { data: existingUidRows, error: uidErr } = await adminClient
     .from('profiles')
     .select('id')
-    .ilike('user_id', cleanUserId)
-    .maybeSingle();
+    .ilike('user_id', escapeIlikePattern(cleanUserId))
+    .limit(1);
 
   if (uidErr) {
+    console.error('[Supabase Admin] profiles user_id check failed:', uidErr.code, uidErr.message);
     return {
       status: 500,
       body: {
         error:
-          'Database profiles table is missing or inaccessible. Run supabase/setup_all.sql in Supabase SQL Editor.',
+          'Database profiles table is missing or inaccessible. Run supabase/migrations/20261120_fix_staff_account_creation.sql in Supabase SQL Editor.',
       },
     };
   }
 
-  if (existingUid) {
+  if (existingUidRows && existingUidRows.length > 0) {
     return {
       status: 409,
       body: { error: 'This Login User ID is already in use. Please choose a unique User ID.' },
@@ -380,12 +650,16 @@ export async function handleCreateManagedUser(
         body: { error: 'Please enter a valid email address or leave Email blank.' },
       };
     }
-    const { data: existingEmail } = await adminClient
+    const { data: existingEmailRows, error: emailCheckErr } = await adminClient
       .from('profiles')
       .select('id')
-      .ilike('email', providedEmail)
-      .maybeSingle();
-    if (existingEmail) {
+      .ilike('email', escapeIlikePattern(providedEmail))
+      .limit(1);
+    if (emailCheckErr) {
+      console.error('[Supabase Admin] profiles email check failed:', emailCheckErr.code, emailCheckErr.message);
+      return mapProfileSaveError(emailCheckErr);
+    }
+    if (existingEmailRows && existingEmailRows.length > 0) {
       return {
         status: 409,
         body: { error: 'An account with this email address already exists.' },
@@ -397,13 +671,13 @@ export async function handleCreateManagedUser(
     const domain = `${targetRole}.globalstarlink.invalid`;
     let candidate = `${slug}@${domain}`;
 
-    const { data: emailCollision } = await adminClient
+    const { data: emailCollisionRows } = await adminClient
       .from('profiles')
       .select('id')
-      .ilike('email', candidate)
-      .maybeSingle();
+      .ilike('email', escapeIlikePattern(candidate))
+      .limit(1);
 
-    if (emailCollision) {
+    if (emailCollisionRows && emailCollisionRows.length > 0) {
       const randSuffix = Math.random().toString(36).slice(2, 6);
       candidate = `${slug}.${randSuffix}@${domain}`;
     }
@@ -414,10 +688,12 @@ export async function handleCreateManagedUser(
     targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
   const designation = String(body.designation || defaultDesig).trim() || defaultDesig;
   const phone = String(body.phone || '').trim();
+  const personalPhone = String(body.personalPhone || '').trim();
   const whatsapp = String(body.whatsapp || phone || '').trim();
   const socialLink = String(body.socialLink || '').trim();
   const photoUrl = String(body.photoUrl || '').trim();
   const coverUrl = String(body.coverUrl || '').trim();
+  const joiningDate = String(body.joiningDate || '').trim();
 
   const { data: createdAuth, error: createErr } = await adminClient.auth.admin.createUser({
     email,
@@ -428,14 +704,17 @@ export async function handleCreateManagedUser(
       name: cleanName,
       designation,
       phone,
+      personal_phone: personalPhone,
       whatsapp,
       social_link: socialLink,
       photo_url: photoUrl,
       cover_url: coverUrl,
+      joining_date: joiningDate,
     },
   });
 
   if (createErr || !createdAuth?.user) {
+    console.error('[Supabase Admin] auth.admin.createUser failed:', createErr?.status, createErr?.message);
     const mapped = mapSupabaseAuthCreateError(createErr?.message || '');
     return {
       status: mapped.status,
@@ -443,48 +722,101 @@ export async function handleCreateManagedUser(
     };
   }
 
-  const { data: profileRow, error: upsertErr } = await adminClient
-    .from('profiles')
-    .upsert(
-      {
-        id: createdAuth.user.id,
-        user_id: cleanUserId,
-        email,
-        role: targetRole,
-        name: cleanName,
-        designation,
-        phone,
-        whatsapp,
-        social_link: socialLink,
-        photo_url: photoUrl,
-        cover_url: coverUrl,
-      },
-      { onConflict: 'id' }
-    )
-    .select('*')
-    .single();
+  const desiredProfile: Record<string, unknown> = {
+    id: createdAuth.user.id,
+    user_id: cleanUserId,
+    email,
+    role: targetRole,
+    name: cleanName,
+    designation,
+    phone,
+    personal_phone: personalPhone,
+    whatsapp,
+    social_link: socialLink,
+    photo_url: photoUrl,
+    cover_url: coverUrl,
+    joining_date: joiningDate,
+  };
 
-  if (upsertErr || !profileRow) {
+  // Check if on_auth_user_created already populated the profile row
+  const { data: triggeredRow, error: trigLookupErr } = await adminClient
+    .from('profiles')
+    .select('*')
+    .eq('id', createdAuth.user.id)
+    .maybeSingle();
+
+  if (trigLookupErr) {
     await adminClient.auth.admin.deleteUser(createdAuth.user.id);
-    if (upsertErr?.code === '23505') {
-      return {
-        status: 409,
-        body: { error: 'This Login User ID or Email is already taken.' },
-      };
+    console.error('[Supabase Admin] Post-create profile lookup failed:', trigLookupErr.code, trigLookupErr.message);
+    return mapProfileSaveError(trigLookupErr);
+  }
+
+  const saveDesired = async (fieldsToPersist: Record<string, unknown>) => {
+    if (!triggeredRow) {
+      return adminClient
+        .from('profiles')
+        .insert(fieldsToPersist)
+        .select('*')
+        .single();
     }
-    return {
-      status: 500,
-      body: {
-        error:
-          'Unable to save user profile details. Check database schema & trigger permissions (run latest supabase/setup_all.sql).',
-      },
-    };
+    const updateDelta: Record<string, unknown> = {};
+    for (const [col, val] of Object.entries(fieldsToPersist)) {
+      if (col === 'id') continue;
+      const existingVal = (triggeredRow as Record<string, unknown>)[col];
+      if (existingVal !== undefined && existingVal !== val) {
+        updateDelta[col] = val;
+      } else if (existingVal === undefined && val !== '') {
+        updateDelta[col] = val;
+      }
+    }
+    if (Object.keys(updateDelta).length === 0) {
+      return { data: triggeredRow, error: null };
+    }
+    return adminClient
+      .from('profiles')
+      .update(updateDelta)
+      .eq('id', createdAuth.user.id)
+      .select('*')
+      .single();
+  };
+
+  let { data: savedProfileData, error: saveErr } = await saveDesired(desiredProfile);
+
+  // Graceful fallback if DB hasn't added personal_phone / joining_date yet and user left them blank
+  if (
+    saveErr &&
+    (saveErr.code === '42703' || saveErr.code === 'PGRST204') &&
+    (saveErr.message?.includes('personal_phone') || saveErr.message?.includes('joining_date')) &&
+    !personalPhone &&
+    !joiningDate
+  ) {
+    const { personal_phone: _p, joining_date: _j, ...legacyFields } = desiredProfile;
+    const retry = await saveDesired(legacyFields);
+    savedProfileData = retry.data;
+    saveErr = retry.error;
+  }
+
+  const savedProfile = (savedProfileData as Record<string, unknown> | null) ?? null;
+
+  if (saveErr || !savedProfile) {
+    await adminClient.auth.admin.deleteUser(createdAuth.user.id);
+    console.error('[Supabase Admin] Profile save failed:', saveErr?.code, saveErr?.message);
+    return mapProfileSaveError(saveErr);
   }
 
   return {
     status: 201,
-    body: { profile: profileRow },
+    body: { profile: savedProfile },
   };
+}
+
+export async function handleCreateManagedUser(
+  authHeader: string | undefined,
+  body: AdminUserPayload
+): Promise<ServiceResult> {
+  const auth = await authenticateAdminCaller(authHeader);
+  if ('status' in auth) return auth;
+  return createManagedUserRecord(auth.adminClient, body);
 }
 
 export async function handleUpdateManagedUser(
@@ -541,13 +873,13 @@ export async function handleUpdateManagedUser(
       };
     }
     if (nextUid.toLowerCase() !== String(targetProfile.user_id || '').toLowerCase()) {
-      const { data: collision } = await adminClient
+      const { data: collisionRows } = await adminClient
         .from('profiles')
         .select('id')
-        .ilike('user_id', nextUid)
+        .ilike('user_id', escapeIlikePattern(nextUid))
         .neq('id', cleanTargetId)
-        .maybeSingle();
-      if (collision) {
+        .limit(1);
+      if (collisionRows && collisionRows.length > 0) {
         return { status: 409, body: { error: 'Another account already uses this Login User ID.' } };
       }
     }
@@ -558,19 +890,56 @@ export async function handleUpdateManagedUser(
   if (body.name !== undefined) updateBody.name = String(body.name).trim();
   if (body.designation !== undefined) updateBody.designation = String(body.designation).trim();
   if (body.phone !== undefined) updateBody.phone = String(body.phone).trim();
+  if (body.personalPhone !== undefined) updateBody.personal_phone = String(body.personalPhone).trim();
   if (body.whatsapp !== undefined) updateBody.whatsapp = String(body.whatsapp).trim();
   if (body.socialLink !== undefined) updateBody.social_link = String(body.socialLink).trim();
   if (body.photoUrl !== undefined) updateBody.photo_url = String(body.photoUrl).trim();
   if (body.coverUrl !== undefined) updateBody.cover_url = String(body.coverUrl).trim();
+  if (body.joiningDate !== undefined) updateBody.joining_date = String(body.joiningDate).trim();
 
-  const { data: updatedProfile, error: profUpdErr } = await adminClient
+  if (Object.keys(updateBody).length === 0) {
+    return {
+      status: 200,
+      body: { profile: targetProfile },
+    };
+  }
+
+  let { data: updatedProfile, error: profUpdErr } = await adminClient
     .from('profiles')
     .update(updateBody)
     .eq('id', cleanTargetId)
     .select('*')
     .single();
 
+  if (
+    profUpdErr &&
+    (profUpdErr.code === '42703' || profUpdErr.code === 'PGRST204') &&
+    (profUpdErr.message?.includes('personal_phone') || profUpdErr.message?.includes('joining_date')) &&
+    !String(updateBody.personal_phone || '') &&
+    !String(updateBody.joining_date || '')
+  ) {
+    const { personal_phone: _p, joining_date: _j, ...legacyUpdate } = updateBody;
+    if (Object.keys(legacyUpdate).length === 0) {
+      return { status: 200, body: { profile: targetProfile } };
+    }
+    const retry = await adminClient
+      .from('profiles')
+      .update(legacyUpdate)
+      .eq('id', cleanTargetId)
+      .select('*')
+      .single();
+    updatedProfile = retry.data;
+    profUpdErr = retry.error;
+  }
+
   if (profUpdErr || !updatedProfile) {
+    if (
+      profUpdErr &&
+      (profUpdErr.code === '42703' || profUpdErr.code === 'PGRST204') &&
+      (profUpdErr.message?.includes('personal_phone') || profUpdErr.message?.includes('joining_date'))
+    ) {
+      return mapProfileSaveError(profUpdErr);
+    }
     return {
       status: 400,
       body: { error: profUpdErr?.message || 'Failed to update account profile.' },
@@ -927,3 +1296,4 @@ export async function handleVerifySupabaseSetup(
     body: report,
   };
 }
+

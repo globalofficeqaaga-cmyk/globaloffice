@@ -220,7 +220,16 @@ async function supabaseAdminApiFetch<T>(
     try {
       data = JSON.parse(text);
     } catch {
-      data = { error: res.ok ? 'Invalid server response format.' : `Server error (${res.status}). Please try again.` };
+      const isFunctionCrash =
+        trimmedLower.includes('function_invocation_failed') ||
+        trimmedLower.includes('a server error has occurred');
+      data = {
+        error: res.ok
+          ? 'Invalid server response format.'
+          : isFunctionCrash
+          ? 'Serverless function invocation failed (500). Verify SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and ESM deployment logs.'
+          : `Server error (${res.status}). Please verify SUPABASE_SERVICE_ROLE_KEY and database schema, then try again.`,
+      };
     }
   }
 
@@ -241,15 +250,17 @@ async function supabaseAdminApiFetch<T>(
 interface ProfileRow {
   id: string;
   user_id: string;
-  email: string;
+  email?: string;
   role: UserRole;
   name: string;
   designation: string;
   phone: string;
+  personal_phone?: string;
   whatsapp: string;
   social_link: string;
   photo_url: string;
   cover_url: string;
+  joining_date?: string;
   version?: number;
   created_at: string;
 }
@@ -436,7 +447,13 @@ interface TeamDirectoryRpcRow {
   role: UserRole;
   name: string;
   designation: string;
+  phone?: string;
+  personal_phone?: string;
+  whatsapp?: string;
+  social_link?: string;
   photo_url: string;
+  cover_url?: string;
+  joining_date?: string;
 }
 
 interface TeamMessageRow {
@@ -458,10 +475,12 @@ function mapProfileRow(row: ProfileRow): PublicUser {
     name: row.name,
     designation: row.designation || 'Visa & Recruitment Coordinator',
     phone: row.phone || '',
+    personalPhone: row.personal_phone || '',
     whatsapp: row.whatsapp || '',
     socialLink: row.social_link || '',
     photoUrl: row.photo_url || APP_IMAGES.staffAvatarDefault,
     coverUrl: row.cover_url || APP_IMAGES.heroMobilityAgency,
+    joiningDate: row.joining_date || '',
     version: row.version ?? 1,
     createdAt: row.created_at,
   };
@@ -748,6 +767,23 @@ export interface RegisterResult {
 
 export const api = {
   isUsingSupabase: () => isSupabaseConfigured && Boolean(supabase),
+
+  verifyCurrentPassword: async (password: string): Promise<{ verified: boolean }> => {
+    assertProductionBackend();
+    if (!password) {
+      throw new Error('Password is required to confirm removal.');
+    }
+    if (supabase) {
+      return supabaseAdminApiFetch<{ verified: boolean }>('/api/supabase-admin/verify-password', {
+        method: 'POST',
+        body: JSON.stringify({ password }),
+      });
+    }
+    return apiFetch<{ verified: boolean }>('/api/auth/verify-password', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+  },
 
   /**
    * Uploads a client document (image or PDF) to the PRIVATE 'client-documents' Supabase Storage bucket.
@@ -1087,7 +1123,6 @@ export const api = {
 
       const [
         profilesRes,
-        accountsRes,
         clientsRes,
         meetingsRes,
         medicalsRes,
@@ -1104,20 +1139,10 @@ export const api = {
         archivedDailyLogsRes,
         auditLogsRes,
       ] = await Promise.all([
-        isAdmin || isAccounts
-          ? supabase
-              .from('profiles')
-              .select('*')
-              .eq('role', 'staff')
-              .order('created_at', { ascending: false })
-          : Promise.resolve({ data: null, error: null }),
-        isAdmin || isAccounts
-          ? supabase
-              .from('profiles')
-              .select('*')
-              .eq('role', 'accounts')
-              .order('created_at', { ascending: false })
-          : Promise.resolve({ data: null, error: null }),
+        supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false }),
         user.role !== 'accounts'
           ? supabase
               .from('clients')
@@ -1221,27 +1246,47 @@ export const api = {
       ]);
 
       if (profilesRes.error) throw new Error(profilesRes.error.message);
-      if (accountsRes.error) throw new Error(accountsRes.error.message);
       if (clientsRes.error) throw new Error(clientsRes.error.message);
       if (meetingsRes.error) throw new Error(meetingsRes.error.message);
       if (medicalsRes.error) throw new Error(medicalsRes.error.message);
       if (interviewsRes.error) throw new Error(interviewsRes.error.message);
 
       const mappedClients = ((clientsRes.data || []) as ClientRow[]).map(mapClientRow);
-      const mappedStaffList =
-        isAdmin || isAccounts
-          ? ((profilesRes.data || []) as ProfileRow[]).map(mapProfileRow)
-          : user.role === 'staff'
-          ? [user]
-          : [];
-      const mappedAccountsList =
-        isAdmin || isAccounts
-          ? ((accountsRes.data || []) as ProfileRow[]).map(mapProfileRow)
-          : [];
+      let allTeamRows = (profilesRes.data || []) as ProfileRow[];
+
+      // Fallback to authenticated server directory if older RLS only returned caller's own row
+      if (allTeamRows.length <= 1) {
+        try {
+          const dirRes = await supabaseAdminApiFetch<{ profiles: ProfileRow[] }>(
+            '/api/supabase-admin/users',
+            { method: 'GET' }
+          );
+          if (Array.isArray(dirRes.profiles) && dirRes.profiles.length > allTeamRows.length) {
+            allTeamRows = dirRes.profiles;
+          }
+        } catch {
+          // Non-fatal: continue with direct RLS rows
+        }
+      }
+
+      const teamMap = new Map<string, PublicUser>();
+      for (const row of allTeamRows) {
+        const mapped = mapProfileRow(row);
+        teamMap.set(mapped.id, mapped);
+      }
+      teamMap.set(user.id, user);
+
+      const roleWeight = (role: UserRole) => (role === 'admin' ? 0 : role === 'accounts' ? 1 : 2);
+      const mappedTeamProfiles = Array.from(teamMap.values()).sort((a, b) => {
+        const diff = roleWeight(a.role) - roleWeight(b.role);
+        if (diff !== 0) return diff;
+        return a.name.localeCompare(b.name);
+      });
+      const mappedStaffList = mappedTeamProfiles.filter((u) => u.role === 'staff');
+      const mappedAccountsList = mappedTeamProfiles.filter((u) => u.role === 'accounts');
 
       const staffLookup = new Map<string, string>();
-      mappedStaffList.forEach((s) => staffLookup.set(s.id, s.name));
-      staffLookup.set(user.id, user.name);
+      mappedTeamProfiles.forEach((s) => staffLookup.set(s.id, s.name));
 
       const mappedDailyClients: DailyClientSummary[] =
         (isAdmin || isAccounts) && !dailyClientActivityRes.error && Array.isArray(dailyClientActivityRes.data)
@@ -1259,10 +1304,27 @@ export const api = {
               createdAt: c.createdAt,
             }));
 
+      let attendanceRows = (attendanceRes.data || []) as StaffAttendanceRow[];
+      const hasOtherStaffAttendance = attendanceRows.some((r) => r.staff_id !== user.id);
+      if (attendanceRes.error || (!hasOtherStaffAttendance && mappedTeamProfiles.length > 1)) {
+        try {
+          const teamAttRes = await supabaseAdminApiFetch<{ attendance: StaffAttendanceRow[] }>(
+            '/api/supabase-admin/attendance',
+            { method: 'GET' }
+          );
+          if (Array.isArray(teamAttRes.attendance) && teamAttRes.attendance.length >= attendanceRows.length) {
+            attendanceRows = teamAttRes.attendance;
+          }
+        } catch {
+          // Non-fatal: continue with direct RLS rows
+        }
+      }
+
       return {
         user,
         staffList: mappedStaffList,
         accountsList: mappedAccountsList,
+        teamProfiles: mappedTeamProfiles,
         clients: mappedClients,
         meetings: ((meetingsRes.data || []) as MeetingRow[]).map(mapMeetingRow),
         medicals: ((medicalsRes.data || []) as MedicalRow[]).map(mapMedicalRow),
@@ -1270,9 +1332,7 @@ export const api = {
         ledgerEntries: ledgerRes.error
           ? []
           : ((ledgerRes.data || []) as AccountLedgerRow[]).map(mapAccountLedgerRow),
-        attendanceRecords: attendanceRes.error
-          ? []
-          : ((attendanceRes.data || []) as StaffAttendanceRow[]).map(mapAttendanceRow),
+        attendanceRecords: attendanceRows.map(mapAttendanceRow),
         dailyLogs: dailyLogsRes.error
           ? []
           : ((dailyLogsRes.data || []) as StaffDailyLogRow[]).map(mapDailyLogRow),
@@ -1303,10 +1363,12 @@ export const api = {
     name?: string;
     designation?: string;
     phone?: string;
+    personalPhone?: string;
     whatsapp?: string;
     socialLink?: string;
     photoUrl?: string;
     coverUrl?: string;
+    joiningDate?: string;
     newPassword?: string;
     expectedVersion?: number;
   }): Promise<{ user: PublicUser }> => {
@@ -1335,29 +1397,55 @@ export const api = {
       }
 
       const data = await withRetry(async () => {
+        const nextPersonalPhone = payload.personalPhone ?? current.personalPhone;
+        const nextJoiningDate = payload.joiningDate ?? current.joiningDate;
         const updatePayload: Record<string, unknown> = {
           name: payload.name ?? current.name,
           designation: payload.designation ?? current.designation,
           phone: payload.phone ?? current.phone,
+          personal_phone: nextPersonalPhone,
           whatsapp: payload.whatsapp ?? current.whatsapp,
           social_link: payload.socialLink ?? current.socialLink,
           photo_url: payload.photoUrl ?? current.photoUrl,
           cover_url: payload.coverUrl ?? current.coverUrl,
+          joining_date: nextJoiningDate,
         };
         if (nextUserId && nextUserId !== current.userId && current.role === 'admin') {
           updatePayload.user_id = nextUserId;
         }
 
-        let query = supabase!
-          .from('profiles')
-          .update(updatePayload)
-          .eq('id', current.id);
+        const runUpdate = async (fields: Record<string, unknown>) => {
+          let query = supabase!
+            .from('profiles')
+            .update(fields)
+            .eq('id', current.id);
 
-        if (payload.expectedVersion !== undefined) {
-          query = query.eq('version', payload.expectedVersion);
+          if (payload.expectedVersion !== undefined) {
+            query = query.eq('version', payload.expectedVersion);
+          }
+
+          return query.select('*').maybeSingle();
+        };
+
+        let { data: updatedRow, error } = await runUpdate(updatePayload);
+
+        if (
+          error &&
+          (error.code === '42703' || error.code === 'PGRST204') &&
+          (error.message?.includes('personal_phone') || error.message?.includes('joining_date'))
+        ) {
+          if (!nextPersonalPhone && !nextJoiningDate) {
+            const { personal_phone: _p, joining_date: _j, ...legacyFields } = updatePayload;
+            const retry = await runUpdate(legacyFields);
+            updatedRow = retry.data;
+            error = retry.error;
+          } else {
+            throw new Error(
+              'Database profiles table needs personal_phone & joining_date columns. Please run supabase/migrations/20261121_staff_profile_fields_and_team_directory.sql in Supabase SQL Editor.'
+            );
+          }
         }
 
-        const { data: updatedRow, error } = await query.select('*').maybeSingle();
         if (error) {
           if (error.code === '23505') {
             throw new Error('Another account already uses this User ID.');
@@ -1389,10 +1477,12 @@ export const api = {
     role?: 'staff' | 'accounts';
     designation?: string;
     phone?: string;
+    personalPhone?: string;
     whatsapp?: string;
     socialLink?: string;
     photoUrl?: string;
     coverUrl?: string;
+    joiningDate?: string;
   }): Promise<{ staff: PublicUser }> => {
     assertProductionBackend();
     const cleanUserId = payload.userId.trim();
@@ -1445,10 +1535,12 @@ export const api = {
       name?: string;
       designation?: string;
       phone?: string;
+      personalPhone?: string;
       whatsapp?: string;
       socialLink?: string;
       photoUrl?: string;
       coverUrl?: string;
+      joiningDate?: string;
     }
   ): Promise<{ staff: PublicUser }> => {
     assertProductionBackend();
@@ -2182,32 +2274,7 @@ export const api = {
           .maybeSingle();
 
         if (existingRow) {
-          const updateFields: Record<string, unknown> = {
-            staff_name: targetName,
-            staff_role: targetRole,
-            updated_at: new Date().toISOString(),
-          };
-          if (payload.status !== undefined) updateFields.status = payload.status;
-          if (payload.checkInTime !== undefined && payload.checkInTime !== '') {
-            updateFields.check_in_time = payload.checkInTime;
-          }
-          if (payload.checkOutTime !== undefined) {
-            updateFields.check_out_time = payload.checkOutTime;
-          }
-          if (payload.workLocation !== undefined) {
-            updateFields.work_location = payload.workLocation;
-          }
-          if (payload.notes !== undefined) {
-            updateFields.notes = payload.notes;
-          }
-          const { data: updated, error: updateErr } = await supabase!
-            .from('staff_attendance')
-            .update(updateFields)
-            .eq('id', existingRow.id)
-            .select('*')
-            .single();
-          if (updateErr) throw new Error(updateErr.message);
-          return updated as StaffAttendanceRow;
+          throw new Error('Attendance for this date is already recorded and cannot be edited.');
         }
 
         const { data: inserted, error: insertErr } = await supabase!
@@ -2253,24 +2320,41 @@ export const api = {
   ): Promise<{ attendance: StaffAttendanceRecord }> => {
     assertProductionBackend();
     if (supabase) {
-      const current = await getCurrentSupabaseUser();
-      const updateBody: Record<string, unknown> = {
-        updated_at: new Date().toISOString(),
-      };
-      if (current.role === 'admin' && payload.staffId !== undefined) {
-        updateBody.staff_id = payload.staffId;
-        if (payload.staffName) updateBody.staff_name = payload.staffName;
-        if (payload.staffRole) updateBody.staff_role = payload.staffRole;
+      const nextCheckOut = typeof payload.checkOutTime === 'string' ? payload.checkOutTime.trim() : '';
+      const hasOtherChanges =
+        payload.status !== undefined ||
+        payload.checkInTime !== undefined ||
+        payload.attendanceDate !== undefined ||
+        payload.workLocation !== undefined ||
+        payload.notes !== undefined ||
+        payload.staffId !== undefined;
+
+      if (!nextCheckOut || hasOtherChanges) {
+        throw new Error(
+          'Attendance records are locked and cannot be edited once saved. Only a one-time Check-Out is allowed when Check-Out is empty.'
+        );
       }
-      if (payload.attendanceDate !== undefined) updateBody.attendance_date = payload.attendanceDate;
-      if (payload.status !== undefined) updateBody.status = payload.status;
-      if (payload.checkInTime !== undefined) updateBody.check_in_time = payload.checkInTime;
-      if (payload.checkOutTime !== undefined) updateBody.check_out_time = payload.checkOutTime;
-      if (payload.workLocation !== undefined) updateBody.work_location = payload.workLocation;
-      if (payload.notes !== undefined) updateBody.notes = payload.notes;
+
+      const { data: existing, error: fetchErr } = await supabase
+        .from('staff_attendance')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchErr) throw new Error(fetchErr.message);
+      if (!existing) throw new Error('Attendance record not found.');
+      if (existing.status === 'Leave' || (existing.check_out_time || '').trim() !== '') {
+        throw new Error('Check-out time is already locked and cannot be edited.');
+      }
 
       const rowData = await withRetry(async () => {
-        let query = supabase!.from('staff_attendance').update(updateBody).eq('id', id);
+        let query = supabase!
+          .from('staff_attendance')
+          .update({
+            check_out_time: nextCheckOut,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', id);
         if (payload.expectedVersion !== undefined) {
           query = query.eq('version', payload.expectedVersion);
         }
@@ -2296,24 +2380,9 @@ export const api = {
     );
   },
 
-  deleteAttendance: async (id: string): Promise<{ ok: boolean }> => {
+  deleteAttendance: async (_id: string): Promise<{ ok: boolean }> => {
     assertProductionBackend();
-    if (supabase) {
-      const current = await getCurrentSupabaseUser();
-      const { error } = await supabase
-        .from('staff_attendance')
-        .update({
-          deleted_at: new Date().toISOString(),
-          deleted_by: current.id,
-        })
-        .eq('id', id);
-      if (error) throw new Error(error.message);
-      return { ok: true };
-    }
-
-    return apiFetch<{ ok: boolean }>(`/api/attendance/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
+    throw new Error('Attendance records are locked and cannot be deleted once recorded.');
   },
 
   createDailyLog: async (payload: Partial<StaffDailyLog>): Promise<{ log: StaffDailyLog }> => {
@@ -2498,7 +2567,13 @@ export const api = {
           role: row.role,
           name: row.name,
           designation: row.designation || 'Team Member',
+          phone: row.phone || '',
+          personalPhone: row.personal_phone || '',
+          whatsapp: row.whatsapp || '',
+          socialLink: row.social_link || '',
           photoUrl: row.photo_url || APP_IMAGES.staffAvatarDefault,
+          coverUrl: row.cover_url || APP_IMAGES.heroMobilityAgency,
+          joiningDate: row.joining_date || '',
         }))
         .sort((a, b) => a.name.localeCompare(b.name));
 

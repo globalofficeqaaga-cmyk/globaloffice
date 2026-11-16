@@ -7,11 +7,13 @@ import {
   MessageSquare,
   Search,
   Send,
+  User,
   Users,
   X,
 } from 'lucide-react';
 import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser, TeamDirectoryMember, TeamMessage, UserRole } from '../types';
+import { UserProfileModal } from './TeamProfilesPanel';
 
 export const TEAM_GROUP_THREAD_ID = '__team_group__';
 
@@ -82,6 +84,7 @@ export function TeamMessenger({
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
+  const [profileMember, setProfileMember] = useState<TeamDirectoryMember | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -431,30 +434,41 @@ export function TeamMessenger({
                   </div>
                 </div>
               ) : activePartner ? (
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <img
-                    src={activePartner.photoUrl || APP_IMAGES.staffAvatarDefault}
-                    alt={activePartner.name}
-                    referrerPolicy="no-referrer"
-                    className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-slate-900 truncate">
-                        {activePartner.name}
+                <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <img
+                      src={activePartner.photoUrl || APP_IMAGES.staffAvatarDefault}
+                      alt={activePartner.name}
+                      referrerPolicy="no-referrer"
+                      className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {activePartner.name}
+                        </p>
+                        <span
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${getRoleBadgeClass(
+                            activePartner.role
+                          )}`}
+                        >
+                          {formatRoleLabel(activePartner.role)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 truncate">
+                        @{activePartner.userId} · {activePartner.designation}
                       </p>
-                      <span
-                        className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${getRoleBadgeClass(
-                          activePartner.role
-                        )}`}
-                      >
-                        {formatRoleLabel(activePartner.role)}
-                      </span>
                     </div>
-                    <p className="text-xs text-slate-500 truncate">
-                      @{activePartner.userId} · {activePartner.designation}
-                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setProfileMember(activePartner)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer shrink-0"
+                  >
+                    <User className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">View Profile</span>
+                    <span className="sm:hidden">Profile</span>
+                  </button>
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">Select a team member to chat</p>
@@ -567,6 +581,14 @@ export function TeamMessenger({
           </section>
         </div>
       </div>
+
+      {profileMember && (
+        <UserProfileModal
+          member={profileMember}
+          isSelf={profileMember.id === currentUser.id}
+          onClose={() => setProfileMember(null)}
+        />
+      )}
     </div>
   );
 }

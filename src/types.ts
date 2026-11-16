@@ -8,10 +8,12 @@ export interface PublicUser {
   name: string;
   designation: string;
   phone: string;
+  personalPhone: string;
   whatsapp: string;
   socialLink: string;
   photoUrl: string;
   coverUrl: string;
+  joiningDate: string;
   version?: number;
   createdAt: string;
 }
@@ -254,6 +256,7 @@ export interface DashboardData {
   user: PublicUser;
   staffList: PublicUser[];
   accountsList?: PublicUser[];
+  teamProfiles?: PublicUser[];
   clients: ClientProfile[];
   meetings: MeetingRecord[];
   medicals: MedicalRecord[];
@@ -379,7 +382,13 @@ export interface TeamDirectoryMember {
   role: UserRole;
   name: string;
   designation: string;
+  phone?: string;
+  personalPhone?: string;
+  whatsapp?: string;
+  socialLink?: string;
   photoUrl: string;
+  coverUrl?: string;
+  joiningDate?: string;
 }
 
 export interface TeamMessage {

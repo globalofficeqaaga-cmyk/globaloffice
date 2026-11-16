@@ -23,10 +23,12 @@ create table if not exists public.profiles (
   name text not null,
   designation text not null default 'Visa & Recruitment Coordinator',
   phone text not null default '',
+  personal_phone text not null default '',
   whatsapp text not null default '',
   social_link text not null default '',
   photo_url text not null default '',
   cover_url text not null default '',
+  joining_date text not null default '',
   version integer not null default 1,
   updated_at timestamptz not null default now(),
   created_at timestamptz not null default now()
@@ -38,10 +40,12 @@ alter table public.profiles add column if not exists role text not null default 
 alter table public.profiles add column if not exists name text not null default 'Staff Member';
 alter table public.profiles add column if not exists designation text not null default 'Visa & Recruitment Coordinator';
 alter table public.profiles add column if not exists phone text not null default '';
+alter table public.profiles add column if not exists personal_phone text not null default '';
 alter table public.profiles add column if not exists whatsapp text not null default '';
 alter table public.profiles add column if not exists social_link text not null default '';
 alter table public.profiles add column if not exists photo_url text not null default '';
 alter table public.profiles add column if not exists cover_url text not null default '';
+alter table public.profiles add column if not exists joining_date text not null default '';
 alter table public.profiles add column if not exists version integer not null default 1;
 alter table public.profiles add column if not exists updated_at timestamptz not null default now();
 alter table public.profiles add column if not exists created_at timestamptz not null default now();
@@ -182,10 +186,12 @@ begin
     name,
     designation,
     phone,
+    personal_phone,
     whatsapp,
     social_link,
     photo_url,
-    cover_url
+    cover_url,
+    joining_date
   )
   values (
     new.id,
@@ -195,10 +201,12 @@ begin
     v_name,
     coalesce(nullif(trim(new.raw_user_meta_data ->> 'designation'), ''), 'Visa & Recruitment Coordinator'),
     coalesce(trim(new.raw_user_meta_data ->> 'phone'), ''),
+    coalesce(trim(new.raw_user_meta_data ->> 'personal_phone'), ''),
     coalesce(nullif(trim(new.raw_user_meta_data ->> 'whatsapp'), ''), coalesce(trim(new.raw_user_meta_data ->> 'phone'), '')),
     coalesce(trim(new.raw_user_meta_data ->> 'social_link'), ''),
     coalesce(trim(new.raw_user_meta_data ->> 'photo_url'), ''),
-    coalesce(trim(new.raw_user_meta_data ->> 'cover_url'), '')
+    coalesce(trim(new.raw_user_meta_data ->> 'cover_url'), ''),
+    coalesce(trim(new.raw_user_meta_data ->> 'joining_date'), '')
   )
   on conflict (id) do nothing;
 
@@ -216,11 +224,12 @@ create trigger on_auth_user_created
 
 drop policy if exists "profiles_select_own_or_admin" on public.profiles;
 drop policy if exists "profiles_select_own_or_admin_or_accounts" on public.profiles;
-create policy "profiles_select_own_or_admin_or_accounts"
+drop policy if exists "profiles_select_authenticated" on public.profiles;
+create policy "profiles_select_authenticated"
   on public.profiles
   for select
   to authenticated
-  using (auth.uid() = id or public.is_admin_or_accounts());
+  using (auth.uid() is not null);
 
 drop policy if exists "profiles_insert_own_staff" on public.profiles;
 create policy "profiles_insert_own_staff"
@@ -685,7 +694,7 @@ create policy "staff_attendance_select"
   on public.staff_attendance
   for select
   to authenticated
-  using (auth.uid() = staff_id or public.is_admin_or_accounts());
+  using (auth.uid() is not null);
 
 drop policy if exists "staff_attendance_insert" on public.staff_attendance;
 create policy "staff_attendance_insert"
@@ -707,7 +716,7 @@ create policy "staff_attendance_delete_admin"
   on public.staff_attendance
   for delete
   to authenticated
-  using (public.is_admin());
+  using (false);
 
 create table if not exists public.staff_daily_logs (
   id uuid primary key default gen_random_uuid(),
@@ -1043,6 +1052,40 @@ create trigger trg_staff_attendance_version
   before insert or update on public.staff_attendance
   for each row
   execute function public.bump_version_and_meta();
+
+create or replace function public.enforce_attendance_immutability()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.staff_id is distinct from old.staff_id
+     or new.attendance_date is distinct from old.attendance_date
+     or new.status is distinct from old.status
+     or new.check_in_time is distinct from old.check_in_time
+     or new.work_location is distinct from old.work_location
+     or new.notes is distinct from old.notes
+     or new.deleted_at is distinct from old.deleted_at
+  then
+    raise exception 'Attendance records are locked and cannot be edited or deleted once recorded.';
+  end if;
+
+  if new.check_out_time is distinct from old.check_out_time then
+    if coalesce(old.check_out_time, '') <> '' or old.status = 'Leave' then
+      raise exception 'Check-out time is already locked and cannot be edited.';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_staff_attendance_lock on public.staff_attendance;
+create trigger trg_staff_attendance_lock
+  before update on public.staff_attendance
+  for each row
+  execute function public.enforce_attendance_immutability();
 
 drop trigger if exists trg_staff_daily_logs_version on public.staff_daily_logs;
 create trigger trg_staff_daily_logs_version
@@ -1458,6 +1501,7 @@ create policy "team_messages_delete_admin"
   to authenticated
   using (public.is_admin());
 
+drop function if exists public.get_team_directory();
 create or replace function public.get_team_directory()
 returns table (
   id uuid,
@@ -1465,7 +1509,13 @@ returns table (
   role text,
   name text,
   designation text,
-  photo_url text
+  phone text,
+  personal_phone text,
+  whatsapp text,
+  social_link text,
+  photo_url text,
+  cover_url text,
+  joining_date text
 )
 language plpgsql
 stable
@@ -1484,7 +1534,13 @@ begin
     p.role,
     p.name,
     p.designation,
-    p.photo_url
+    p.phone,
+    p.personal_phone,
+    p.whatsapp,
+    p.social_link,
+    p.photo_url,
+    p.cover_url,
+    p.joining_date
   from public.profiles p
   order by
     case p.role when 'admin' then 1 when 'accounts' then 2 else 3 end,

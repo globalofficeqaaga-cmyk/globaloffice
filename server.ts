@@ -6,9 +6,11 @@ import {
   getSafeSupabaseHealthStatus,
   handleCreateManagedUser,
   handleDeleteManagedUser,
+  handleListTeamAttendance,
+  handleListTeamProfiles,
   handleUpdateManagedUser,
+  handleVerifyCallerPassword,
   handleVerifySupabaseSetup,
-  runServerSupabaseVerification,
 } from './api/_lib/supabaseAdminService.ts';
 import dotenv from 'dotenv';
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -108,7 +110,11 @@ function normalizePhone(input: string): string {
 
 function toPublicUser(u: StoredUser): PublicUser {
   const { passwordHash: _ignored, ...pub } = u;
-  return pub;
+  return {
+    ...pub,
+    personalPhone: pub.personalPhone || '',
+    joiningDate: pub.joiningDate || '',
+  };
 }
 
 function generateStrongBootstrapPassword(): string {
@@ -148,10 +154,12 @@ function createInitialData(): DatabaseSchema {
         name: 'System Administrator',
         designation: 'Managing Director',
         phone: '+8801700000000',
+        personalPhone: '',
         whatsapp: '+8801700000000',
         socialLink: 'https://facebook.com',
         photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
         coverUrl: '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
+        joiningDate: now.slice(0, 10),
         createdAt: now,
         passwordHash: hashPassword(adminBootstrapPassword),
       },
@@ -162,10 +170,12 @@ function createInitialData(): DatabaseSchema {
         name: 'Rafiqul Islam',
         designation: 'Senior Visa & Trade Coordinator',
         phone: '+8801711223344',
+        personalPhone: '',
         whatsapp: '+8801711223344',
         socialLink: 'https://facebook.com/rafiq.globalpathways',
         photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
         coverUrl: '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
+        joiningDate: now.slice(0, 10),
         createdAt: now,
         passwordHash: hashPassword(generateStrongBootstrapPassword()),
       },
@@ -176,10 +186,12 @@ function createInitialData(): DatabaseSchema {
         name: 'Nusrat Jahan',
         designation: 'Medical & Client Relations Officer',
         phone: '+8801811556677',
+        personalPhone: '',
         whatsapp: '+8801811556677',
         socialLink: 'https://facebook.com/nusrat.globalpathways',
         photoUrl: '/src/assets/images/staff_avatar_default_1794656907853.jpg',
         coverUrl: '/src/assets/images/service_medical_center_1794656908059.jpg',
+        joiningDate: now.slice(0, 10),
         createdAt: now,
         passwordHash: hashPassword(generateStrongBootstrapPassword()),
       },
@@ -708,33 +720,89 @@ async function startServer() {
 
   // Server-side Supabase Setup Verification (Admin session required)
   app.get('/api/supabase-admin/verify', async (req, res) => {
-    const result = await handleVerifySupabaseSetup(req.headers.authorization);
-    res.status(result.status).json(result.body);
+    try {
+      const result = await handleVerifySupabaseSetup(req.headers.authorization);
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin Verify] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to complete Supabase verification check.' });
+    }
+  });
+
+  // Server-side Supabase Auth Admin API: List Team Profiles (Authenticated team caller)
+  app.get('/api/supabase-admin/users', async (req, res) => {
+    try {
+      const result = await handleListTeamProfiles(req.headers.authorization);
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin List Users] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to load team profiles from the server.' });
+    }
   });
 
   // Server-side Supabase Auth Admin API: Create Staff or Accounts User
   app.post('/api/supabase-admin/users', async (req, res) => {
-    const result = await handleCreateManagedUser(req.headers.authorization, req.body || {});
-    res.status(result.status).json(result.body);
+    try {
+      const result = await handleCreateManagedUser(req.headers.authorization, req.body || {});
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin Create User] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to create user account on the server. Please verify server logs and database schema.' });
+    }
   });
 
   // Server-side Supabase Auth Admin API: Update Staff/Accounts Credentials & Profile
   app.put('/api/supabase-admin/users/:id', async (req, res) => {
-    const result = await handleUpdateManagedUser(
-      req.headers.authorization,
-      String(req.params.id || ''),
-      req.body || {}
-    );
-    res.status(result.status).json(result.body);
+    try {
+      const result = await handleUpdateManagedUser(
+        req.headers.authorization,
+        String(req.params.id || ''),
+        req.body || {}
+      );
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin Update User] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to update user account on the server.' });
+    }
   });
 
   // Server-side Supabase Auth Admin API: Delete Staff/Accounts User cleanly
   app.delete('/api/supabase-admin/users/:id', async (req, res) => {
-    const result = await handleDeleteManagedUser(
-      req.headers.authorization,
-      String(req.params.id || '')
-    );
-    res.status(result.status).json(result.body);
+    try {
+      const result = await handleDeleteManagedUser(
+        req.headers.authorization,
+        String(req.params.id || '')
+      );
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin Delete User] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to delete user account on the server.' });
+    }
+  });
+
+  // Server-side Supabase Team Attendance Read (Admin, Manager/Staff, Accounts)
+  app.get('/api/supabase-admin/attendance', async (req, res) => {
+    try {
+      const result = await handleListTeamAttendance(req.headers.authorization);
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin List Attendance] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to load team attendance records.' });
+    }
+  });
+
+  // Server-side Supabase Caller Password Verification before Remove/Delete
+  app.post('/api/supabase-admin/verify-password', async (req, res) => {
+    try {
+      const result = await handleVerifyCallerPassword(
+        req.headers.authorization,
+        req.body?.password
+      );
+      res.status(result.status).json(result.body);
+    } catch (err) {
+      console.error('[Supabase Admin Verify Password] Unexpected error:', err instanceof Error ? err.message : err);
+      res.status(500).json({ error: 'Unable to verify password on the server.' });
+    }
   });
 
   // Public Client Lookup by exact normalized phone number (Minimal Non-Sensitive Status Only)
@@ -909,6 +977,20 @@ async function startServer() {
     res.json({ user: toPublicUser(req.currentUser!) });
   });
 
+  // Verify caller password before remove/delete in Express mode
+  app.post('/api/auth/verify-password', requireAuth, (req: AuthedRequest, res) => {
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!password) {
+      res.status(400).json({ error: 'Password is required to confirm deletion.' });
+      return;
+    }
+    if (!verifyPassword(password, req.currentUser!.passwordHash)) {
+      res.status(401).json({ error: 'Incorrect password. Removal cancelled.' });
+      return;
+    }
+    res.json({ verified: true });
+  });
+
   // Update own profile & credentials (Staff or Admin)
   app.put('/api/profile', requireAuth, async (req: AuthedRequest, res) => {
     const db = loadDb();
@@ -924,10 +1006,12 @@ async function startServer() {
       name,
       designation,
       phone,
+      personalPhone,
       whatsapp,
       socialLink,
       photoUrl,
       coverUrl,
+      joiningDate,
       newPassword,
       expectedVersion,
     } = req.body || {};
@@ -980,10 +1064,14 @@ async function startServer() {
           ? designation.trim()
           : existing.designation,
       phone: typeof phone === 'string' ? phone.trim() : existing.phone,
+      personalPhone:
+        typeof personalPhone === 'string' ? personalPhone.trim() : existing.personalPhone || '',
       whatsapp: typeof whatsapp === 'string' ? whatsapp.trim() : existing.whatsapp,
       socialLink: typeof socialLink === 'string' ? socialLink.trim() : existing.socialLink,
       photoUrl: typeof photoUrl === 'string' && photoUrl.trim() ? photoUrl.trim() : existing.photoUrl,
       coverUrl: typeof coverUrl === 'string' && coverUrl.trim() ? coverUrl.trim() : existing.coverUrl,
+      joiningDate:
+        typeof joiningDate === 'string' ? joiningDate.trim() : existing.joiningDate || '',
       passwordHash: nextPasswordHash,
     };
 
@@ -1033,16 +1121,9 @@ async function startServer() {
 
     const payload: DashboardData = {
       user: toPublicUser(current),
-      staffList:
-        isAdmin || isAccounts
-          ? db.users.filter((u) => u.role === 'staff').map(toPublicUser)
-          : current.role === 'staff'
-          ? [toPublicUser(current)]
-          : [],
-      accountsList:
-        isAdmin || isAccounts
-          ? db.users.filter((u) => u.role === 'accounts').map(toPublicUser)
-          : [],
+      staffList: db.users.filter((u) => u.role === 'staff').map(toPublicUser),
+      accountsList: db.users.filter((u) => u.role === 'accounts').map(toPublicUser),
+      teamProfiles: db.users.map(toPublicUser),
       clients: isAdmin
         ? activeClients
         : current.role === 'staff'
@@ -1064,10 +1145,7 @@ async function startServer() {
         ? activeInterviews.filter((i) => i.staffId === current.id)
         : [],
       ledgerEntries: isAdmin || isAccounts ? activeLedger : [],
-      attendanceRecords:
-        isAdmin || isAccounts
-          ? activeAttendance
-          : activeAttendance.filter((a) => a.staffId === current.id),
+      attendanceRecords: activeAttendance,
       dailyLogs:
         isAdmin || isAccounts
           ? activeDailyLogs
@@ -1095,10 +1173,12 @@ async function startServer() {
       role,
       designation,
       phone,
+      personalPhone,
       whatsapp,
       socialLink,
       photoUrl,
       coverUrl,
+      joiningDate,
     } = req.body || {};
 
     const cleanUserId = String(userId || '').trim();
@@ -1131,10 +1211,12 @@ async function startServer() {
       name: cleanName,
       designation: String(designation || defaultDesig).trim(),
       phone: String(phone || '').trim(),
+      personalPhone: String(personalPhone || '').trim(),
       whatsapp: String(whatsapp || phone || '').trim(),
       socialLink: String(socialLink || '').trim(),
       photoUrl: String(photoUrl || '/src/assets/images/staff_avatar_default_1794656907853.jpg').trim(),
       coverUrl: String(coverUrl || '/src/assets/images/hero_mobility_agency_1794656908413.jpg').trim(),
+      joiningDate: String(joiningDate || '').trim(),
       createdAt: new Date().toISOString(),
       passwordHash: hashPassword(cleanPass),
     };
@@ -1162,10 +1244,12 @@ async function startServer() {
       name,
       designation,
       phone,
+      personalPhone,
       whatsapp,
       socialLink,
       photoUrl,
       coverUrl,
+      joiningDate,
     } = req.body || {};
 
     if (typeof userId === 'string' && userId.trim()) {
@@ -1198,10 +1282,14 @@ async function startServer() {
           ? designation.trim()
           : existing.designation,
       phone: typeof phone === 'string' ? phone.trim() : existing.phone,
+      personalPhone:
+        typeof personalPhone === 'string' ? personalPhone.trim() : existing.personalPhone || '',
       whatsapp: typeof whatsapp === 'string' ? whatsapp.trim() : existing.whatsapp,
       socialLink: typeof socialLink === 'string' ? socialLink.trim() : existing.socialLink,
       photoUrl: typeof photoUrl === 'string' && photoUrl.trim() ? photoUrl.trim() : existing.photoUrl,
       coverUrl: typeof coverUrl === 'string' && coverUrl.trim() ? coverUrl.trim() : existing.coverUrl,
+      joiningDate:
+        typeof joiningDate === 'string' ? joiningDate.trim() : existing.joiningDate || '',
       passwordHash: nextPasswordHash,
     };
 
@@ -2054,25 +2142,9 @@ async function startServer() {
     );
 
     if (existingIdx !== -1) {
-      const existing = db.attendanceRecords[existingIdx];
-      const updated: StaffAttendanceRecord = {
-        ...existing,
-        staffName: targetUser.name,
-        staffRole: targetUser.role,
-        status: body.status ? status : existing.status,
-        checkInTime: checkInTime || existing.checkInTime,
-        checkOutTime: body.checkOutTime !== undefined ? checkOutTime : existing.checkOutTime,
-        workLocation: body.workLocation !== undefined ? workLocation : existing.workLocation,
-        notes: body.notes !== undefined ? notes : existing.notes,
-        version: (existing.version ?? 1) + 1,
-        updatedAt: now,
-      };
-      db.attendanceRecords[existingIdx] = updated;
-      appendAudit(db, 'staff_attendance', updated.id, 'UPDATE', current, {
-        status: { old: existing.status, new: updated.status },
+      res.status(403).json({
+        error: 'Attendance for this date is already recorded and cannot be edited.',
       });
-      await saveDb(db);
-      res.status(200).json({ attendance: updated });
       return;
     }
 
@@ -2114,7 +2186,7 @@ async function startServer() {
 
     const existing = db.attendanceRecords[idx];
     if (current.role !== 'admin' && existing.staffId !== current.id) {
-      res.status(403).json({ error: 'You can only update your own attendance.' });
+      res.status(403).json({ error: 'You can only check out your own attendance.' });
       return;
     }
 
@@ -2130,64 +2202,49 @@ async function startServer() {
       return;
     }
 
-    const nextStaffId =
-      current.role === 'admin' && typeof body.staffId === 'string' && body.staffId.trim()
-        ? body.staffId.trim()
-        : existing.staffId;
-    const targetUser = db.users.find((u) => u.id === nextStaffId);
+    // Strict immutability: only a one-time Check-Out when checkOutTime is empty and status !== 'Leave'
+    const nextCheckOut =
+      typeof body.checkOutTime === 'string' ? body.checkOutTime.trim() : '';
+    const touchesOtherField =
+      (body.staffId !== undefined && body.staffId !== existing.staffId) ||
+      (body.attendanceDate !== undefined && body.attendanceDate !== existing.attendanceDate) ||
+      (body.status !== undefined && body.status !== existing.status) ||
+      (body.checkInTime !== undefined && body.checkInTime !== existing.checkInTime) ||
+      (body.workLocation !== undefined && body.workLocation !== existing.workLocation) ||
+      (body.notes !== undefined && body.notes !== existing.notes);
+
+    if (
+      existing.status === 'Leave' ||
+      Boolean(existing.checkOutTime && existing.checkOutTime.trim()) ||
+      !nextCheckOut ||
+      touchesOtherField
+    ) {
+      res.status(403).json({
+        error:
+          'Attendance records are locked and cannot be edited once saved. Only a one-time Check-Out is allowed when Check-Out is empty.',
+      });
+      return;
+    }
 
     const updated: StaffAttendanceRecord = {
       ...existing,
-      staffId: nextStaffId,
-      staffName: targetUser ? targetUser.name : existing.staffName,
-      staffRole: targetUser ? targetUser.role : existing.staffRole,
-      attendanceDate:
-        typeof body.attendanceDate === 'string' && body.attendanceDate.trim()
-          ? body.attendanceDate.trim()
-          : existing.attendanceDate,
-      status: body.status || existing.status,
-      checkInTime: typeof body.checkInTime === 'string' ? body.checkInTime.trim() : existing.checkInTime,
-      checkOutTime: typeof body.checkOutTime === 'string' ? body.checkOutTime.trim() : existing.checkOutTime,
-      workLocation: typeof body.workLocation === 'string' ? body.workLocation.trim() : existing.workLocation,
-      notes: typeof body.notes === 'string' ? body.notes.trim() : existing.notes,
+      checkOutTime: nextCheckOut,
       version: (existing.version ?? 1) + 1,
       updatedAt: new Date().toISOString(),
     };
 
     db.attendanceRecords[idx] = updated;
     appendAudit(db, 'staff_attendance', updated.id, 'UPDATE', current, {
-      status: { old: existing.status, new: updated.status },
+      check_out_time: { old: '', new: nextCheckOut },
     });
     await saveDb(db);
     res.json({ attendance: updated });
   });
 
-  app.delete('/api/attendance/:id', requireAuth, async (req: AuthedRequest, res) => {
-    const db = loadDb();
-    const current = req.currentUser!;
-    if (!db.attendanceRecords) db.attendanceRecords = [];
-    const idx = db.attendanceRecords.findIndex((a) => a.id === req.params.id);
-    if (idx === -1) {
-      res.status(404).json({ error: 'Attendance record not found.' });
-      return;
-    }
-    const target = db.attendanceRecords[idx];
-    if (current.role !== 'admin' && target.staffId !== current.id) {
-      res.status(403).json({ error: 'You can only remove your own attendance.' });
-      return;
-    }
-
-    db.attendanceRecords[idx] = {
-      ...target,
-      deletedAt: new Date().toISOString(),
-      deletedBy: current.id,
-      version: (target.version ?? 1) + 1,
-    };
-    appendAudit(db, 'staff_attendance', target.id, 'SOFT_DELETE', current, {
-      attendance_date: { old: `${target.staffName} (${target.attendanceDate})`, new: 'archived' },
+  app.delete('/api/attendance/:id', requireAuth, async (_req: AuthedRequest, res) => {
+    res.status(403).json({
+      error: 'Attendance records are locked and cannot be deleted once recorded.',
     });
-    await saveDb(db);
-    res.json({ ok: true });
   });
 
   // Daily Conversation / Call Logs ("Kar sathe ki ki kotha holo")
@@ -2363,7 +2420,13 @@ async function startServer() {
         role: u.role,
         name: u.name,
         designation: u.designation || 'Team Member',
+        phone: u.phone || '',
+        personalPhone: u.personalPhone || '',
+        whatsapp: u.whatsapp || '',
+        socialLink: u.socialLink || '',
         photoUrl: u.photoUrl || '/src/assets/images/staff_avatar_default_1794656907853.jpg',
+        coverUrl: u.coverUrl || '/src/assets/images/hero_mobility_agency_1794656908413.jpg',
+        joiningDate: u.joiningDate || '',
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 

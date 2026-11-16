@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   handleCreateManagedUser,
+  handleListTeamProfiles,
   type AdminUserPayload,
-} from '../_lib/supabaseAdminService';
+} from '../_lib/supabaseAdminService.js';
 
 interface VercelRequestLike extends IncomingMessage {
   body?: unknown;
@@ -44,28 +45,45 @@ function sendJson(res: VercelResponseLike, statusCode: number, payload: Record<s
 }
 
 export default async function handler(req: VercelRequestLike, res: VercelResponseLike) {
+  const authHeader =
+    typeof req.headers.authorization === 'string'
+      ? req.headers.authorization
+      : Array.isArray(req.headers.authorization)
+      ? req.headers.authorization[0]
+      : undefined;
+
+  if (req.method === 'GET') {
+    try {
+      const result = await handleListTeamProfiles(authHeader);
+      sendJson(res, result.status, result.body);
+    } catch (err) {
+      console.error('[api/supabase-admin/users GET] Unexpected error:', err instanceof Error ? err.message : err);
+      sendJson(res, 500, { error: 'Unable to load team profiles.' });
+    }
+    return;
+  }
+
   if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST');
-    sendJson(res, 405, { error: 'Method not allowed. Use POST to create user accounts.' });
+    res.setHeader('Allow', 'GET, POST');
+    sendJson(res, 405, { error: 'Method not allowed.' });
+    return;
+  }
+
+  let body: AdminUserPayload;
+  try {
+    body = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'Invalid JSON request payload.' });
     return;
   }
 
   try {
-    const body = await readJsonBody(req);
-    const authHeader =
-      typeof req.headers.authorization === 'string'
-        ? req.headers.authorization
-        : Array.isArray(req.headers.authorization)
-        ? req.headers.authorization[0]
-        : undefined;
     const result = await handleCreateManagedUser(authHeader, body);
     sendJson(res, result.status, result.body);
   } catch (err) {
-    sendJson(res, 400, {
-      error:
-        err instanceof SyntaxError
-          ? 'Invalid JSON request payload.'
-          : 'Unexpected server error while creating user account.',
+    console.error('[api/supabase-admin/users] Unexpected error:', err instanceof Error ? err.message : err);
+    sendJson(res, 500, {
+      error: 'Unable to create user account on the server. Please verify Supabase server configuration and schema.',
     });
   }
 }

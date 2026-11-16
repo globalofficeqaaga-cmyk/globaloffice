@@ -3,6 +3,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  Lock,
   LogIn,
   LogOut,
   MessageSquareText,
@@ -19,6 +20,8 @@ import {
   getCurrentLocalTimeStr,
   getTodayLocalDateStr,
 } from '../lib/api';
+import { calculateWorkedMinutes, formatMinutesWithHours } from '../lib/attendanceUtils';
+import { PasswordConfirmModal } from './PasswordConfirmModal';
 import type {
   AttendanceStatus,
   DailyClientSummary,
@@ -118,7 +121,7 @@ export function DailyOperationsPanel({
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [checkingBusy, setCheckingBusy] = useState(false);
-  const [confirmDeleteLogId, setConfirmDeleteLogId] = useState<string | null>(null);
+  const [pendingDeleteLog, setPendingDeleteLog] = useState<StaffDailyLog | null>(null);
   const [expandedStaffClientsId, setExpandedStaffClientsId] = useState<string | null>(null);
 
   const isAllDates = dateFilter === 'all';
@@ -344,14 +347,21 @@ export function DailyOperationsPanel({
             )
           )}
 
-          <button
-            type="button"
-            onClick={() => onOpenAttendanceModal(myTodayAttendance, currentUser.id, today)}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>{myTodayAttendance ? 'Edit Duty / Status' : 'Leave / Field Work'}</span>
-          </button>
+          {!myTodayAttendance ? (
+            <button
+              type="button"
+              onClick={() => onOpenAttendanceModal(null, currentUser.id, today)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Leave / Field Work</span>
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-500 bg-slate-100 rounded-lg">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Attendance Locked</span>
+            </span>
+          )}
 
           <button
             type="button"
@@ -595,16 +605,23 @@ export function DailyOperationsPanel({
                               {isExpanded ? 'Hide Names' : 'See Clients'}
                             </button>
                           )}
-                          {(canManageAll || member.id === currentUser.id) && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onOpenAttendanceModal(attendance, member.id, effectiveAttendanceDate)
-                              }
-                              className="px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 rounded cursor-pointer"
-                            >
-                              {attendance ? 'Edit' : 'Mark'}
-                            </button>
+                          {!attendance ? (
+                            (canManageAll || member.id === currentUser.id) && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onOpenAttendanceModal(null, member.id, effectiveAttendanceDate)
+                                }
+                                className="px-2 py-1 text-xs font-semibold text-slate-700 bg-slate-100 rounded cursor-pointer"
+                              >
+                                Mark
+                              </button>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-slate-500 bg-slate-100 rounded">
+                              <Lock className="w-3 h-3" />
+                              <span>Locked</span>
+                            </span>
                           )}
                         </div>
                       </div>
@@ -711,20 +728,27 @@ export function DailyOperationsPanel({
                         </td>
                         {(canManageAll || rosterList.some((r) => r.id === currentUser.id)) && (
                           <td className="px-6 py-3.5 text-right whitespace-nowrap">
-                            {(canManageAll || member.id === currentUser.id) && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onOpenAttendanceModal(
-                                    attendance,
-                                    member.id,
-                                    effectiveAttendanceDate
-                                  )
-                                }
-                                className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
-                              >
-                                {attendance ? 'Edit' : 'Mark'}
-                              </button>
+                            {!attendance ? (
+                              (canManageAll || member.id === currentUser.id) && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onOpenAttendanceModal(
+                                      null,
+                                      member.id,
+                                      effectiveAttendanceDate
+                                    )
+                                  }
+                                  className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 rounded cursor-pointer"
+                                >
+                                  Mark
+                                </button>
+                              )
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-slate-500 bg-slate-100 rounded">
+                                <Lock className="w-3 h-3" />
+                                <span>Locked</span>
+                              </span>
                             )}
                           </td>
                         )}
@@ -887,36 +911,14 @@ export function DailyOperationsPanel({
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
-                          {confirmDeleteLogId === log.id ? (
-                            <span className="inline-flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  await onDeleteLog(log.id);
-                                  setConfirmDeleteLogId(null);
-                                }}
-                                className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
-                              >
-                                Confirm
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteLogId(null)}
-                                className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
-                              >
-                                No
-                              </button>
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteLogId(log.id)}
-                              className="p-1.5 text-slate-500 hover:text-red-600 rounded cursor-pointer"
-                              title="Delete log"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteLog(log)}
+                            className="p-1.5 text-slate-500 hover:text-red-600 rounded cursor-pointer"
+                            title="Delete log"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       )}
                     </div>
@@ -995,36 +997,14 @@ export function DailyOperationsPanel({
                               >
                                 <Pencil className="w-4 h-4" />
                               </button>
-                              {confirmDeleteLogId === log.id ? (
-                                <span className="inline-flex items-center gap-1 ml-2">
-                                  <button
-                                    type="button"
-                                    onClick={async () => {
-                                      await onDeleteLog(log.id);
-                                      setConfirmDeleteLogId(null);
-                                    }}
-                                    className="px-2 py-1 text-xs font-semibold text-white bg-red-600 rounded cursor-pointer"
-                                  >
-                                    Confirm
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteLogId(null)}
-                                    className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
-                                  >
-                                    No
-                                  </button>
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteLogId(log.id)}
-                                  className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
-                                  title="Archive conversation log"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setPendingDeleteLog(log)}
+                                className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
+                                title="Archive conversation log"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
                             </>
                           ) : (
                             <span className="text-xs text-slate-400">View Only</span>
@@ -1075,22 +1055,37 @@ export function DailyOperationsPanel({
                     <span className="font-mono text-xs text-slate-600 tabular-nums">
                       {formatTime12h(att.checkInTime)}
                       {att.checkOutTime ? ` – ${formatTime12h(att.checkOutTime)}` : ''}
+                      {calculateWorkedMinutes(att) > 0
+                        ? ` · ${formatMinutesWithHours(calculateWorkedMinutes(att))}`
+                        : ''}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => onOpenAttendanceModal(att, currentUser.id, att.attendanceDate)}
-                    className="p-1.5 text-slate-400 hover:text-blue-700 rounded cursor-pointer"
-                    title="Edit attendance"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold text-slate-500 bg-slate-100 rounded">
+                    <Lock className="w-3 h-3" />
+                    <span>Locked</span>
+                  </span>
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      <PasswordConfirmModal
+        open={pendingDeleteLog !== null}
+        title="Confirm Remove Conversation Log"
+        itemLabel={
+          pendingDeleteLog
+            ? `Conversation with ${pendingDeleteLog.contactName} (${formatDateOnly(pendingDeleteLog.logDate)})`
+            : ''
+        }
+        onClose={() => setPendingDeleteLog(null)}
+        onConfirm={async () => {
+          if (pendingDeleteLog) {
+            await onDeleteLog(pendingDeleteLog.id);
+          }
+        }}
+      />
     </div>
   );
 }

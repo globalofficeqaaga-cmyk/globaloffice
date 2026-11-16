@@ -1,0 +1,538 @@
+import { useMemo, useState } from 'react';
+import {
+  Briefcase,
+  Calendar,
+  ExternalLink,
+  Eye,
+  MessageCircle,
+  Pencil,
+  Phone,
+  Search,
+  Smartphone,
+  UserCheck,
+  Users,
+  X,
+} from 'lucide-react';
+import { buildWhatsAppUrl, formatDateOnly } from '../lib/api';
+import { APP_IMAGES } from '../lib/assets';
+import type { PublicUser, TeamDirectoryMember, UserRole } from '../types';
+
+export type ProfileViewTarget = PublicUser | TeamDirectoryMember;
+
+function formatRoleLabel(role: UserRole): string {
+  if (role === 'admin') return 'Administrator';
+  if (role === 'accounts') return 'Accounts';
+  return 'Staff';
+}
+
+function getRoleBadgeClass(role: UserRole): string {
+  if (role === 'admin') return 'bg-slate-900 text-white';
+  if (role === 'accounts') return 'bg-emerald-50 text-emerald-800 border border-emerald-200';
+  return 'bg-blue-50 text-blue-800 border border-blue-200';
+}
+
+interface UserProfileModalProps {
+  member: ProfileViewTarget;
+  isSelf?: boolean;
+  onClose: () => void;
+  onEdit?: (member: PublicUser) => void;
+}
+
+export function UserProfileModal({ member, isSelf, onClose, onEdit }: UserProfileModalProps) {
+  const [coverError, setCoverError] = useState(false);
+  const [avatarError, setAvatarError] = useState(false);
+
+  const officialPhone = member.phone?.trim() || '';
+  const personalPhone = member.personalPhone?.trim() || '';
+  const whatsapp = member.whatsapp?.trim() || '';
+  const socialLink = member.socialLink?.trim() || '';
+  const joiningDate = member.joiningDate?.trim() || '';
+  const whatsappHref = whatsapp ? buildWhatsAppUrl(whatsapp) : '';
+  const fullPublicUser = 'createdAt' in member ? (member as PublicUser) : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/65 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Cover */}
+        <div className="relative h-36 bg-slate-900 overflow-hidden">
+          {!coverError && member.coverUrl ? (
+            <img
+              src={member.coverUrl}
+              alt={`${member.name} cover`}
+              referrerPolicy="no-referrer"
+              onError={() => setCoverError(true)}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-gradient-to-br from-slate-800 via-slate-900 to-blue-950" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/30 to-transparent" />
+
+          <div className="absolute top-3 left-4 flex items-center gap-2">
+            <span
+              className={`text-[11px] font-semibold px-2.5 py-0.5 rounded ${getRoleBadgeClass(member.role)}`}
+            >
+              {formatRoleLabel(member.role)}
+            </span>
+            {isSelf && (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-white/90 text-slate-800">
+                You
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close profile"
+            className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-slate-950/60 hover:bg-slate-950 text-white flex items-center justify-center cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 sm:px-6 pb-6">
+          <div className="relative -mt-11 mb-4 flex items-end justify-between gap-3">
+            <div className="w-22 h-22 rounded-2xl border-4 border-white bg-slate-100 overflow-hidden shadow-md shrink-0">
+              {!avatarError && member.photoUrl ? (
+                <img
+                  src={member.photoUrl}
+                  alt={member.name}
+                  referrerPolicy="no-referrer"
+                  onError={() => setAvatarError(true)}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-slate-200 text-slate-600">
+                  <UserCheck className="w-8 h-8" />
+                </div>
+              )}
+            </div>
+
+            {onEdit && fullPublicUser && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onEdit(fullPublicUser);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                <span>Edit Profile</span>
+              </button>
+            )}
+          </div>
+
+          <div>
+            <h2 className="font-display text-xl font-bold text-slate-900">{member.name}</h2>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-sm text-slate-600">
+              <span className="inline-flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                <span>{member.designation || 'Team Member'}</span>
+              </span>
+              <span className="text-slate-300">·</span>
+              <span className="font-mono text-xs text-slate-500">@{member.userId}</span>
+            </div>
+          </div>
+
+          {/* Info Grid */}
+          <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5 text-blue-700" />
+                <span>Official Phone</span>
+              </p>
+              {officialPhone ? (
+                <a
+                  href={`tel:${officialPhone.replace(/\s+/g, '')}`}
+                  className="mt-1 block font-mono text-sm font-semibold text-blue-700 hover:underline tabular-nums"
+                >
+                  {officialPhone}
+                </a>
+              ) : (
+                <p className="mt-1 text-sm text-slate-400">Not set</p>
+              )}
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                <Smartphone className="w-3.5 h-3.5 text-slate-600" />
+                <span>Personal Phone</span>
+              </p>
+              {personalPhone ? (
+                <a
+                  href={`tel:${personalPhone.replace(/\s+/g, '')}`}
+                  className="mt-1 block font-mono text-sm font-semibold text-slate-900 hover:text-blue-700 hover:underline tabular-nums"
+                >
+                  {personalPhone}
+                </a>
+              ) : (
+                <p className="mt-1 text-sm text-slate-400">Not set</p>
+              )}
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Joining Date</span>
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {joiningDate ? formatDateOnly(joiningDate) : 'Not set'}
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
+                <MessageCircle className="w-3.5 h-3.5 text-emerald-700" />
+                <span>WhatsApp</span>
+              </p>
+              {whatsapp ? (
+                <a
+                  href={whatsappHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 block font-mono text-sm font-semibold text-emerald-700 hover:underline tabular-nums"
+                >
+                  {whatsapp}
+                </a>
+              ) : (
+                <p className="mt-1 text-sm text-slate-400">Not set</p>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center gap-2.5">
+            {whatsapp && (
+              <a
+                href={whatsappHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span>WhatsApp Chat</span>
+              </a>
+            )}
+            {socialLink && (
+              <a
+                href={socialLink.startsWith('http') ? socialLink : `https://${socialLink}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 min-w-[140px] inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+              >
+                <span>Social Profile</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface TeamProfilesPanelProps {
+  currentUser: PublicUser;
+  members: PublicUser[];
+  onEditMember?: (member: PublicUser) => void;
+  onEditOwnProfile?: () => void;
+}
+
+export function TeamProfilesPanel({
+  currentUser,
+  members,
+  onEditMember,
+  onEditOwnProfile,
+}: TeamProfilesPanelProps) {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
+  const [selectedMember, setSelectedMember] = useState<PublicUser | null>(null);
+
+  const normalizedMembers = useMemo(() => {
+    const map = new Map<string, PublicUser>();
+    members.forEach((m) => map.set(m.id, m));
+    map.set(currentUser.id, currentUser);
+    const weight = (r: UserRole) => (r === 'admin' ? 0 : r === 'accounts' ? 1 : 2);
+    return Array.from(map.values()).sort((a, b) => {
+      const diff = weight(a.role) - weight(b.role);
+      if (diff !== 0) return diff;
+      return a.name.localeCompare(b.name);
+    });
+  }, [members, currentUser]);
+
+  const roleCounts = useMemo(() => {
+    let admin = 0;
+    let staff = 0;
+    let accounts = 0;
+    for (const m of normalizedMembers) {
+      if (m.role === 'admin') admin += 1;
+      else if (m.role === 'accounts') accounts += 1;
+      else staff += 1;
+    }
+    return { total: normalizedMembers.length, admin, staff, accounts };
+  }, [normalizedMembers]);
+
+  const filteredMembers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return normalizedMembers.filter((m) => {
+      if (roleFilter !== 'all' && m.role !== roleFilter) return false;
+      if (!q) return true;
+      return (
+        m.name.toLowerCase().includes(q) ||
+        m.userId.toLowerCase().includes(q) ||
+        m.designation.toLowerCase().includes(q) ||
+        m.phone.toLowerCase().includes(q) ||
+        (m.personalPhone || '').toLowerCase().includes(q) ||
+        (m.whatsapp || '').toLowerCase().includes(q)
+      );
+    });
+  }, [normalizedMembers, roleFilter, searchQuery]);
+
+  return (
+    <div className="space-y-5">
+      {/* Header + Filter Controls */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Users className="w-5 h-5 text-blue-700" />
+              <span>Team Profiles Directory ({roleCounts.total})</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Everyone can view official phone numbers, personal phone numbers, WhatsApp, and joining dates across the team.
+            </p>
+          </div>
+          {onEditOwnProfile && (
+            <button
+              type="button"
+              onClick={onEditOwnProfile}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              <span>Update My Profile</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+          <div className="relative flex-1 max-w-md">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search name, ID, designation, or phone..."
+              className="w-full pl-10 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700 focus:bg-white"
+            />
+          </div>
+
+          <div className="inline-flex flex-wrap items-center border border-slate-200 rounded-lg p-1 bg-slate-50 self-start sm:self-auto">
+            {(
+              [
+                { id: 'all', label: `All (${roleCounts.total})` },
+                { id: 'admin', label: `Admin (${roleCounts.admin})` },
+                { id: 'staff', label: `Staff (${roleCounts.staff})` },
+                { id: 'accounts', label: `Accounts (${roleCounts.accounts})` },
+              ] as const
+            ).map((btn) => (
+              <button
+                key={btn.id}
+                type="button"
+                onClick={() => setRoleFilter(btn.id)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                  roleFilter === btn.id
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {btn.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Directory Grid */}
+      {filteredMembers.length === 0 ? (
+        <div className="bg-white border border-slate-200 rounded-xl px-6 py-12 text-center text-sm text-slate-500">
+          No team members match your search or role filter.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {filteredMembers.map((member) => {
+            const isSelf = member.id === currentUser.id;
+            const canAdminEdit = Boolean(onEditMember && member.role !== 'admin');
+            return (
+              <div
+                key={member.id}
+                className="bg-white border border-slate-200 rounded-xl overflow-hidden flex flex-col justify-between"
+              >
+                <div>
+                  {/* Cover */}
+                  <div className="relative h-24 bg-slate-900 overflow-hidden">
+                    <img
+                      src={member.coverUrl || APP_IMAGES.heroMobilityAgency}
+                      alt={`${member.name} cover`}
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
+                    <div className="absolute top-2.5 left-3 flex items-center gap-1.5">
+                      <span
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded ${getRoleBadgeClass(
+                          member.role
+                        )}`}
+                      >
+                        {formatRoleLabel(member.role)}
+                      </span>
+                      {isSelf && (
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-white/90 text-slate-800">
+                          You
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Header */}
+                  <div className="px-5 pb-4">
+                    <div className="relative -mt-8 mb-3 flex items-end justify-between gap-2">
+                      <img
+                        src={member.photoUrl || APP_IMAGES.staffAvatarDefault}
+                        alt={member.name}
+                        referrerPolicy="no-referrer"
+                        className="w-16 h-16 rounded-xl border-4 border-white bg-slate-100 object-cover shadow-xs shrink-0"
+                      />
+                      {member.joiningDate && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md">
+                          <Calendar className="w-3 h-3 text-slate-500" />
+                          <span>Joined {formatDateOnly(member.joiningDate)}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    <h3 className="font-display text-base font-bold text-slate-900 truncate">
+                      {member.name}
+                    </h3>
+                    <p className="text-xs text-slate-500 truncate mt-0.5">
+                      {member.designation || 'Team Member'} ·{' '}
+                      <span className="font-mono">@{member.userId}</span>
+                    </p>
+
+                    {/* Phone Details */}
+                    <div className="mt-4 pt-3 border-t border-slate-100 space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500 inline-flex items-center gap-1.5">
+                          <Phone className="w-3.5 h-3.5 text-blue-700" />
+                          <span>Official Phone</span>
+                        </span>
+                        {member.phone ? (
+                          <a
+                            href={`tel:${member.phone.replace(/\s+/g, '')}`}
+                            className="font-mono font-semibold text-blue-700 hover:underline tabular-nums"
+                          >
+                            {member.phone}
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">Not set</span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500 inline-flex items-center gap-1.5">
+                          <Smartphone className="w-3.5 h-3.5 text-slate-600" />
+                          <span>Personal Phone</span>
+                        </span>
+                        {member.personalPhone ? (
+                          <a
+                            href={`tel:${member.personalPhone.replace(/\s+/g, '')}`}
+                            className="font-mono font-semibold text-slate-900 hover:text-blue-700 hover:underline tabular-nums"
+                          >
+                            {member.personalPhone}
+                          </a>
+                        ) : (
+                          <span className="text-slate-400">Not set</span>
+                        )}
+                      </div>
+
+                      {!member.joiningDate && (
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-500 inline-flex items-center gap-1.5">
+                            <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Joining Date</span>
+                          </span>
+                          <span className="text-slate-400">Not set</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Footer Actions */}
+                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMember(member)}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>View Full Profile</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    {member.whatsapp && (
+                      <a
+                        href={buildWhatsAppUrl(member.whatsapp)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md"
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                        <span>WhatsApp</span>
+                      </a>
+                    )}
+                    {canAdminEdit && (
+                      <button
+                        type="button"
+                        onClick={() => onEditMember?.(member)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md cursor-pointer"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        <span>Edit</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {selectedMember && (
+        <UserProfileModal
+          member={selectedMember}
+          isSelf={selectedMember.id === currentUser.id}
+          onClose={() => setSelectedMember(null)}
+          onEdit={
+            selectedMember.id === currentUser.id && onEditOwnProfile
+              ? () => onEditOwnProfile()
+              : onEditMember && selectedMember.role !== 'admin'
+              ? (m) => onEditMember(m)
+              : undefined
+          }
+        />
+      )}
+    </div>
+  );
+}
