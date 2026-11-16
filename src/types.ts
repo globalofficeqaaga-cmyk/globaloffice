@@ -372,3 +372,23 @@ export interface SiteSettings {
   footerHotline: string;
   updatedAt?: string;
 }
+
+export interface TeamDirectoryMember {
+  id: string;
+  userId: string;
+  role: UserRole;
+  name: string;
+  designation: string;
+  photoUrl: string;
+}
+
+export interface TeamMessage {
+  id: string;
+  senderId: string;
+  recipientId: string | null;
+  body: string;
+  readAt?: string | null;
+  clientRequestId?: string;
+  createdAt: string;
+}
+

@@ -24,6 +24,8 @@ import type {
   SiteSettings,
   StaffAttendanceRecord,
   StaffDailyLog,
+  TeamDirectoryMember,
+  TeamMessage,
   UserRole,
 } from '../types';
 import { APP_IMAGES } from './assets';
@@ -65,6 +67,8 @@ function isMissingSupabaseSchemaError(err: { code?: string; message?: string } |
     msg.includes('could not find the table') ||
     msg.includes('resolve_login_email') ||
     msg.includes('lookup_client_by_phone') ||
+    msg.includes('get_team_directory') ||
+    msg.includes('team_messages') ||
     (msg.includes('relation') && msg.includes('does not exist'))
   );
 }
@@ -195,9 +199,19 @@ async function supabaseAdminApiFetch<T>(
 
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
   const text = await res.text();
-  if (contentType.includes('text/html') || text.trimStart().toLowerCase().startsWith('<!doctype')) {
+  const trimmedLower = text.trimStart().toLowerCase();
+  const isHtmlOrNotFoundText =
+    contentType.includes('text/html') ||
+    trimmedLower.startsWith('<!doctype') ||
+    trimmedLower.startsWith('<html') ||
+    (!contentType.includes('application/json') &&
+      (res.status === 404 ||
+        trimmedLower.includes('the page could not be found') ||
+        trimmedLower.includes('not_found')));
+
+  if (isHtmlOrNotFoundText) {
     throw new Error(
-      'Server-side Supabase Admin API (/api/supabase-admin/users) is unavailable. Deploy with the Express server enabled and SUPABASE_SERVICE_ROLE_KEY set in server secrets.'
+      'Account management API (/api/supabase-admin/users) is not reachable on this server. Ensure /api/supabase-admin/users Serverless Function (or Express server.ts) is deployed and SUPABASE_SERVICE_ROLE_KEY is set in server environment variables.'
     );
   }
 
@@ -206,7 +220,7 @@ async function supabaseAdminApiFetch<T>(
     try {
       data = JSON.parse(text);
     } catch {
-      data = { error: text };
+      data = { error: res.ok ? 'Invalid server response format.' : `Server error (${res.status}). Please try again.` };
     }
   }
 
@@ -416,6 +430,25 @@ interface DailyClientActivityRow {
   created_at: string;
 }
 
+interface TeamDirectoryRpcRow {
+  id: string;
+  user_id: string;
+  role: UserRole;
+  name: string;
+  designation: string;
+  photo_url: string;
+}
+
+interface TeamMessageRow {
+  id: string;
+  sender_id: string;
+  recipient_id: string | null;
+  body: string;
+  read_at?: string | null;
+  client_request_id?: string | null;
+  created_at: string;
+}
+
 function mapProfileRow(row: ProfileRow): PublicUser {
   return {
     id: row.id,
@@ -585,6 +618,18 @@ function mapAttendanceRow(row: StaffAttendanceRow): StaffAttendanceRecord {
     deletedBy: row.deleted_by || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapTeamMessageRow(row: TeamMessageRow): TeamMessage {
+  return {
+    id: row.id,
+    senderId: row.sender_id,
+    recipientId: row.recipient_id ?? null,
+    body: row.body,
+    readAt: row.read_at ?? null,
+    clientRequestId: row.client_request_id || undefined,
+    createdAt: row.created_at,
   };
 }
 
@@ -1353,8 +1398,15 @@ export const api = {
     const cleanUserId = payload.userId.trim();
     const cleanPass = (payload.password || '').trim();
     const cleanName = payload.name.trim();
+    const cleanEmail = (payload.email || '').trim();
     if (!cleanUserId || !cleanName) {
       throw new Error('Full Name and User ID are required.');
+    }
+    if (cleanUserId.length < 2 || /\s/.test(cleanUserId)) {
+      throw new Error('Login User ID must be at least 2 characters and contain no spaces.');
+    }
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      throw new Error('Please enter a valid email address or leave Email blank.');
     }
     const pwErr = validateStrongPassword(cleanPass, 'Password');
     if (pwErr) {
@@ -1369,6 +1421,7 @@ export const api = {
           body: JSON.stringify({
             ...payload,
             userId: cleanUserId,
+            email: cleanEmail || undefined,
             password: cleanPass,
             name: cleanName,
           }),
@@ -2405,6 +2458,275 @@ export const api = {
     return apiFetch<{ ok: boolean }>(`/api/daily-logs/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  },
+
+  getTeamMessages: async (): Promise<{
+    directory: TeamDirectoryMember[];
+    messages: TeamMessage[];
+    schemaMissing?: boolean;
+  }> => {
+    assertProductionBackend();
+    if (supabase) {
+      await getCurrentSupabaseUser();
+      const [dirRes, msgRes] = await Promise.all([
+        supabase.rpc('get_team_directory'),
+        supabase
+          .from('team_messages')
+          .select('*')
+          .order('created_at', { ascending: true })
+          .limit(500),
+      ]);
+
+      if (dirRes.error) {
+        if (isMissingSupabaseSchemaError(dirRes.error)) {
+          return { directory: [], messages: [], schemaMissing: true };
+        }
+        throw new Error(dirRes.error.message);
+      }
+
+      if (msgRes.error) {
+        if (isMissingSupabaseSchemaError(msgRes.error)) {
+          return { directory: [], messages: [], schemaMissing: true };
+        }
+        throw new Error(msgRes.error.message);
+      }
+
+      const directory: TeamDirectoryMember[] = ((dirRes.data || []) as TeamDirectoryRpcRow[])
+        .map((row) => ({
+          id: row.id,
+          userId: row.user_id,
+          role: row.role,
+          name: row.name,
+          designation: row.designation || 'Team Member',
+          photoUrl: row.photo_url || APP_IMAGES.staffAvatarDefault,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const messages: TeamMessage[] = ((msgRes.data || []) as TeamMessageRow[]).map(
+        mapTeamMessageRow
+      );
+
+      return { directory, messages };
+    }
+
+    return apiFetch<{ directory: TeamDirectoryMember[]; messages: TeamMessage[] }>(
+      '/api/messages'
+    );
+  },
+
+  sendTeamMessage: async (payload: {
+    recipientId: string | null;
+    body: string;
+    clientRequestId?: string;
+  }): Promise<{ message: TeamMessage }> => {
+    assertProductionBackend();
+    const cleanBody = payload.body.trim();
+    if (!cleanBody) {
+      throw new Error('Message text cannot be empty.');
+    }
+
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const rowData = await withRetry(async () => {
+        const { data, error } = await supabase!
+          .from('team_messages')
+          .insert({
+            sender_id: current.id,
+            recipient_id: payload.recipientId || null,
+            body: cleanBody,
+            client_request_id: payload.clientRequestId || null,
+          })
+          .select('*')
+          .single();
+
+        if (error) {
+          if (error.code === '23505' && payload.clientRequestId) {
+            const { data: existing } = await supabase!
+              .from('team_messages')
+              .select('*')
+              .eq('client_request_id', payload.clientRequestId)
+              .maybeSingle();
+            if (existing) return existing as TeamMessageRow;
+          }
+          if (isMissingSupabaseSchemaError(error)) {
+            throw new DatabaseSetupError(
+              'Team messaging table is not installed yet. Run supabase/setup_all.sql in Supabase SQL Editor.'
+            );
+          }
+          throw new Error(error.message);
+        }
+        return data as TeamMessageRow;
+      });
+
+      return { message: mapTeamMessageRow(rowData) };
+    }
+
+    return apiFetch<{ message: TeamMessage }>('/api/messages', {
+      method: 'POST',
+      body: JSON.stringify({
+        recipientId: payload.recipientId || null,
+        body: cleanBody,
+        clientRequestId: payload.clientRequestId,
+      }),
+    });
+  },
+
+  markDirectMessagesRead: async (senderId: string): Promise<void> => {
+    assertProductionBackend();
+    if (!senderId) return;
+
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const { error } = await supabase
+        .from('team_messages')
+        .update({ read_at: new Date().toISOString() })
+        .eq('sender_id', senderId)
+        .eq('recipient_id', current.id)
+        .is('read_at', null);
+
+      if (error && !isMissingSupabaseSchemaError(error)) {
+        throw new Error(error.message);
+      }
+      return;
+    }
+
+    await apiFetch<{ ok: boolean }>('/api/messages/read', {
+      method: 'POST',
+      body: JSON.stringify({ senderId }),
+    });
+  },
+
+  subscribeToTeamMessages: (
+    currentUserId: string,
+    callbacks: {
+      onMessageCreated: (msg: TeamMessage) => void;
+      onMessagesRead: (senderId: string, readerId: string, readAt: string) => void;
+      onReconnectSync?: () => void;
+      onStatusChange?: (connected: boolean) => void;
+    }
+  ): (() => void) => {
+    if (supabase) {
+      const channel = supabase
+        .channel(`team-messages-${currentUserId}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'team_messages' },
+          (payload) => {
+            const row = payload.new as TeamMessageRow | undefined;
+            if (!row || !row.id) return;
+            if (
+              row.recipient_id === null ||
+              row.sender_id === currentUserId ||
+              row.recipient_id === currentUserId
+            ) {
+              callbacks.onMessageCreated(mapTeamMessageRow(row));
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'team_messages' },
+          (payload) => {
+            const row = payload.new as TeamMessageRow | undefined;
+            if (!row || !row.read_at) return;
+            if (
+              row.sender_id === currentUserId ||
+              row.recipient_id === currentUserId
+            ) {
+              callbacks.onMessagesRead(
+                row.sender_id,
+                row.recipient_id || '',
+                row.read_at
+              );
+            }
+          }
+        )
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            callbacks.onStatusChange?.(true);
+            callbacks.onReconnectSync?.();
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            callbacks.onStatusChange?.(false);
+          }
+        });
+
+      return () => {
+        supabase?.removeChannel(channel);
+      };
+    }
+
+    let closed = false;
+    let ws: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let retryDelay = 1000;
+    let hasConnectedOnce = false;
+
+    const connect = () => {
+      if (closed || typeof window === 'undefined') return;
+      const token = getAuthToken();
+      if (!token) return;
+
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        callbacks.onStatusChange?.(true);
+        retryDelay = 1000;
+        if (hasConnectedOnce) {
+          callbacks.onReconnectSync?.();
+        }
+        hasConnectedOnce = true;
+        if (pingTimer) clearInterval(pingTimer);
+        pingTimer = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 25000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(String(event.data)) as
+            | { type: 'message:created'; message: TeamMessage }
+            | { type: 'messages:read'; senderId: string; readerId: string; readAt: string }
+            | { type: string };
+          if (data.type === 'message:created' && 'message' in data) {
+            callbacks.onMessageCreated(data.message);
+          } else if (data.type === 'messages:read' && 'senderId' in data) {
+            callbacks.onMessagesRead(data.senderId, data.readerId, data.readAt);
+          }
+        } catch {
+          // Ignore invalid socket frames
+        }
+      };
+
+      ws.onclose = () => {
+        callbacks.onStatusChange?.(false);
+        if (pingTimer) {
+          clearInterval(pingTimer);
+          pingTimer = null;
+        }
+        if (!closed) {
+          reconnectTimer = setTimeout(connect, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 10000);
+        }
+      };
+
+      ws.onerror = () => {
+        callbacks.onStatusChange?.(false);
+      };
+    };
+
+    connect();
+
+    return () => {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pingTimer) clearInterval(pingTimer);
+      if (ws) ws.close();
+    };
   },
 };
 

@@ -1,9 +1,18 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import {
+  getSafeSupabaseHealthStatus,
+  handleCreateManagedUser,
+  handleDeleteManagedUser,
+  handleUpdateManagedUser,
+  handleVerifySupabaseSetup,
+  runServerSupabaseVerification,
+} from './api/_lib/supabaseAdminService.ts';
 import dotenv from 'dotenv';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { WebSocketServer, type WebSocket } from 'ws';
 import { validateStrongPassword } from './src/lib/passwordPolicy.ts';
 
 const envLocalPath = path.resolve(process.cwd(), '.env.local');
@@ -29,6 +38,8 @@ import type {
   SiteSettings,
   StaffAttendanceRecord,
   StaffDailyLog,
+  TeamDirectoryMember,
+  TeamMessage,
   UserRole,
 } from './src/types.ts';
 
@@ -46,6 +57,7 @@ interface DatabaseSchema {
   ledgerEntries?: AccountLedgerEntry[];
   attendanceRecords?: StaffAttendanceRecord[];
   dailyLogs?: StaffDailyLog[];
+  teamMessages?: TeamMessage[];
   auditLogs?: AuditLogEntry[];
   siteSettings?: Partial<SiteSettings>;
 }
@@ -588,9 +600,59 @@ async function startServer() {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
 
-  // Public health check
+  const wsClients = new Map<string, Set<WebSocket>>();
+
+  const registerWsClient = (userId: string, ws: WebSocket) => {
+    let bucket = wsClients.get(userId);
+    if (!bucket) {
+      bucket = new Set();
+      wsClients.set(userId, bucket);
+    }
+    bucket.add(ws);
+    ws.on('close', () => {
+      const currentBucket = wsClients.get(userId);
+      if (currentBucket) {
+        currentBucket.delete(ws);
+        if (currentBucket.size === 0) {
+          wsClients.delete(userId);
+        }
+      }
+    });
+  };
+
+  const broadcastWsEvent = (targetUserIds: string[] | null, eventPayload: unknown) => {
+    const encoded = JSON.stringify(eventPayload);
+    if (targetUserIds === null) {
+      for (const sockets of wsClients.values()) {
+        for (const socket of sockets) {
+          if (socket.readyState === 1) {
+            socket.send(encoded);
+          }
+        }
+      }
+      return;
+    }
+
+    const uniqueTargets = new Set(targetUserIds);
+    for (const targetId of uniqueTargets) {
+      const sockets = wsClients.get(targetId);
+      if (!sockets) continue;
+      for (const socket of sockets) {
+        if (socket.readyState === 1) {
+          socket.send(encoded);
+        }
+      }
+    }
+  };
+
+  // Public health check (booleans only, never exposes secret keys)
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, backend: 'express', timestamp: new Date().toISOString() });
+    res.json({
+      ok: true,
+      backend: 'express',
+      ...getSafeSupabaseHealthStatus(),
+      timestamp: new Date().toISOString(),
+    });
   });
 
   // Public Website Settings (Logo, Poster Slider, Contacts, Feature Toggles)
@@ -644,283 +706,35 @@ async function startServer() {
     return forwarded || req.ip || 'unknown';
   }
 
-  function getSupabaseAdminClient(): SupabaseClient {
-    const supabaseUrl = (process.env.VITE_SUPABASE_URL || '').trim();
-    const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-    if (!supabaseUrl || !serviceRoleKey) {
-      throw new Error(
-        'Server-side Supabase Auth Admin API is not configured. Add server-only SUPABASE_SERVICE_ROLE_KEY in your server environment secrets (never in VITE_*).'
-      );
-    }
-    return createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-  }
-
-  interface SupabaseAdminRequest extends Request {
-    supabaseAdmin?: SupabaseClient;
-    adminProfileId?: string;
-  }
-
-  async function requireSupabaseAdmin(
-    req: SupabaseAdminRequest,
-    res: Response,
-    next: NextFunction
-  ): Promise<void> {
-    let adminClient: SupabaseClient;
-    try {
-      adminClient = getSupabaseAdminClient();
-    } catch (err) {
-      res.status(503).json({
-        error: err instanceof Error ? err.message : 'Supabase Admin API is not configured.',
-      });
-      return;
-    }
-
-    const header = req.headers.authorization || '';
-    const jwt = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-    if (!jwt) {
-      res.status(401).json({ error: 'Authentication required.' });
-      return;
-    }
-
-    const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
-    if (userErr || !userData?.user) {
-      res.status(401).json({ error: 'Invalid or expired Supabase session.' });
-      return;
-    }
-
-    const { data: profile, error: profErr } = await adminClient
-      .from('profiles')
-      .select('id, role')
-      .eq('id', userData.user.id)
-      .maybeSingle();
-
-    if (profErr || !profile || profile.role !== 'admin') {
-      res.status(403).json({ error: 'Administrator privileges required.' });
-      return;
-    }
-
-    req.supabaseAdmin = adminClient;
-    req.adminProfileId = profile.id;
-    next();
-  }
+  // Server-side Supabase Setup Verification (Admin session required)
+  app.get('/api/supabase-admin/verify', async (req, res) => {
+    const result = await handleVerifySupabaseSetup(req.headers.authorization);
+    res.status(result.status).json(result.body);
+  });
 
   // Server-side Supabase Auth Admin API: Create Staff or Accounts User
-  app.post('/api/supabase-admin/users', requireSupabaseAdmin, async (req: SupabaseAdminRequest, res) => {
-    const adminClient = req.supabaseAdmin!;
-    const body = req.body || {};
-    const cleanUserId = String(body.userId || '').trim();
-    const cleanPass = String(body.password || '').trim();
-    const cleanName = String(body.name || '').trim();
-    const targetRole: 'staff' | 'accounts' = body.role === 'accounts' ? 'accounts' : 'staff';
-
-    if (!cleanUserId || !cleanName) {
-      res.status(400).json({ error: 'Full Name and User ID are required.' });
-      return;
-    }
-    const pwErr = validateStrongPassword(cleanPass, 'Password');
-    if (pwErr) {
-      res.status(400).json({ error: pwErr });
-      return;
-    }
-
-    const { data: existingUid } = await adminClient
-      .from('profiles')
-      .select('id')
-      .ilike('user_id', cleanUserId)
-      .maybeSingle();
-    if (existingUid) {
-      res.status(409).json({ error: 'A user with this User ID already exists.' });
-      return;
-    }
-
-    const safeSlug = cleanUserId.toLowerCase().replace(/[^a-z0-9._-]/g, '') || targetRole;
-    const email =
-      String(body.email || '').trim() || `${safeSlug}@${targetRole}.globalpathways.local`;
-    const defaultDesig =
-      targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
-    const designation = String(body.designation || defaultDesig).trim();
-    const phone = String(body.phone || '').trim();
-    const whatsapp = String(body.whatsapp || phone || '').trim();
-    const socialLink = String(body.socialLink || '').trim();
-    const photoUrl = String(body.photoUrl || '').trim();
-    const coverUrl = String(body.coverUrl || '').trim();
-
-    const { data: createdAuth, error: createErr } = await adminClient.auth.admin.createUser({
-      email,
-      password: cleanPass,
-      email_confirm: true,
-      user_metadata: {
-        user_id: cleanUserId,
-        name: cleanName,
-        designation,
-        phone,
-        whatsapp,
-        social_link: socialLink,
-        photo_url: photoUrl,
-        cover_url: coverUrl,
-      },
-    });
-
-    if (createErr || !createdAuth?.user) {
-      res.status(400).json({ error: createErr?.message || 'Unable to create Supabase user.' });
-      return;
-    }
-
-    const { data: profileRow, error: upsertErr } = await adminClient
-      .from('profiles')
-      .upsert(
-        {
-          id: createdAuth.user.id,
-          user_id: cleanUserId,
-          email,
-          role: targetRole,
-          name: cleanName,
-          designation,
-          phone,
-          whatsapp,
-          social_link: socialLink,
-          photo_url: photoUrl,
-          cover_url: coverUrl,
-        },
-        { onConflict: 'id' }
-      )
-      .select('*')
-      .single();
-
-    if (upsertErr || !profileRow) {
-      await adminClient.auth.admin.deleteUser(createdAuth.user.id);
-      res.status(500).json({ error: upsertErr?.message || 'Unable to save user profile.' });
-      return;
-    }
-
-    res.status(201).json({ profile: profileRow });
+  app.post('/api/supabase-admin/users', async (req, res) => {
+    const result = await handleCreateManagedUser(req.headers.authorization, req.body || {});
+    res.status(result.status).json(result.body);
   });
 
   // Server-side Supabase Auth Admin API: Update Staff/Accounts Credentials & Profile
-  app.put('/api/supabase-admin/users/:id', requireSupabaseAdmin, async (req: SupabaseAdminRequest, res) => {
-    const adminClient = req.supabaseAdmin!;
-    const targetId = String(req.params.id || '').trim();
-    const body = req.body || {};
-
-    const { data: targetProfile, error: findErr } = await adminClient
-      .from('profiles')
-      .select('*')
-      .eq('id', targetId)
-      .maybeSingle();
-
-    if (findErr || !targetProfile) {
-      res.status(404).json({ error: 'User account not found.' });
-      return;
-    }
-    if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
-      res.status(403).json({ error: 'Only Staff or Accounts accounts can be managed here.' });
-      return;
-    }
-
-    const nextPass = typeof body.password === 'string' ? body.password.trim() : '';
-    if (nextPass) {
-      const pwErr = validateStrongPassword(nextPass, 'New password');
-      if (pwErr) {
-        res.status(400).json({ error: pwErr });
-        return;
-      }
-      const { error: authUpdErr } = await adminClient.auth.admin.updateUserById(targetId, {
-        password: nextPass,
-      });
-      if (authUpdErr) {
-        res.status(400).json({ error: authUpdErr.message });
-        return;
-      }
-    }
-
-    const nextUid = typeof body.userId === 'string' ? body.userId.trim() : '';
-    if (nextUid && nextUid.toLowerCase() !== String(targetProfile.user_id || '').toLowerCase()) {
-      const { data: collision } = await adminClient
-        .from('profiles')
-        .select('id')
-        .ilike('user_id', nextUid)
-        .neq('id', targetId)
-        .maybeSingle();
-      if (collision) {
-        res.status(409).json({ error: 'Another account already uses this User ID.' });
-        return;
-      }
-    }
-
-    const updateBody: Record<string, unknown> = {};
-    if (nextUid) updateBody.user_id = nextUid;
-    if (body.name !== undefined) updateBody.name = String(body.name).trim();
-    if (body.designation !== undefined) updateBody.designation = String(body.designation).trim();
-    if (body.phone !== undefined) updateBody.phone = String(body.phone).trim();
-    if (body.whatsapp !== undefined) updateBody.whatsapp = String(body.whatsapp).trim();
-    if (body.socialLink !== undefined) updateBody.social_link = String(body.socialLink).trim();
-    if (body.photoUrl !== undefined) updateBody.photo_url = String(body.photoUrl).trim();
-    if (body.coverUrl !== undefined) updateBody.cover_url = String(body.coverUrl).trim();
-
-    const { data: updatedProfile, error: profUpdErr } = await adminClient
-      .from('profiles')
-      .update(updateBody)
-      .eq('id', targetId)
-      .select('*')
-      .single();
-
-    if (profUpdErr || !updatedProfile) {
-      res.status(400).json({ error: profUpdErr?.message || 'Failed to update profile.' });
-      return;
-    }
-
-    res.json({ profile: updatedProfile });
+  app.put('/api/supabase-admin/users/:id', async (req, res) => {
+    const result = await handleUpdateManagedUser(
+      req.headers.authorization,
+      String(req.params.id || ''),
+      req.body || {}
+    );
+    res.status(result.status).json(result.body);
   });
 
   // Server-side Supabase Auth Admin API: Delete Staff/Accounts User cleanly
-  app.delete('/api/supabase-admin/users/:id', requireSupabaseAdmin, async (req: SupabaseAdminRequest, res) => {
-    const adminClient = req.supabaseAdmin!;
-    const adminId = req.adminProfileId!;
-    const targetId = String(req.params.id || '').trim();
-
-    if (!targetId || targetId === adminId) {
-      res.status(400).json({ error: 'Cannot delete your active administrator account.' });
-      return;
-    }
-
-    const { data: targetProfile, error: findErr } = await adminClient
-      .from('profiles')
-      .select('id, role')
-      .eq('id', targetId)
-      .maybeSingle();
-
-    if (findErr || !targetProfile) {
-      res.status(404).json({ error: 'User account not found.' });
-      return;
-    }
-    if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
-      res.status(403).json({ error: 'Administrator accounts cannot be deleted via this endpoint.' });
-      return;
-    }
-
-    // Reassign records to administrator so foreign key RESTRICT rules never fail and records remain preserved
-    await Promise.all([
-      adminClient.from('clients').update({ staff_id: adminId }).eq('staff_id', targetId),
-      adminClient.from('meetings').update({ staff_id: adminId }).eq('staff_id', targetId),
-      adminClient.from('medicals').update({ staff_id: adminId }).eq('staff_id', targetId),
-      adminClient.from('interviews').update({ staff_id: adminId }).eq('staff_id', targetId),
-      adminClient.from('account_ledger').update({ account_owner_id: adminId }).eq('account_owner_id', targetId),
-      adminClient.from('staff_attendance').update({ staff_id: adminId }).eq('staff_id', targetId),
-      adminClient.from('staff_daily_logs').update({ staff_id: adminId }).eq('staff_id', targetId),
-    ]);
-
-    const { error: delErr } = await adminClient.auth.admin.deleteUser(targetId);
-    if (delErr) {
-      res.status(400).json({ error: delErr.message });
-      return;
-    }
-
-    res.json({ ok: true });
+  app.delete('/api/supabase-admin/users/:id', async (req, res) => {
+    const result = await handleDeleteManagedUser(
+      req.headers.authorization,
+      String(req.params.id || '')
+    );
+    res.status(result.status).json(result.body);
   });
 
   // Public Client Lookup by exact normalized phone number (Minimal Non-Sensitive Status Only)
@@ -2536,6 +2350,136 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // ============================================================================
+  // Team Messaging (1-on-1 Direct + Office Group Chat) & Real-Time WebSockets
+  // ============================================================================
+  app.get('/api/messages', requireAuth, (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    const directory: TeamDirectoryMember[] = db.users
+      .map((u) => ({
+        id: u.id,
+        userId: u.userId,
+        role: u.role,
+        name: u.name,
+        designation: u.designation || 'Team Member',
+        photoUrl: u.photoUrl || '/src/assets/images/staff_avatar_default_1794656907853.jpg',
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const allMessages = db.teamMessages || [];
+    const visibleMessages = allMessages
+      .filter(
+        (m) =>
+          m.recipientId === null ||
+          m.senderId === current.id ||
+          m.recipientId === current.id
+      )
+      .slice(-500);
+
+    res.json({ directory, messages: visibleMessages });
+  });
+
+  app.post('/api/messages', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.teamMessages) db.teamMessages = [];
+
+    const rawBody = typeof req.body?.body === 'string' ? req.body.body.trim() : '';
+    if (!rawBody) {
+      res.status(400).json({ error: 'Message text cannot be empty.' });
+      return;
+    }
+    if (rawBody.length > 2000) {
+      res.status(400).json({ error: 'Message cannot exceed 2,000 characters.' });
+      return;
+    }
+
+    const rawRecipient =
+      typeof req.body?.recipientId === 'string' && req.body.recipientId.trim()
+        ? req.body.recipientId.trim()
+        : null;
+
+    if (rawRecipient) {
+      const targetUser = db.users.find((u) => u.id === rawRecipient);
+      if (!targetUser) {
+        res.status(404).json({ error: 'Recipient team member not found.' });
+        return;
+      }
+    }
+
+    const clientRequestId =
+      typeof req.body?.clientRequestId === 'string' && req.body.clientRequestId.trim()
+        ? req.body.clientRequestId.trim()
+        : undefined;
+
+    if (clientRequestId) {
+      const existing = db.teamMessages.find((m) => m.clientRequestId === clientRequestId);
+      if (existing) {
+        res.status(200).json({ message: existing });
+        return;
+      }
+    }
+
+    const message: TeamMessage = {
+      id: generateId('msg'),
+      senderId: current.id,
+      recipientId: rawRecipient,
+      body: rawBody,
+      readAt: null,
+      clientRequestId,
+      createdAt: new Date().toISOString(),
+    };
+
+    db.teamMessages.push(message);
+    if (db.teamMessages.length > 2000) {
+      db.teamMessages = db.teamMessages.slice(-2000);
+    }
+
+    await saveDb(db);
+
+    broadcastWsEvent(
+      rawRecipient ? [current.id, rawRecipient] : null,
+      { type: 'message:created', message }
+    );
+
+    res.status(201).json({ message });
+  });
+
+  app.post('/api/messages/read', requireAuth, async (req: AuthedRequest, res) => {
+    const db = loadDb();
+    const current = req.currentUser!;
+    if (!db.teamMessages) db.teamMessages = [];
+
+    const senderId = typeof req.body?.senderId === 'string' ? req.body.senderId.trim() : '';
+    if (!senderId) {
+      res.status(400).json({ error: 'senderId is required.' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    let updatedCount = 0;
+    db.teamMessages = db.teamMessages.map((m) => {
+      if (m.senderId === senderId && m.recipientId === current.id && !m.readAt) {
+        updatedCount += 1;
+        return { ...m, readAt: now };
+      }
+      return m;
+    });
+
+    if (updatedCount > 0) {
+      await saveDb(db);
+      broadcastWsEvent([senderId, current.id], {
+        type: 'messages:read',
+        senderId,
+        readerId: current.id,
+        readAt: now,
+      });
+    }
+
+    res.json({ ok: true, readAt: now, updatedCount });
+  });
+
   // Vite or Static Hosting
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -2603,7 +2547,48 @@ async function startServer() {
   }
 
   const PORT = 3000;
-  app.listen(PORT, '0.0.0.0', () => {
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (request, socket, head) => {
+    try {
+      const host = request.headers.host || `localhost:${PORT}`;
+      const url = new URL(request.url || '/', `http://${host}`);
+      if (url.pathname !== '/ws') {
+        return;
+      }
+
+      const token = (url.searchParams.get('token') || '').trim();
+      const db = loadDb();
+      const verified = token ? verifyToken(token, db.authSecret) : null;
+      const user = verified ? db.users.find((u) => u.id === verified.sub) : null;
+
+      if (!user) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        registerWsClient(user.id, ws);
+        ws.send(JSON.stringify({ type: 'connected', userId: user.id }));
+        ws.on('message', (raw) => {
+          try {
+            const parsed = JSON.parse(String(raw)) as { type?: string };
+            if (parsed?.type === 'ping' && ws.readyState === 1) {
+              ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+            }
+          } catch {
+            // Ignore malformed client frames
+          }
+        });
+      });
+    } catch {
+      socket.destroy();
+    }
+  });
+
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Server listening on http://localhost:${PORT}`);
   });
 }

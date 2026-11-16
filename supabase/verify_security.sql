@@ -4,7 +4,7 @@
 -- Safe to run anytime: read-only checks + rolled-back assertions (BEGIN/ROLLBACK).
 -- ============================================================================
 
--- TEST 1: Verify all 11 required tables exist and have Row Level Security (RLS) enabled
+-- TEST 1: Verify all 12 required tables exist and have Row Level Security (RLS) enabled
 select
   c.relname as table_name,
   c.relrowsecurity as rls_enabled,
@@ -24,7 +24,8 @@ where n.nspname = 'public'
     'staff_attendance',
     'staff_daily_logs',
     'audit_logs',
-    'tracking_rate_limits'
+    'tracking_rate_limits',
+    'team_messages'
   )
 order by c.relname;
 
@@ -54,17 +55,19 @@ where n.nspname = 'public'
 order by p.proname;
 
 -- Expected results for TEST 3:
---   bump_profile_version          | anon: false | auth: false
---   bump_version_and_meta         | anon: false | auth: false
---   check_rate_limit              | anon: false | auth: false
---   get_daily_client_activity     | anon: false | auth: true (checks is_admin_or_accounts inside)
---   handle_new_user               | anon: false | auth: false
---   is_admin                      | anon: false | auth: true
---   is_admin_or_accounts          | anon: false | auth: true
---   lookup_client_by_phone        | anon: true  | auth: true (rate-limited, exact match, non-sensitive only)
---   prevent_role_self_escalation  | anon: false | auth: false
---   record_audit_log              | anon: false | auth: false
---   resolve_login_email           | anon: true  | auth: true (rate-limited, user_id only)
+--   bump_profile_version              | anon: false | auth: false
+--   bump_version_and_meta             | anon: false | auth: false
+--   check_rate_limit                  | anon: false | auth: false
+--   get_daily_client_activity         | anon: false | auth: true (checks is_admin_or_accounts inside)
+--   get_team_directory                | anon: false | auth: true (requires auth.uid() is not null)
+--   handle_new_user                   | anon: false | auth: false
+--   is_admin                          | anon: false | auth: true
+--   is_admin_or_accounts              | anon: false | auth: true
+--   lookup_client_by_phone            | anon: true  | auth: true (rate-limited, exact match, non-sensitive only)
+--   prevent_role_self_escalation      | anon: false | auth: false
+--   protect_team_message_immutability | anon: false | auth: false
+--   record_audit_log                  | anon: false | auth: false
+--   resolve_login_email               | anon: true  | auth: true (rate-limited, user_id only)
 
 -- TEST 4: Audit tracking_rate_limits & audit_logs table privileges for anon/authenticated
 select

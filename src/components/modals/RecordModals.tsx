@@ -2237,8 +2237,19 @@ export function StaffAccountModal({
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (!name.trim() || !userId.trim()) {
-      setError('Full Name and User ID are required.');
+    const cleanName = name.trim();
+    const cleanUid = userId.trim();
+    const cleanEmail = email.trim();
+    if (!cleanName || !cleanUid) {
+      setError('Full Name and Login User ID are required.');
+      return;
+    }
+    if (cleanUid.length < 2 || /\s/.test(cleanUid)) {
+      setError('Login User ID must be at least 2 characters and contain no spaces.');
+      return;
+    }
+    if (!initial && cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setError('Please enter a valid email address or leave Email blank for automatic assignment.');
       return;
     }
     if (!initial) {

@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowLeft, LogOut, Menu, WifiOff, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ArrowLeft, LogOut, Menu, MessageSquare, WifiOff, X } from 'lucide-react';
+import { api } from '../lib/api';
 import { APP_IMAGES } from '../lib/assets';
-import type { PublicUser } from '../types';
+import type { PublicUser, TeamDirectoryMember, TeamMessage } from '../types';
+import { TeamMessenger } from './TeamMessenger';
 
 export interface NavTab {
   id: string;
@@ -22,6 +24,10 @@ interface DashboardShellProps {
   children: ReactNode;
 }
 
+function getGroupSeenStorageKey(userId: string): string {
+  return `gp_group_chat_seen_${userId}`;
+}
+
 export function DashboardShell({
   user,
   roleLabel,
@@ -37,6 +43,18 @@ export function DashboardShell({
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [messengerOpen, setMessengerOpen] = useState(false);
+  const [directory, setDirectory] = useState<TeamDirectoryMember[]>([]);
+  const [teamMessages, setTeamMessages] = useState<TeamMessage[]>([]);
+  const [schemaMissing, setSchemaMissing] = useState(false);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [groupLastSeenAt, setGroupLastSeenAt] = useState<string>(() => {
+    try {
+      return localStorage.getItem(getGroupSeenStorageKey(user.id)) || '';
+    } catch {
+      return '';
+    }
+  });
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -49,7 +67,148 @@ export function DashboardShell({
     };
   }, []);
 
+  useEffect(() => {
+    try {
+      setGroupLastSeenAt(localStorage.getItem(getGroupSeenStorageKey(user.id)) || '');
+    } catch {
+      setGroupLastSeenAt('');
+    }
+  }, [user.id]);
+
+  const loadMessages = useCallback(async () => {
+    try {
+      const res = await api.getTeamMessages();
+      setDirectory(res.directory);
+      setTeamMessages(res.messages);
+      setSchemaMissing(Boolean(res.schemaMissing));
+    } catch {
+      // Keep existing state on transient errors
+    }
+  }, []);
+
+  const mergeIncomingMessage = useCallback((incoming: TeamMessage) => {
+    setTeamMessages((prev) => {
+      const idx = prev.findIndex(
+        (m) =>
+          m.id === incoming.id ||
+          (Boolean(incoming.clientRequestId) && m.clientRequestId === incoming.clientRequestId)
+      );
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = incoming;
+        return next;
+      }
+      return [...prev, incoming];
+    });
+  }, []);
+
+  useEffect(() => {
+    void loadMessages();
+    const unsubscribe = api.subscribeToTeamMessages(user.id, {
+      onMessageCreated: (msg) => {
+        mergeIncomingMessage(msg);
+      },
+      onMessagesRead: (senderId, readerId, readAt) => {
+        setTeamMessages((prev) =>
+          prev.map((m) =>
+            m.senderId === senderId && m.recipientId === readerId && !m.readAt
+              ? { ...m, readAt }
+              : m
+          )
+        );
+      },
+      onReconnectSync: () => {
+        void loadMessages();
+      },
+      onStatusChange: (connected) => {
+        setRealtimeConnected(connected);
+      },
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [user.id, loadMessages, mergeIncomingMessage]);
+
+  const handleSendMessage = useCallback(
+    async (recipientId: string | null, body: string) => {
+      const clientRequestId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      const { message } = await api.sendTeamMessage({
+        recipientId,
+        body,
+        clientRequestId,
+      });
+      mergeIncomingMessage(message);
+    },
+    [mergeIncomingMessage]
+  );
+
+  const handleMarkDirectRead = useCallback(
+    (senderId: string) => {
+      const now = new Date().toISOString();
+      setTeamMessages((prev) =>
+        prev.map((m) =>
+          m.senderId === senderId && m.recipientId === user.id && !m.readAt
+            ? { ...m, readAt: now }
+            : m
+        )
+      );
+      void api.markDirectMessagesRead(senderId).catch(() => {
+        // Retry naturally on next thread open or sync
+      });
+    },
+    [user.id]
+  );
+
+  const handleMarkGroupSeen = useCallback(() => {
+    const now = new Date().toISOString();
+    setGroupLastSeenAt(now);
+    try {
+      localStorage.setItem(getGroupSeenStorageKey(user.id), now);
+    } catch {
+      // Ignore storage quota issues
+    }
+  }, [user.id]);
+
+  const unreadBySender = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const m of teamMessages) {
+      if (m.recipientId === user.id && !m.readAt) {
+        counts[m.senderId] = (counts[m.senderId] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [teamMessages, user.id]);
+
+  const unreadGroupCount = useMemo(() => {
+    const seenTs = groupLastSeenAt ? new Date(groupLastSeenAt).getTime() : 0;
+    let count = 0;
+    for (const m of teamMessages) {
+      if (m.recipientId === null && m.senderId !== user.id) {
+        const msgTs = new Date(m.createdAt).getTime() || 0;
+        if (msgTs > seenTs) {
+          count += 1;
+        }
+      }
+    }
+    return count;
+  }, [teamMessages, user.id, groupLastSeenAt]);
+
+  const totalUnreadCount = useMemo(() => {
+    const directTotal = Object.values(unreadBySender).reduce((acc, n) => acc + n, 0);
+    return directTotal + unreadGroupCount;
+  }, [unreadBySender, unreadGroupCount]);
+
   const activeTabLabel = tabs.find((t) => t.id === activeTab)?.label || 'Overview';
+
+  const openMessenger = () => {
+    setMobileNavOpen(false);
+    setMessengerOpen(true);
+    void loadMessages();
+  };
 
   const sidebarContent = (
     <div className="flex flex-col h-full">
@@ -101,6 +260,24 @@ export function DashboardShell({
             </button>
           );
         })}
+
+        <div className="pt-2 mt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={openMessenger}
+            className="w-full flex items-center justify-between px-3.5 py-2.5 text-sm font-medium rounded-lg text-slate-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <span className="inline-flex items-center gap-2.5">
+              <MessageSquare className="w-4 h-4" />
+              <span>Team Messages</span>
+            </span>
+            {totalUnreadCount > 0 && (
+              <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
+                {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+              </span>
+            )}
+          </button>
+        </div>
       </nav>
 
       <div className="p-4 border-t border-slate-200 space-y-2">
@@ -160,13 +337,13 @@ export function DashboardShell({
 
       {/* Main Content Viewport */}
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-3">
+        <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between gap-2 sm:gap-3">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
               aria-label="Open menu"
-              className="lg:hidden min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer -ml-1.5"
+              className="lg:hidden min-w-[40px] min-h-[40px] flex items-center justify-center text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer -ml-1"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -177,7 +354,25 @@ export function DashboardShell({
             </div>
           </div>
 
-          {primaryAction && <div className="shrink-0">{primaryAction}</div>}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={openMessenger}
+              aria-label="Open team messages"
+              title="Team Messages"
+              className="relative min-w-[42px] min-h-[42px] px-2.5 sm:px-3 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 hover:text-blue-700 inline-flex items-center justify-center gap-2 transition-colors cursor-pointer"
+            >
+              <MessageSquare className="w-5 h-5" />
+              <span className="hidden md:inline text-xs font-semibold">Messages</span>
+              {totalUnreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center shadow-xs">
+                  {totalUnreadCount > 99 ? '99+' : totalUnreadCount}
+                </span>
+              )}
+            </button>
+
+            {primaryAction && <div className="shrink-0">{primaryAction}</div>}
+          </div>
         </header>
 
         {!isOnline && (
@@ -191,6 +386,21 @@ export function DashboardShell({
 
         <main className="flex-1 p-4 sm:p-6 max-w-[1400px] w-full mx-auto">{children}</main>
       </div>
+
+      <TeamMessenger
+        isOpen={messengerOpen}
+        onClose={() => setMessengerOpen(false)}
+        currentUser={user}
+        directory={directory}
+        messages={teamMessages}
+        schemaMissing={schemaMissing}
+        realtimeConnected={realtimeConnected}
+        unreadBySender={unreadBySender}
+        unreadGroupCount={unreadGroupCount}
+        onSendMessage={handleSendMessage}
+        onMarkDirectRead={handleMarkDirectRead}
+        onMarkGroupSeen={handleMarkGroupSeen}
+      />
     </div>
   );
 }

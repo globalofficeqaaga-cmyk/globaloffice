@@ -107,9 +107,20 @@ security definer
 set search_path = public
 as $$
 declare
-  v_jwt_role text := coalesce(current_setting('request.jwt.claim.role', true), '');
+  v_jwt_role text := '';
 begin
-  if v_jwt_role = 'service_role' or (auth.uid() is null and v_jwt_role = '') then
+  v_jwt_role := coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(
+      (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
+      ''
+    ),
+    ''
+  );
+
+  if v_jwt_role = 'service_role'
+     or current_user in ('service_role', 'postgres', 'supabase_admin')
+     or (auth.uid() is null and v_jwt_role = '') then
     return new;
   end if;
 
@@ -1364,5 +1375,138 @@ drop policy if exists "staff_media_owner_delete" on storage.objects;
 create policy "staff_media_owner_delete"
   on storage.objects for delete to authenticated
   using (bucket_id = 'staff-media' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
+
+-- ----------------------------------------------------------------------------
+-- 11b. REAL-TIME TEAM MESSAGING (ADMIN, STAFF & ACCOUNTS)
+-- ----------------------------------------------------------------------------
+create table if not exists public.team_messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid not null references public.profiles(id) on delete cascade,
+  recipient_id uuid references public.profiles(id) on delete cascade,
+  body text not null check (char_length(trim(body)) between 1 and 2000),
+  read_at timestamptz,
+  client_request_id text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_team_messages_sender on public.team_messages(sender_id);
+create index if not exists idx_team_messages_recipient on public.team_messages(recipient_id);
+create index if not exists idx_team_messages_created_at on public.team_messages(created_at desc);
+create unique index if not exists idx_team_messages_request_id
+  on public.team_messages(client_request_id)
+  where client_request_id is not null;
+
+alter table public.team_messages enable row level security;
+
+create or replace function public.protect_team_message_immutability()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.id is distinct from old.id
+     or new.sender_id is distinct from old.sender_id
+     or new.recipient_id is distinct from old.recipient_id
+     or new.body is distinct from old.body
+     or new.client_request_id is distinct from old.client_request_id
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Message content and sender/recipient cannot be modified.';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.protect_team_message_immutability() from public, anon, authenticated;
+
+drop trigger if exists trg_protect_team_message_immutability on public.team_messages;
+create trigger trg_protect_team_message_immutability
+  before update on public.team_messages
+  for each row
+  execute function public.protect_team_message_immutability();
+
+drop policy if exists "team_messages_select_participants" on public.team_messages;
+create policy "team_messages_select_participants"
+  on public.team_messages
+  for select
+  to authenticated
+  using (
+    recipient_id is null
+    or auth.uid() = sender_id
+    or auth.uid() = recipient_id
+  );
+
+drop policy if exists "team_messages_insert_sender" on public.team_messages;
+create policy "team_messages_insert_sender"
+  on public.team_messages
+  for insert
+  to authenticated
+  with check (auth.uid() = sender_id);
+
+drop policy if exists "team_messages_update_recipient_read" on public.team_messages;
+create policy "team_messages_update_recipient_read"
+  on public.team_messages
+  for update
+  to authenticated
+  using (auth.uid() = recipient_id)
+  with check (auth.uid() = recipient_id);
+
+drop policy if exists "team_messages_delete_admin" on public.team_messages;
+create policy "team_messages_delete_admin"
+  on public.team_messages
+  for delete
+  to authenticated
+  using (public.is_admin());
+
+create or replace function public.get_team_directory()
+returns table (
+  id uuid,
+  user_id text,
+  role text,
+  name text,
+  designation text,
+  photo_url text
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required.';
+  end if;
+
+  return query
+  select
+    p.id,
+    p.user_id,
+    p.role,
+    p.name,
+    p.designation,
+    p.photo_url
+  from public.profiles p
+  order by
+    case p.role when 'admin' then 1 when 'accounts' then 2 else 3 end,
+    p.name asc;
+end;
+$$;
+
+revoke all on function public.get_team_directory() from public, anon;
+grant execute on function public.get_team_directory() to authenticated;
+
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    if not exists (
+      select 1 from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = 'team_messages'
+    ) then
+      alter publication supabase_realtime add table public.team_messages;
+    end if;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
