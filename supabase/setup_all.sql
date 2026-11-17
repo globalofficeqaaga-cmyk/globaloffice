@@ -98,6 +98,50 @@ $$;
 revoke all on function public.is_admin() from public, anon;
 grant execute on function public.is_admin() to authenticated;
 
+-- Team directory: all signed-in non-admin team members can view one another.
+-- The Admin profile stays private; Admin can still view all profiles through admin policies.
+create or replace function public.can_view_team_profiles()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role <> 'admin'
+  );
+$;
+revoke all on function public.can_view_team_profiles() from public, anon;
+grant execute on function public.can_view_team_profiles() to authenticated;
+
+create or replace function public.get_team_directory()
+returns table (
+  id uuid, user_id text, role text, name text, designation text,
+  phone text, personal_phone text, whatsapp text, social_link text,
+  photo_url text, cover_url text, joining_date text
+)
+language plpgsql
+stable
+security definer
+set search_path = public
+as $
+begin
+  if auth.uid() is null or (not public.is_admin() and not public.can_view_team_profiles()) then
+    raise exception 'Authenticated team account required.';
+  end if;
+  return query
+    select p.id, p.user_id, p.role, p.name, p.designation, p.phone,
+           p.personal_phone, p.whatsapp, p.social_link, p.photo_url,
+           p.cover_url, p.joining_date
+    from public.profiles p
+    where p.role <> 'admin'
+    order by p.name asc;
+end;
+$;
+revoke all on function public.get_team_directory() from public, anon;
+grant execute on function public.get_team_directory() to authenticated;
+
 create or replace function public.is_admin_or_accounts()
 returns boolean
 language sql
@@ -1488,6 +1532,11 @@ create unique index if not exists idx_team_messages_request_id
   on public.team_messages(client_request_id) where client_request_id is not null;
 
 alter table public.team_messages enable row level security;
+
+-- Expose only the operations the signed-in chat client needs. No anonymous access.
+revoke all on table public.team_messages from anon, authenticated;
+grant select, insert, update on table public.team_messages to authenticated;
+grant all on table public.team_messages to service_role;
 
 create or replace function public.protect_team_message_immutability()
 returns trigger language plpgsql security definer set search_path = public as $$

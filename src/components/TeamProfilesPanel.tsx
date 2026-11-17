@@ -37,14 +37,22 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
     const matches = (m: TeamMessage) =>
       (m.senderId === currentUser.id && m.recipientId === member.id) ||
       (m.senderId === member.id && m.recipientId === currentUser.id);
-    api.getTeamMessages().then(({ messages: rows }) => {
-      if (!active) return;
-      setMessages(rows.filter(matches));
-      setLoading(false);
-      void api.markDirectMessagesRead(member.id);
-    }).catch((err) => {
-      if (active) { setError(err instanceof Error ? err.message : 'Unable to load chat.'); setLoading(false); }
-    });
+    const refresh = async () => {
+      try {
+        const rows = await api.getDirectTeamMessages(member.id, currentUser.id);
+        if (!active) return;
+        setMessages(rows);
+        setError('');
+        setLoading(false);
+        await api.markDirectMessagesRead(member.id);
+      } catch (err) {
+        if (active) {
+          setError(err instanceof Error ? err.message : 'Unable to load chat.');
+          setLoading(false);
+        }
+      }
+    };
+    void refresh();
     const unsubscribe = api.subscribeToTeamMessages(currentUser.id, {
       onMessageCreated: (msg) => {
         if (active && matches(msg)) {
@@ -57,8 +65,11 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
           setMessages((prev) => prev.map((m) => m.senderId === currentUser.id ? { ...m, readAt } : m));
         }
       },
+      onReconnectSync: () => { void refresh(); },
     });
-    return () => { active = false; unsubscribe(); };
+    // Keep the conversation usable if Realtime is temporarily disconnected.
+    const poll = window.setInterval(() => { void refresh(); }, 5000);
+    return () => { active = false; window.clearInterval(poll); unsubscribe(); };
   }, [currentUser.id, member.id]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);

@@ -2689,6 +2689,32 @@ export const api = {
     );
   },
 
+  getDirectTeamMessages: async (otherUserId: string, currentUserId: string): Promise<TeamMessage[]> => {
+    assertProductionBackend();
+    if (!otherUserId) throw new Error('Choose a team member to chat with.');
+    if (supabase) {
+      const current = await getCurrentSupabaseUser();
+      const { data, error } = await supabase
+        .from('team_messages')
+        .select('*')
+        .or(`and(sender_id.eq.${current.id},recipient_id.eq.${otherUserId}),and(sender_id.eq.${otherUserId},recipient_id.eq.${current.id})`)
+        .order('created_at', { ascending: true })
+        .limit(500);
+      if (error) {
+        if (isMissingSupabaseSchemaError(error)) {
+          throw new DatabaseSetupError('Team messaging is not installed. Apply the latest Supabase setup script.');
+        }
+        throw new Error(error.message);
+      }
+      return ((data || []) as TeamMessageRow[]).map(mapTeamMessageRow);
+    }
+    const { messages } = await apiFetch<{ messages: TeamMessage[] }>('/api/messages');
+    return messages.filter((message) =>
+      (message.senderId === currentUserId && message.recipientId === otherUserId) ||
+      (message.senderId === otherUserId && message.recipientId === currentUserId)
+    );
+  },
+
   sendTeamMessage: async (payload: {
     recipientId: string | null;
     body: string;
