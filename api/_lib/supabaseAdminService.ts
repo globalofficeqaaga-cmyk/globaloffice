@@ -6,6 +6,7 @@ export interface AdminUserPayload {
   password?: string;
   name?: string;
   role?: string;
+  permissions?: string[];
   designation?: string;
   phone?: string;
   personalPhone?: string;
@@ -21,7 +22,7 @@ export interface ServiceResult {
   body: Record<string, unknown>;
 }
 
-const MIN_PASSWORD_LENGTH = 12;
+const MIN_PASSWORD_LENGTH = 4;
 
 export function validateStrongPasswordServer(
   password: string,
@@ -44,15 +45,17 @@ export function validateStrongPasswordServer(
   if (/\d/.test(value)) classes += 1;
   if (/[^a-zA-Z0-9]/.test(value)) classes += 1;
 
-  if (classes < 2) {
-    return `${fieldLabel} must include at least two character types (e.g. uppercase, lowercase, numbers, or symbols).`;
+  if (classes < 1) {
+    return `${fieldLabel} must include at least one character type (e.g. uppercase, lowercase, numbers, or symbols).`;
   }
 
   const lower = value.toLowerCase();
   if (
-    lower === '123456789012' ||
-    lower === 'password1234' ||
-    lower === 'admin1234567' ||
+    lower === '1234' ||
+    lower === '12345' ||
+    lower === '123456' ||
+    lower === 'password' ||
+    lower === 'admin' ||
     lower === 'globalpathways'
   ) {
     return `${fieldLabel} is too common. Choose a stronger password.`;
@@ -259,7 +262,7 @@ async function authenticateAdminCaller(
 
   const { data: profile, error: profErr } = await adminClient
     .from('profiles')
-    .select('id, role')
+    .select('id, role, permissions')
     .eq('id', userData.user.id)
     .maybeSingle();
 
@@ -270,14 +273,37 @@ async function authenticateAdminCaller(
     };
   }
 
+  const perms = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
   if (!profile || profile.role !== 'admin') {
     return {
       status: 403,
-      body: { error: 'Only authorized Administrator accounts can manage Staff or Accounts logins.' },
+      body: { error: 'Administrator permission is required for this action.' },
     };
   }
 
   return { adminClient, adminId: profile.id };
+}
+
+async function authenticateAccountCreator(
+  authHeader: string | undefined
+): Promise<{ adminClient: SupabaseClient; adminId: string; role: string } | ServiceResult> {
+  let adminClient: SupabaseClient;
+  try {
+    adminClient = getSupabaseAdminClient();
+  } catch (err) {
+    return { status: 503, body: { error: err instanceof Error ? err.message : 'Supabase Admin API is not configured.' } };
+  }
+  const jwt = (authHeader || '').replace(/^Bearer\\s+/i, '').trim();
+  if (!jwt) return { status: 401, body: { error: 'Sign-in session is required.' } };
+  const { data, error } = await adminClient.auth.getUser(jwt);
+  if (error || !data?.user) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
+  const { data: profile, error: profileError } = await adminClient.from('profiles').select('id, role, permissions').eq('id', data.user.id).maybeSingle();
+  if (profileError) return { status: 500, body: { error: 'Unable to verify account permissions.' } };
+  const permissions = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
+  if (!profile || (profile.role !== 'admin' && !permissions.includes('create_staff_accounts'))) {
+    return { status: 403, body: { error: 'You do not have permission to create Staff login accounts.' } };
+  }
+  return { adminClient, adminId: profile.id, role: profile.role };
 }
 
 async function authenticateTeamCaller(
@@ -336,16 +362,26 @@ export async function handleListTeamProfiles(
 ): Promise<ServiceResult> {
   const auth = await authenticateTeamCaller(authHeader);
   if ('status' in auth) return auth;
-  const { adminClient } = auth;
+  const { adminClient, userId } = auth;
+  const { data: caller, error: callerError } = await adminClient
+    .from('profiles')
+    .select('role, permissions')
+    .eq('id', userId)
+    .maybeSingle();
+  const callerPermissions = Array.isArray(caller?.permissions) ? caller.permissions as string[] : [];
+  if (callerError || !caller || !['admin', 'director', 'management'].includes(String(caller.role)) && !callerPermissions.includes('view_team_profiles')) {
+    return { status: 403, body: { error: 'You do not have permission to view team profiles.' } };
+  }
 
   const fullCols =
-    'id, user_id, role, name, designation, phone, personal_phone, whatsapp, social_link, photo_url, cover_url, joining_date, version, created_at';
+    'id, user_id, role, permissions, name, designation, phone, personal_phone, whatsapp, social_link, photo_url, cover_url, joining_date, version, created_at';
   const legacyCols =
     'id, user_id, role, name, designation, phone, whatsapp, social_link, photo_url, cover_url, version, created_at';
 
   let { data, error } = await adminClient
     .from('profiles')
     .select(fullCols)
+    .neq('role', 'admin')
     .order('created_at', { ascending: false });
 
   if (
@@ -356,6 +392,7 @@ export async function handleListTeamProfiles(
     const fallback = await adminClient
       .from('profiles')
       .select(legacyCols)
+      .neq('role', 'admin')
       .order('created_at', { ascending: false });
     data = fallback.data as typeof data;
     error = fallback.error;
@@ -481,7 +518,7 @@ export async function handleVerifyCallerPassword(
   };
 }
 
-function buildSafeNonDeliverableSlug(userId: string, role: 'staff' | 'accounts'): string {
+function buildSafeNonDeliverableSlug(userId: string, role: string): string {
   const normalized = userId
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '.')
@@ -508,7 +545,7 @@ function mapSupabaseAuthCreateError(message: string): { status: number; message:
   if (lower.includes('password')) {
     return {
       status: 400,
-      message: 'Password does not meet security requirements (minimum 12 characters).',
+      message: 'Password does not meet security requirements (minimum 4 characters).',
     };
   }
   if (lower.includes('email')) {
@@ -596,7 +633,17 @@ export async function createManagedUserRecord(
   const cleanUserId = String(body.userId || '').trim();
   const cleanPass = String(body.password || '').trim();
   const cleanName = String(body.name || '').trim();
-  const targetRole: 'staff' | 'accounts' = body.role === 'accounts' ? 'accounts' : 'staff';
+  const targetRole = ['director', 'management', 'staff'].includes(String(body.role)) ? String(body.role) : 'staff';
+  const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
+  const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.filter((permission) => allowedPermissions.has(permission)) : [];
+  if (targetRole === 'management') {
+    for (const permission of ['view_team_profiles', 'create_staff_accounts', 'manage_user_permissions']) {
+      if (!requestedPermissions.includes(permission)) requestedPermissions.push(permission);
+    }
+  }
+  if (requestedPermissions.includes('create_staff_accounts') && !requestedPermissions.includes('view_team_profiles')) {
+    requestedPermissions.push('view_team_profiles');
+  }
 
   if (!cleanUserId || !cleanName) {
     return {
@@ -684,8 +731,7 @@ export async function createManagedUserRecord(
     email = candidate;
   }
 
-  const defaultDesig =
-    targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
+  const defaultDesig = targetRole === 'director' ? 'Director' : targetRole === 'management' ? 'Management' : 'Visa & Recruitment Coordinator';
   const designation = String(body.designation || defaultDesig).trim() || defaultDesig;
   const phone = String(body.phone || '').trim();
   const personalPhone = String(body.personalPhone || '').trim();
@@ -727,6 +773,7 @@ export async function createManagedUserRecord(
     user_id: cleanUserId,
     email,
     role: targetRole,
+    permissions: requestedPermissions,
     name: cleanName,
     designation,
     phone,
@@ -814,8 +861,24 @@ export async function handleCreateManagedUser(
   authHeader: string | undefined,
   body: AdminUserPayload
 ): Promise<ServiceResult> {
-  const auth = await authenticateAdminCaller(authHeader);
+  const auth = await authenticateAccountCreator(authHeader);
   if ('status' in auth) return auth;
+  if (auth.role !== 'admin') {
+    if (body.role && body.role !== 'staff') {
+      return { status: 403, body: { error: 'Account-permission users can create Staff accounts only.' } };
+    }
+    const safeDelegatedPermissions = new Set([
+      'view_team_profiles', 'add_clients', 'edit_clients', 'delete_clients',
+      'print_a4', 'send_messages', 'view_finance', 'manage_finance', 'create_staff_accounts',
+    ]);
+    body = {
+      ...body,
+      role: 'staff',
+      permissions: Array.isArray(body.permissions)
+        ? body.permissions.filter((permission) => safeDelegatedPermissions.has(permission))
+        : [],
+    };
+  }
   return createManagedUserRecord(auth.adminClient, body);
 }
 
@@ -843,11 +906,8 @@ export async function handleUpdateManagedUser(
     return { status: 404, body: { error: 'User account not found.' } };
   }
 
-  if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
-    return {
-      status: 403,
-      body: { error: 'Only Staff or Accounts accounts can be updated here.' },
-    };
+  if (!['staff', 'accounts', 'director', 'management'].includes(String(targetProfile.role))) {
+    return { status: 403, body: { error: 'This account cannot be updated from the team account manager.' } };
   }
 
   const nextPass = typeof body.password === 'string' ? body.password.trim() : '';
@@ -896,6 +956,21 @@ export async function handleUpdateManagedUser(
   if (body.photoUrl !== undefined) updateBody.photo_url = String(body.photoUrl).trim();
   if (body.coverUrl !== undefined) updateBody.cover_url = String(body.coverUrl).trim();
   if (body.joiningDate !== undefined) updateBody.joining_date = String(body.joiningDate).trim();
+  if (body.role !== undefined) {
+    const nextRole = String(body.role);
+    if (!['staff', 'director', 'management'].includes(nextRole)) {
+      return { status: 400, body: { error: 'Invalid dashboard role.' } };
+    }
+    updateBody.role = nextRole;
+  }
+  if (Array.isArray(body.permissions)) {
+    const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
+    const nextPermissions = body.permissions.filter((permission) => allowed.has(permission));
+    if (nextPermissions.includes('create_staff_accounts') && !nextPermissions.includes('view_team_profiles')) {
+      nextPermissions.push('view_team_profiles');
+    }
+    updateBody.permissions = nextPermissions;
+  }
 
   if (Object.keys(updateBody).length === 0) {
     return {
@@ -975,11 +1050,8 @@ export async function handleDeleteManagedUser(
     return { status: 404, body: { error: 'User account not found.' } };
   }
 
-  if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
-    return {
-      status: 403,
-      body: { error: 'Administrator accounts cannot be deleted via this endpoint.' },
-    };
+  if (!['staff', 'accounts', 'director', 'management'].includes(String(targetProfile.role))) {
+    return { status: 403, body: { error: 'Administrator accounts cannot be deleted via this endpoint.' } };
   }
 
   // Reassign records to administrator so foreign key RESTRICT rules never fail and records remain preserved

@@ -35,7 +35,7 @@ import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
 import { TeamProfilesPanel } from './TeamProfilesPanel';
-import { AttendanceModal, DailyLogModal, LedgerEntryModal } from './modals/RecordModals';
+import { AttendanceModal, ClientModal, DailyLogModal, LedgerEntryModal, StaffAccountModal } from './modals/RecordModals';
 
 interface AccountsDashboardProps {
   data: DashboardData;
@@ -52,10 +52,15 @@ export function AccountsDashboard({
   onGoHome,
   onLogout,
 }: AccountsDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AccountsTab>('ledger');
+  const canViewFinance = data.user.role === 'admin' || Boolean(data.user.permissions?.includes('view_finance') || data.user.permissions?.includes('manage_finance'));
+  const canManageFinance = data.user.role === 'admin' || Boolean(data.user.permissions?.includes('manage_finance'));
+  const canCreateStaffAccounts = data.user.role === 'admin' || Boolean(data.user.permissions?.includes('create_staff_accounts'));
+  const [activeTab, setActiveTab] = useState<AccountsTab>(canViewFinance ? 'ledger' : 'team');
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | LedgerEntryType>('all');
   const [ledgerModalOpen, setLedgerModalOpen] = useState(false);
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [clientModalOpen, setClientModalOpen] = useState(false);
   const [attendanceModal, setAttendanceModal] = useState<{
     open: boolean;
     item: StaffAttendanceRecord | null;
@@ -170,6 +175,26 @@ export function AccountsDashboard({
   function notifySuccess(msg: string) {
     setActionError('');
     setSaveToast(msg);
+  }
+
+  async function openReceipt(path?: string) {
+    if (!path) return;
+    try {
+      const url = await api.getLedgerReceiptSignedUrl(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to open receipt.');
+    }
+  }
+
+  async function handleReceiptVerification(id: string, verified: boolean) {
+    try {
+      await api.verifyLedgerReceipt(id, verified);
+      await onRefresh();
+      notifySuccess(verified ? 'Receipt verified.' : 'Receipt marked as rejected.');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Receipt verification failed.');
+    }
   }
 
   async function saveOwnProfile() {
@@ -292,12 +317,12 @@ export function AccountsDashboard({
   }
 
   const tabs: NavTab[] = [
-    {
+    ...(canViewFinance ? [{
       id: 'ledger',
       label: 'Debit & Credit Ledger',
       icon: <Wallet className="w-4 h-4" />,
       count: entries.length,
-    },
+    }] : []),
     {
       id: 'daily',
       label: 'Staff Daily Report',
@@ -318,7 +343,7 @@ export function AccountsDashboard({
   ];
 
   const primaryAction =
-    activeTab === 'ledger' ? (
+    activeTab === 'ledger' && canManageFinance ? (
       <button
         type="button"
         onClick={() => setLedgerModalOpen(true)}
@@ -338,6 +363,17 @@ export function AccountsDashboard({
         <span className="sm:hidden">Log Talk</span>
         <span className="hidden sm:inline">Log Conversation</span>
       </button>
+    ) : activeTab === 'team' ? (
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setClientModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-blue-800 cursor-pointer">
+          <Plus className="w-4 h-4" /> Add Client
+        </button>
+        {canCreateStaffAccounts && (
+          <button type="button" onClick={() => setStaffModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-slate-700 cursor-pointer">
+            <Plus className="w-4 h-4" /> Create Staff Account
+          </button>
+        )}
+      </div>
     ) : null;
 
   return (
@@ -571,6 +607,12 @@ export function AccountsDashboard({
                               .filter(Boolean)
                               .join(' · ')}
                           </p>
+                          {item.receiptPath && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                            <button type="button" onClick={() => openReceipt(item.receiptPath)} className="font-semibold text-blue-700 underline">View receipt</button>
+                            <span className={item.receiptStatus === 'verified' ? 'text-emerald-700' : item.receiptStatus === 'rejected' ? 'text-red-700' : 'text-amber-700'}>{item.receiptStatus || 'pending'}</span>
+                            {canManageFinance && item.receiptStatus !== 'verified' && <button type="button" onClick={() => handleReceiptVerification(item.id, true)} className="font-semibold text-emerald-700 underline">Verify</button>}
+                            {canManageFinance && item.receiptStatus !== 'rejected' && <button type="button" onClick={() => handleReceiptVerification(item.id, false)} className="font-semibold text-red-700 underline">Reject</button>}
+                          </div>}
                         </div>
                         <p
                           className={`font-mono text-sm font-bold tabular-nums whitespace-nowrap shrink-0 ${
@@ -596,6 +638,7 @@ export function AccountsDashboard({
                         <th className="px-4 py-3 font-medium">Party &amp; Ref</th>
                         <th className="px-4 py-3 font-medium">Method</th>
                         <th className="px-4 py-3 font-medium">Entered By</th>
+                        <th className="px-4 py-3 font-medium">Receipt / Verification</th>
                         <th className="px-6 py-3 font-medium text-right">Amount (BDT)</th>
                       </tr>
                     </thead>
@@ -642,6 +685,16 @@ export function AccountsDashboard({
                             <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap">
                               {item.createdByName || 'Accounts'}
                             </td>
+                            <td className="px-4 py-3.5 min-w-[180px]">
+                              {item.receiptPath ? (
+                                <div className="space-y-1.5">
+                                  <button type="button" onClick={() => openReceipt(item.receiptPath)} className="text-xs font-semibold text-blue-700 underline">Open receipt</button>
+                                  <p className={`text-[11px] font-semibold ${item.receiptStatus === 'verified' ? 'text-emerald-700' : item.receiptStatus === 'rejected' ? 'text-red-700' : 'text-amber-700'}`}>{item.receiptStatus || 'pending'}</p>
+                                  {canManageFinance && item.receiptStatus !== 'verified' && <button type="button" onClick={() => handleReceiptVerification(item.id, true)} className="mr-2 text-[11px] font-semibold text-emerald-700 underline">Verify</button>}
+                                  {canManageFinance && item.receiptStatus !== 'rejected' && <button type="button" onClick={() => handleReceiptVerification(item.id, false)} className="text-[11px] font-semibold text-red-700 underline">Reject</button>}
+                                </div>
+                              ) : <span className="text-xs text-slate-400">No receipt</span>}
+                            </td>
                             <td
                               className={`px-6 py-3.5 text-right font-mono tabular-nums font-semibold whitespace-nowrap ${
                                 isCredit ? 'text-emerald-700' : 'text-red-700'
@@ -666,11 +719,13 @@ export function AccountsDashboard({
           TEAM PROFILES DIRECTORY TAB
          ==================================================================== */}
       {activeTab === 'team' && (
+        <>
         <TeamProfilesPanel
           currentUser={data.user}
           members={teamRoster}
           onEditOwnProfile={() => setActiveTab('profile')}
         />
+        </>
       )}
 
       {/* ====================================================================
@@ -823,7 +878,7 @@ export function AccountsDashboard({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Change Password (Optional, min. 12 chars)
+                  Change Password (Optional, min. 4 chars)
                 </label>
                 <input
                   type="password"
@@ -984,7 +1039,38 @@ export function AccountsDashboard({
         />
       )}
 
-      {ledgerModalOpen && (
+      {clientModalOpen && (
+        <ClientModal
+          initial={null}
+          isAdmin={false}
+          staffList={data.staffList}
+          defaultStaffId={data.user.id}
+          onClose={() => setClientModalOpen(false)}
+          onSave={async (payload) => {
+            await api.createClient(payload);
+            await onRefresh();
+            setClientModalOpen(false);
+            notifySuccess('New client profile saved permanently in database.');
+          }}
+        />
+      )}
+
+      {staffModalOpen && (
+        <StaffAccountModal
+          allowedRoles={['staff']}
+          defaultRole="staff"
+          onClose={() => setStaffModalOpen(false)}
+          onSave={async (payload) => {
+            if (!payload.password) throw new Error('Password is required to create an account.');
+            await api.createStaff({ ...payload, password: payload.password });
+            await onRefresh();
+            setStaffModalOpen(false);
+            notifySuccess('Staff login account created successfully.');
+          }}
+        />
+      )}
+
+      {ledgerModalOpen && canManageFinance && (
         <LedgerEntryModal
           initial={null}
           ownerId={data.user.id}

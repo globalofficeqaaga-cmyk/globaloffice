@@ -1,10 +1,23 @@
-export type UserRole = 'admin' | 'staff' | 'accounts';
+export type UserRole = 'admin' | 'director' | 'management' | 'staff' | 'accounts'; // accounts is legacy-only; migrate existing users to staff + permissions.
+
+export type UserPermission =
+  | 'view_team_profiles'
+  | 'add_clients'
+  | 'edit_clients'
+  | 'delete_clients'
+  | 'print_a4'
+  | 'send_messages'
+  | 'view_finance'
+  | 'manage_finance'
+  | 'create_staff_accounts'
+  | 'manage_user_permissions';
 
 export interface PublicUser {
   id: string;
   userId: string;
   email?: string;
   role: UserRole;
+  permissions: UserPermission[];
   name: string;
   designation: string;
   phone: string;
@@ -175,6 +188,11 @@ export interface AccountLedgerEntry {
   entryDate: string;
   paymentMethod: string;
   notes: string;
+  receiptPath?: string;
+  receiptStatus?: 'not_submitted' | 'pending' | 'verified' | 'rejected';
+  receiptUploadedAt?: string;
+  receiptVerifiedAt?: string;
+  receiptVerifiedBy?: string;
   createdByName?: string;
   version?: number;
   clientRequestId?: string;
@@ -380,6 +398,7 @@ export interface TeamDirectoryMember {
   id: string;
   userId: string;
   role: UserRole;
+  permissions?: UserPermission[];
   name: string;
   designation: string;
   phone?: string;

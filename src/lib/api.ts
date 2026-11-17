@@ -252,6 +252,7 @@ interface ProfileRow {
   user_id: string;
   email?: string;
   role: UserRole;
+  permissions?: import('../types').UserPermission[];
   name: string;
   designation: string;
   phone: string;
@@ -377,6 +378,11 @@ interface AccountLedgerRow {
   entry_date: string;
   payment_method: string;
   notes: string;
+  receipt_path?: string | null;
+  receipt_status?: 'not_submitted' | 'pending' | 'verified' | 'rejected';
+  receipt_uploaded_at?: string | null;
+  receipt_verified_at?: string | null;
+  receipt_verified_by?: string | null;
   created_by_name?: string;
   version?: number;
   client_request_id?: string | null;
@@ -472,6 +478,7 @@ function mapProfileRow(row: ProfileRow): PublicUser {
     userId: row.user_id,
     email: row.email,
     role: row.role,
+    permissions: Array.isArray(row.permissions) ? row.permissions : [],
     name: row.name,
     designation: row.designation || 'Visa & Recruitment Coordinator',
     phone: row.phone || '',
@@ -609,6 +616,11 @@ function mapAccountLedgerRow(row: AccountLedgerRow): AccountLedgerEntry {
     entryDate: row.entry_date,
     paymentMethod: row.payment_method || 'Cash',
     notes: row.notes || '',
+    receiptPath: row.receipt_path || undefined,
+    receiptStatus: row.receipt_status || 'not_submitted',
+    receiptUploadedAt: row.receipt_uploaded_at || undefined,
+    receiptVerifiedAt: row.receipt_verified_at || undefined,
+    receiptVerifiedBy: row.receipt_verified_by || undefined,
     createdByName: row.created_by_name || '',
     version: row.version ?? 1,
     clientRequestId: row.client_request_id || undefined,
@@ -1119,7 +1131,7 @@ export const api = {
     if (supabase) {
       const user = await getCurrentSupabaseUser();
       const isAdmin = user.role === 'admin';
-      const isAccounts = user.role === 'accounts';
+      const isAccounts = user.role !== 'management' && Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
 
       const [
         profilesRes,
@@ -1142,6 +1154,7 @@ export const api = {
         supabase
           .from('profiles')
           .select('*')
+          .neq('role', 'admin')
           .order('created_at', { ascending: false }),
         user.role !== 'accounts'
           ? supabase
@@ -1474,7 +1487,8 @@ export const api = {
     email?: string;
     password: string;
     name: string;
-    role?: 'staff' | 'accounts';
+    role?: UserRole;
+    permissions?: import('../types').UserPermission[];
     designation?: string;
     phone?: string;
     personalPhone?: string;
@@ -1530,6 +1544,8 @@ export const api = {
     id: string,
     payload: {
       userId?: string;
+      role?: UserRole;
+      permissions?: import('../types').UserPermission[];
       email?: string;
       password?: string;
       name?: string;
@@ -1694,6 +1710,16 @@ export const api = {
         updateBody.total_paid = Number(payload.totalPaid) || 0;
       }
       if (payload.notes !== undefined) updateBody.notes = payload.notes;
+      if (payload.receiptPath !== undefined) {
+        updateBody.receipt_path = payload.receiptPath || null;
+        updateBody.receipt_status = payload.receiptPath ? 'pending' : 'not_submitted';
+        updateBody.receipt_uploaded_at = payload.receiptPath ? new Date().toISOString() : null;
+        updateBody.receipt_verified_at = null;
+        updateBody.receipt_verified_by = null;
+      }
+      if (payload.receiptStatus !== undefined) updateBody.receipt_status = payload.receiptStatus;
+      if (payload.receiptVerifiedAt !== undefined) updateBody.receipt_verified_at = payload.receiptVerifiedAt;
+      if (payload.receiptVerifiedBy !== undefined) updateBody.receipt_verified_by = payload.receiptVerifiedBy;
 
       const rowData = await withRetry(async () => {
         let query = supabase!.from('clients').update(updateBody).eq('id', id);
@@ -2116,6 +2142,42 @@ export const api = {
     });
   },
 
+  uploadLedgerReceiptFile: async (file: File, ownerId: string): Promise<{ storagePath: string }> => {
+    assertProductionBackend();
+    if (!supabase) throw new Error('Secure receipt storage is not configured.');
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) {
+      throw new Error('Receipt must be JPG, PNG, WEBP, or PDF.');
+    }
+    if (file.size > 10 * 1024 * 1024) throw new Error('Receipt must be smaller than 10 MB.');
+    const ext = file.type === 'application/pdf' ? 'pdf' : file.type.split('/')[1] === 'jpeg' ? 'jpg' : file.type.split('/')[1];
+    const path = `${ownerId}/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${ext}`;
+    const { error } = await supabase.storage.from('account-receipts').upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (error) throw new Error(`Receipt upload failed: ${error.message}`);
+    return { storagePath: path };
+  },
+
+  getLedgerReceiptSignedUrl: async (storagePath: string): Promise<string> => {
+    if (!supabase) throw new Error('Secure receipt storage is not configured.');
+    const { data, error } = await supabase.storage.from('account-receipts').createSignedUrl(storagePath, 3600);
+    if (error || !data?.signedUrl) throw new Error(error?.message || 'Unable to open receipt.');
+    return data.signedUrl;
+  },
+
+  verifyLedgerReceipt: async (id: string, verified: boolean): Promise<void> => {
+    if (!supabase) throw new Error('Supabase is not configured.');
+    const current = await getCurrentSupabaseUser();
+    const { error } = await supabase.from('account_ledger').update({
+      receipt_status: verified ? 'verified' : 'rejected',
+      receipt_verified_at: verified ? new Date().toISOString() : null,
+      receipt_verified_by: verified ? current.id : null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
   createLedgerEntry: async (
     payload: Partial<AccountLedgerEntry>
   ): Promise<{ entry: AccountLedgerEntry }> => {
@@ -2136,6 +2198,9 @@ export const api = {
             entry_date: payload.entryDate || new Date().toISOString().slice(0, 10),
             payment_method: payload.paymentMethod || 'Cash',
             notes: payload.notes || '',
+            receipt_path: payload.receiptPath || null,
+            receipt_status: payload.receiptPath ? 'pending' : 'not_submitted',
+            receipt_uploaded_at: payload.receiptPath ? new Date().toISOString() : null,
             created_by_name: current.name,
             client_request_id: payload.clientRequestId || null,
           })
