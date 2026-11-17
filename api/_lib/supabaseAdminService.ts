@@ -6,6 +6,7 @@ export interface AdminUserPayload {
   password?: string;
   name?: string;
   role?: string;
+  permissions?: string[];
   designation?: string;
   phone?: string;
   personalPhone?: string;
@@ -598,7 +599,9 @@ export async function createManagedUserRecord(
   const cleanUserId = String(body.userId || '').trim();
   const cleanPass = String(body.password || '').trim();
   const cleanName = String(body.name || '').trim();
-  const targetRole: 'staff' | 'accounts' = body.role === 'accounts' ? 'accounts' : 'staff';
+  const targetRole = ['director', 'management', 'staff'].includes(String(body.role)) ? String(body.role) : 'staff';
+  const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
+  const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.filter((permission) => allowedPermissions.has(permission)) : [];
 
   if (!cleanUserId || !cleanName) {
     return {
@@ -686,8 +689,7 @@ export async function createManagedUserRecord(
     email = candidate;
   }
 
-  const defaultDesig =
-    targetRole === 'accounts' ? 'Accounts & Finance Officer' : 'Visa & Recruitment Coordinator';
+  const defaultDesig = targetRole === 'director' ? 'Director' : targetRole === 'management' ? 'Management' : 'Visa & Recruitment Coordinator';
   const designation = String(body.designation || defaultDesig).trim() || defaultDesig;
   const phone = String(body.phone || '').trim();
   const personalPhone = String(body.personalPhone || '').trim();
@@ -729,6 +731,7 @@ export async function createManagedUserRecord(
     user_id: cleanUserId,
     email,
     role: targetRole,
+    permissions: requestedPermissions,
     name: cleanName,
     designation,
     phone,
@@ -898,6 +901,10 @@ export async function handleUpdateManagedUser(
   if (body.photoUrl !== undefined) updateBody.photo_url = String(body.photoUrl).trim();
   if (body.coverUrl !== undefined) updateBody.cover_url = String(body.coverUrl).trim();
   if (body.joiningDate !== undefined) updateBody.joining_date = String(body.joiningDate).trim();
+  if (Array.isArray(body.permissions)) {
+    const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
+    updateBody.permissions = body.permissions.filter((permission) => allowed.has(permission));
+  }
 
   if (Object.keys(updateBody).length === 0) {
     return {
