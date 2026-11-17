@@ -490,6 +490,11 @@ interface TeamMessageRow {
   body: string;
   read_at?: string | null;
   client_request_id?: string | null;
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
+  attachment_size?: number | null;
+  expires_at?: string | null;
   created_at: string;
 }
 
