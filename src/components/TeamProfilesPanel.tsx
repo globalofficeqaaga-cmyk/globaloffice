@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Briefcase,
   Calendar,
   ExternalLink,
   Eye,
   MessageCircle,
+  Paperclip,
+  Send,
+  Clock,
+  FileText,
   Pencil,
   Phone,
   Search,
@@ -13,9 +17,121 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { buildWhatsAppUrl, formatDateOnly } from '../lib/api';
+import { api, buildWhatsAppUrl, formatDateOnly } from '../lib/api';
 import { APP_IMAGES } from '../lib/assets';
-import type { PublicUser, TeamDirectoryMember, UserRole } from '../types';
+import type { PublicUser, TeamDirectoryMember, TeamMessage, UserRole } from '../types';
+
+function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUser; member: PublicUser; onClose: () => void }) {
+  const [messages, setMessages] = useState<TeamMessage[]>([]);
+  const [body, setBody] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [expiry, setExpiry] = useState('0');
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let active = true;
+    const matches = (m: TeamMessage) =>
+      (m.senderId === currentUser.id && m.recipientId === member.id) ||
+      (m.senderId === member.id && m.recipientId === currentUser.id);
+    api.getTeamMessages().then(({ messages: rows }) => {
+      if (!active) return;
+      setMessages(rows.filter(matches));
+      setLoading(false);
+      void api.markDirectMessagesRead(member.id);
+    }).catch((err) => {
+      if (active) { setError(err instanceof Error ? err.message : 'Unable to load chat.'); setLoading(false); }
+    });
+    const unsubscribe = api.subscribeToTeamMessages(currentUser.id, {
+      onMessageCreated: (msg) => {
+        if (active && matches(msg)) {
+          setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
+          if (msg.senderId === member.id) void api.markDirectMessagesRead(member.id);
+        }
+      },
+      onMessagesRead: (senderId, readerId, readAt) => {
+        if (active && senderId === currentUser.id && readerId === member.id) {
+          setMessages((prev) => prev.map((m) => m.senderId === currentUser.id ? { ...m, readAt } : m));
+        }
+      },
+    });
+    return () => { active = false; unsubscribe(); };
+  }, [currentUser.id, member.id]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  const send = async () => {
+    if ((!body.trim() && !file) || sending) return;
+    setSending(true); setError('');
+    try {
+      const { message } = await api.sendTeamMessage({
+        recipientId: member.id,
+        body,
+        attachment: file,
+        expiresInSeconds: Number(expiry) || null,
+        clientRequestId: crypto.randomUUID(),
+      });
+      setMessages((prev) => prev.some((m) => m.id === message.id) ? prev : [...prev, message]);
+      setBody(''); setFile(null);
+      if (fileRef.current) fileRef.current.value = '';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Message could not be sent.');
+    } finally { setSending(false); }
+  };
+
+  const openAttachment = async (path: string) => {
+    try {
+      const url = await api.getTeamChatFileUrl(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to open file.'); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
+      <div className="w-full max-w-xl h-[min(720px,92vh)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
+        <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <img src={member.photoUrl || APP_IMAGES.staffAvatarDefault} alt="" className="w-10 h-10 rounded-full object-cover"/>
+            <div className="min-w-0"><h3 className="font-bold text-slate-900 truncate">Chat with {member.name}</h3><p className="text-xs text-slate-500">{member.designation}</p></div>
+          </div>
+          <button type="button" onClick={onClose} className="w-9 h-9 rounded-lg hover:bg-slate-100 text-slate-600"><X className="w-5 h-5"/></button>
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
+          {loading && <p className="text-center text-sm text-slate-500">Loading chat…</p>}
+          {!loading && messages.length === 0 && <p className="text-center text-sm text-slate-500 py-10">No messages yet. Start your conversation.</p>}
+          {messages.map((m) => {
+            const mine = m.senderId === currentUser.id;
+            return <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 shadow-sm ${mine ? 'bg-blue-700 text-white rounded-br-sm' : 'bg-white text-slate-800 border border-slate-200 rounded-bl-sm'}`}>
+                {m.body && <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>}
+                {m.attachmentPath && <button type="button" onClick={() => void openAttachment(m.attachmentPath!)} className={`mt-2 flex items-center gap-2 text-xs underline ${mine ? 'text-blue-100' : 'text-blue-700'}`}><FileText className="w-4 h-4"/>{m.attachmentName || 'Open attachment'}</button>}
+                <div className={`mt-1 flex gap-2 text-[10px] ${mine ? 'text-blue-100' : 'text-slate-400'}`}><span>{new Date(m.createdAt).toLocaleString()}</span>{m.expiresAt && <span>Auto-delete {new Date(m.expiresAt).toLocaleString()}</span>}{mine && m.readAt && <span>Seen</span>}</div>
+              </div>
+            </div>;
+          })}
+          <div ref={bottomRef}/>
+        </div>
+        {error && <p className="px-4 py-2 text-xs text-red-700 bg-red-50">{error}</p>}
+        <div className="p-3 border-t border-slate-200 space-y-2">
+          {file && <div className="text-xs flex items-center justify-between bg-blue-50 text-blue-800 rounded-lg px-3 py-2"><span className="truncate">{file.name} · {(file.size/1024/1024).toFixed(1)} MB</span><button type="button" onClick={() => {setFile(null); if(fileRef.current) fileRef.current.value='';}}>Remove</button></div>}
+          <div className="flex items-center gap-2">
+            <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] || null)}/>
+            <button type="button" onClick={() => fileRef.current?.click()} title="Attach file" className="p-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600"><Paperclip className="w-4 h-4"/></button>
+            <select value={expiry} onChange={(e) => setExpiry(e.target.value)} title="Auto-delete timer" className="max-w-[130px] text-xs border border-slate-200 rounded-lg px-2 py-2.5 bg-white">
+              <option value="0">Keep forever</option><option value="3600">Delete in 1 hour</option><option value="86400">Delete in 24 hours</option><option value="604800">Delete in 7 days</option><option value="2592000">Delete in 30 days</option>
+            </select>
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={1} maxLength={2000} placeholder="Write a message…" className="flex-1 resize-none min-w-0 text-sm border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+            <button type="button" disabled={sending || (!body.trim() && !file)} onClick={() => void send()} className="p-3 rounded-xl bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white"><Send className="w-4 h-4"/></button>
+          </div>
+          <p className="text-[10px] text-slate-400 flex items-center gap-1"><Clock className="w-3 h-3"/>Timer applies to each message and attached file; max file size 20 MB.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export type ProfileViewTarget = PublicUser | TeamDirectoryMember;
 
@@ -262,6 +378,7 @@ export function TeamProfilesPanel({
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
   const [selectedMember, setSelectedMember] = useState<PublicUser | null>(null);
+  const [chatMember, setChatMember] = useState<PublicUser | null>(null);
 
   const normalizedMembers = useMemo(() => {
     const map = new Map<string, PublicUser>();
@@ -498,6 +615,11 @@ export function TeamProfilesPanel({
                   </button>
 
                   <div className="flex items-center gap-2">
+                    {!isSelf && (
+                      <button type="button" onClick={() => setChatMember(member)} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md cursor-pointer">
+                        <MessageCircle className="w-3 h-3" /><span>Chat</span>
+                      </button>
+                    )}
                     {member.whatsapp && (
                       <a
                         href={buildWhatsAppUrl(member.whatsapp)}
@@ -527,6 +649,7 @@ export function TeamProfilesPanel({
         </div>
       )}
 
+      {chatMember && <TeamChatModal currentUser={currentUser} member={chatMember} onClose={() => setChatMember(null)} />}
       {selectedMember && (
         <UserProfileModal
           member={selectedMember}
