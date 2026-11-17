@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'director' | 'management' | 'staff';
+export type UserRole = 'admin' | 'director' | 'management' | 'staff' | 'accounts'; // accounts is legacy-only; migrate existing users to staff + permissions.
 
 export type UserPermission =
   | 'view_team_profiles'
