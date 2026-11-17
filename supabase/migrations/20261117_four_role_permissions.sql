@@ -41,35 +41,6 @@ create policy "profiles_select_private_admin"
     or public.is_admin()
   );
 
--- Prevent non-admin users from changing roles or granting themselves permissions.
-create or replace function public.prevent_role_self_escalation()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_jwt_role text := '';
-begin
-  v_jwt_role := coalesce(
-    nullif(current_setting('request.jwt.claim.role', true), ''),
-    nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'), ''),
-    ''
-  );
-  if v_jwt_role = 'service_role'
-     or current_user in ('service_role', 'postgres', 'supabase_admin')
-     or (auth.uid() is null and v_jwt_role = '') then
-    return new;
-  end if;
-  if not public.is_admin() then
-    if new.role is distinct from old.role
-       or new.permissions is distinct from old.permissions
-       or new.user_id is distinct from old.user_id
-       or new.email is distinct from old.email then
-      raise exception 'Only administrators can change roles, permissions, or login identifiers.';
-    end if;
-  end if;
-  return new;
-end;
-$$;
+-- Existing role-escalation trigger remains in place. Permission writes are restricted
+-- by the server-side account-management API; do not replace the existing trigger here.
 notify pgrst, 'reload schema';
