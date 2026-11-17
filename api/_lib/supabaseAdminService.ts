@@ -873,11 +873,8 @@ export async function handleUpdateManagedUser(
     return { status: 404, body: { error: 'User account not found.' } };
   }
 
-  if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
-    return {
-      status: 403,
-      body: { error: 'Only Staff or Accounts accounts can be updated here.' },
-    };
+  if (!['staff', 'accounts', 'director', 'management'].includes(String(targetProfile.role))) {
+    return { status: 403, body: { error: 'This account cannot be updated from the team account manager.' } };
   }
 
   const nextPass = typeof body.password === 'string' ? body.password.trim() : '';
@@ -926,6 +923,13 @@ export async function handleUpdateManagedUser(
   if (body.photoUrl !== undefined) updateBody.photo_url = String(body.photoUrl).trim();
   if (body.coverUrl !== undefined) updateBody.cover_url = String(body.coverUrl).trim();
   if (body.joiningDate !== undefined) updateBody.joining_date = String(body.joiningDate).trim();
+  if (body.role !== undefined) {
+    const nextRole = String(body.role);
+    if (!['staff', 'director', 'management'].includes(nextRole)) {
+      return { status: 400, body: { error: 'Invalid dashboard role.' } };
+    }
+    updateBody.role = nextRole;
+  }
   if (Array.isArray(body.permissions)) {
     const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
     updateBody.permissions = body.permissions.filter((permission) => allowed.has(permission));
@@ -1009,11 +1013,8 @@ export async function handleDeleteManagedUser(
     return { status: 404, body: { error: 'User account not found.' } };
   }
 
-  if (targetProfile.role !== 'staff' && targetProfile.role !== 'accounts') {
-    return {
-      status: 403,
-      body: { error: 'Administrator accounts cannot be deleted via this endpoint.' },
-    };
+  if (!['staff', 'accounts', 'director', 'management'].includes(String(targetProfile.role))) {
+    return { status: 403, body: { error: 'Administrator accounts cannot be deleted via this endpoint.' } };
   }
 
   // Reassign records to administrator so foreign key RESTRICT rules never fail and records remain preserved
