@@ -518,7 +518,7 @@ export async function handleVerifyCallerPassword(
   };
 }
 
-function buildSafeNonDeliverableSlug(userId: string, role: 'staff' | 'accounts'): string {
+function buildSafeNonDeliverableSlug(userId: string, role: string): string {
   const normalized = userId
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '.')
@@ -640,6 +640,9 @@ export async function createManagedUserRecord(
     for (const permission of ['view_team_profiles', 'create_staff_accounts', 'manage_user_permissions']) {
       if (!requestedPermissions.includes(permission)) requestedPermissions.push(permission);
     }
+  }
+  if (requestedPermissions.includes('create_staff_accounts') && !requestedPermissions.includes('view_team_profiles')) {
+    requestedPermissions.push('view_team_profiles');
   }
 
   if (!cleanUserId || !cleanName) {
@@ -946,7 +949,11 @@ export async function handleUpdateManagedUser(
   }
   if (Array.isArray(body.permissions)) {
     const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
-    updateBody.permissions = body.permissions.filter((permission) => allowed.has(permission));
+    const nextPermissions = body.permissions.filter((permission) => allowed.has(permission));
+    if (nextPermissions.includes('create_staff_accounts') && !nextPermissions.includes('view_team_profiles')) {
+      nextPermissions.push('view_team_profiles');
+    }
+    updateBody.permissions = nextPermissions;
   }
 
   if (Object.keys(updateBody).length === 0) {
