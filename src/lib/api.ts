@@ -681,6 +681,11 @@ function mapTeamMessageRow(row: TeamMessageRow): TeamMessage {
     body: row.body,
     readAt: row.read_at ?? null,
     clientRequestId: row.client_request_id || undefined,
+    attachmentPath: row.attachment_path || undefined,
+    attachmentName: row.attachment_name || undefined,
+    attachmentMime: row.attachment_mime || undefined,
+    attachmentSize: row.attachment_size ? Number(row.attachment_size) : undefined,
+    expiresAt: row.expires_at || undefined,
     createdAt: row.created_at,
   };
 }
@@ -2623,6 +2628,10 @@ export const api = {
     assertProductionBackend();
     if (supabase) {
       await getCurrentSupabaseUser();
+      const { error: cleanupError } = await supabase.rpc('cleanup_expired_team_messages');
+      if (cleanupError && !isMissingSupabaseSchemaError(cleanupError)) {
+        throw new Error(cleanupError.message);
+      }
       const [dirRes, msgRes] = await Promise.all([
         supabase.rpc('get_team_directory'),
         supabase
@@ -2679,15 +2688,35 @@ export const api = {
     recipientId: string | null;
     body: string;
     clientRequestId?: string;
+    attachment?: File | null;
+    expiresInSeconds?: number | null;
   }): Promise<{ message: TeamMessage }> => {
     assertProductionBackend();
     const cleanBody = payload.body.trim();
-    if (!cleanBody) {
-      throw new Error('Message text cannot be empty.');
+    if (!cleanBody && !payload.attachment) {
+      throw new Error('Write a message or attach a file.');
     }
 
     if (supabase) {
       const current = await getCurrentSupabaseUser();
+      let attachmentPath: string | null = null;
+      if (payload.attachment) {
+        if (payload.attachment.size > 20 * 1024 * 1024) {
+          throw new Error('File size must be 20 MB or less.');
+        }
+        const safeName = payload.attachment.name.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
+        attachmentPath = `${current.id}/${payload.recipientId || 'all'}/${crypto.randomUUID()}-${safeName}`;
+        const { error: uploadError } = await supabase.storage
+          .from('team-chat-files')
+          .upload(attachmentPath, payload.attachment, {
+            contentType: payload.attachment.type || 'application/octet-stream',
+            upsert: false,
+          });
+        if (uploadError) throw new Error(uploadError.message);
+      }
+      const expiresAt = payload.expiresInSeconds && payload.expiresInSeconds > 0
+        ? new Date(Date.now() + payload.expiresInSeconds * 1000).toISOString()
+        : null;
       const rowData = await withRetry(async () => {
         const { data, error } = await supabase!
           .from('team_messages')
@@ -2696,6 +2725,11 @@ export const api = {
             recipient_id: payload.recipientId || null,
             body: cleanBody,
             client_request_id: payload.clientRequestId || null,
+            attachment_path: attachmentPath,
+            attachment_name: payload.attachment?.name || null,
+            attachment_mime: payload.attachment?.type || null,
+            attachment_size: payload.attachment?.size || null,
+            expires_at: expiresAt,
           })
           .select('*')
           .single();
@@ -2728,8 +2762,16 @@ export const api = {
         recipientId: payload.recipientId || null,
         body: cleanBody,
         clientRequestId: payload.clientRequestId,
+        expiresInSeconds: payload.expiresInSeconds || null,
       }),
     });
+  },
+
+  getTeamChatFileUrl: async (path: string): Promise<string> => {
+    if (!supabase) throw new Error('Team chat storage is not configured.');
+    const { data, error } = await supabase.storage.from('team-chat-files').createSignedUrl(path, 60 * 5);
+    if (error || !data?.signedUrl) throw new Error(error?.message || 'Unable to open attachment.');
+    return data.signedUrl;
   },
 
   markDirectMessagesRead: async (senderId: string): Promise<void> => {
