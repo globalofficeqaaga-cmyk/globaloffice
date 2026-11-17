@@ -239,3 +239,75 @@ create policy "account_ledger_update_admin_only"
   with check (public.can_manage_finance());
 
 notify pgrst, 'reload schema';
+
+create or replace function public.can_manage_operational_records()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and p.role <> 'management'
+      and (p.role = 'admin' or p.role = 'staff' or p.permissions @> '["edit_clients"]'::jsonb)
+  );
+$$;
+revoke all on function public.can_manage_operational_records() from public, anon;
+grant execute on function public.can_manage_operational_records() to authenticated;
+
+-- Keep operational record writes unavailable to Management (client creation remains allowed).
+drop policy if exists "meetings_insert_owner_or_admin" on public.meetings;
+create policy "meetings_insert_owner_or_admin"
+  on public.meetings for insert to authenticated
+  with check (auth.uid() = staff_id and public.can_manage_operational_records() or public.is_admin());
+
+drop policy if exists "meetings_update_owner_or_admin" on public.meetings;
+create policy "meetings_update_owner_or_admin"
+  on public.meetings for update to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()))
+  with check (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()));
+
+drop policy if exists "medicals_insert_owner_or_admin" on public.medicals;
+create policy "medicals_insert_owner_or_admin"
+  on public.medicals for insert to authenticated
+  with check (auth.uid() = staff_id and public.can_manage_operational_records() or public.is_admin());
+
+drop policy if exists "medicals_update_owner_or_admin" on public.medicals;
+create policy "medicals_update_owner_or_admin"
+  on public.medicals for update to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()))
+  with check (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()));
+
+drop policy if exists "interviews_insert_owner_or_admin" on public.interviews;
+create policy "interviews_insert_owner_or_admin"
+  on public.interviews for insert to authenticated
+  with check (auth.uid() = staff_id and public.can_manage_operational_records() or public.is_admin());
+
+drop policy if exists "interviews_update_owner_or_admin" on public.interviews;
+create policy "interviews_update_owner_or_admin"
+  on public.interviews for update to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()))
+  with check (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()));
+
+drop policy if exists "staff_attendance_insert" on public.staff_attendance;
+create policy "staff_attendance_insert"
+  on public.staff_attendance for insert to authenticated
+  with check (auth.uid() = staff_id and public.can_manage_operational_records() or public.is_admin());
+
+drop policy if exists "staff_attendance_update" on public.staff_attendance;
+create policy "staff_attendance_update"
+  on public.staff_attendance for update to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()))
+  with check (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()));
+
+drop policy if exists "staff_daily_logs_insert" on public.staff_daily_logs;
+create policy "staff_daily_logs_insert"
+  on public.staff_daily_logs for insert to authenticated
+  with check (auth.uid() = staff_id and public.can_manage_operational_records() or public.is_admin());
+
+drop policy if exists "staff_daily_logs_update" on public.staff_daily_logs;
+create policy "staff_daily_logs_update"
+  on public.staff_daily_logs for update to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()))
+  with check (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()));
+
+notify pgrst, 'reload schema';
