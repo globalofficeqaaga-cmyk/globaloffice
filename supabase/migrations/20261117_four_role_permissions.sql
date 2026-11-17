@@ -311,3 +311,50 @@ create policy "staff_daily_logs_update"
   with check (public.is_admin() or (auth.uid() = staff_id and public.can_manage_operational_records()));
 
 notify pgrst, 'reload schema';
+
+
+-- SECURITY FIX: authenticated users may edit their own profile fields, but must
+-- never grant themselves permissions. Only the service role or an Admin may
+-- change the permissions JSON. Keep this check inside Postgres, not only in API code.
+create or replace function public.prevent_role_self_escalation()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_jwt_role text := '';
+begin
+  v_jwt_role := coalesce(
+    nullif(current_setting('request.jwt.claim.role', true), ''),
+    nullif(
+      (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
+      ''
+    ),
+    ''
+  );
+
+  if v_jwt_role = 'service_role'
+     or current_user in ('service_role', 'postgres', 'supabase_admin')
+     or (auth.uid() is null and v_jwt_role = '') then
+    return new;
+  end if;
+
+  if not public.is_admin() then
+    if new.role is distinct from old.role then
+      raise exception 'Only administrators can change user roles.';
+    end if;
+    if new.user_id is distinct from old.user_id then
+      raise exception 'Only administrators can change login User IDs.';
+    end if;
+    if new.email is distinct from old.email then
+      raise exception 'Email cannot be altered directly.';
+    end if;
+    if new.permissions is distinct from old.permissions then
+      raise exception 'Only administrators can change user permissions.';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
