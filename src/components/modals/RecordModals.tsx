@@ -328,7 +328,6 @@ export function ClientModal({
         documents: cleanDocs,
         payments: cleanPays,
         notes: notes.trim(),
-        receiptPath: receiptPath || undefined,
         clientRequestId: isCreate ? clientRequestId : undefined,
         expectedVersion: initial?.version,
       });
@@ -999,8 +998,6 @@ export function MeetingModal({
   const [purpose, setPurpose] = useState(initial?.purpose || '');
   const [status, setStatus] = useState<MeetingStatus>(initial?.status || 'Scheduled');
   const [notes, setNotes] = useState(initial?.notes || '');
-  const [receiptPath, setReceiptPath] = useState(initial?.receiptPath || '');
-  const [receiptUploading, setReceiptUploading] = useState(false);
 
   const [isDirty, setIsDirty] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -2705,6 +2702,8 @@ export function LedgerEntryModal({
   const [paymentMethod, setPaymentMethod] = useState(initial?.paymentMethod || 'Cash');
   const [referenceNo, setReferenceNo] = useState(initial?.referenceNo || '');
   const [notes, setNotes] = useState(initial?.notes || '');
+  const [receiptPath, setReceiptPath] = useState(initial?.receiptPath || '');
+  const [receiptUploading, setReceiptUploading] = useState(false);
 
   const [isDirty, setIsDirty] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -2829,6 +2828,7 @@ export function LedgerEntryModal({
         paymentMethod: paymentMethod.trim() || 'Cash',
         referenceNo: referenceNo.trim(),
         notes: notes.trim(),
+        receiptPath: receiptPath || undefined,
         clientRequestId: isCreate ? clientRequestId : undefined,
         expectedVersion: initial?.version,
       });
