@@ -2179,6 +2179,7 @@ export function InterviewModal({
 interface StaffAccountModalProps {
   initial?: PublicUser | null;
   defaultRole?: UserRole;
+  allowedRoles?: Exclude<UserRole, 'accounts'>[];
   onClose: () => void;
   onSave: (payload: {
     userId: string;
@@ -2201,12 +2202,17 @@ interface StaffAccountModalProps {
 export function StaffAccountModal({
   initial,
   defaultRole = 'staff',
+  allowedRoles = ['staff', 'director', 'management'],
   onClose,
   onSave,
 }: StaffAccountModalProps) {
-  const [role, setRole] = useState<Exclude<UserRole, 'accounts'>>(
-    initial?.role === 'accounts' ? 'staff' : (initial?.role || (defaultRole === 'accounts' ? 'staff' : defaultRole)) as Exclude<UserRole, 'accounts'>
-  );
+  const fallbackRole = allowedRoles.includes(defaultRole as Exclude<UserRole, 'accounts'>)
+    ? defaultRole as Exclude<UserRole, 'accounts'>
+    : allowedRoles[0] || 'staff';
+  const initialRole = initial?.role && initial.role !== 'accounts' && allowedRoles.includes(initial.role as Exclude<UserRole, 'accounts'>)
+    ? initial.role as Exclude<UserRole, 'accounts'>
+    : fallbackRole;
+  const [role, setRole] = useState<Exclude<UserRole, 'accounts'>>(initialRole);
   const [permissions, setPermissions] = useState<UserPermission[]>(
     initial?.role === 'accounts'
       ? ['view_team_profiles', 'view_finance', 'manage_finance', 'create_staff_accounts']
@@ -2387,9 +2393,11 @@ export function StaffAccountModal({
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">Dashboard Role *</label>
             <select value={role} onChange={(e) => { markDirty(); setRole(e.target.value as Exclude<UserRole, 'accounts'>); }} className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg">
-              <option value="staff">Staff</option>
-              <option value="director">Director</option>
-              <option value="management">Management</option>
+              {allowedRoles.map((allowedRole) => (
+                <option key={allowedRole} value={allowedRole}>
+                  {allowedRole === 'staff' ? 'Staff' : allowedRole === 'director' ? 'Director' : 'Management'}
+                </option>
+              ))}
             </select>
           </div>
 
