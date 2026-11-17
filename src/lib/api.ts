@@ -1121,7 +1121,7 @@ export const api = {
     if (supabase) {
       const user = await getCurrentSupabaseUser();
       const isAdmin = user.role === 'admin';
-      const isAccounts = Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
+      const isAccounts = user.role !== 'management' && Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
 
       const [
         profilesRes,
@@ -1534,6 +1534,8 @@ export const api = {
     id: string,
     payload: {
       userId?: string;
+      role?: UserRole;
+      permissions?: import('../types').UserPermission[];
       email?: string;
       password?: string;
       name?: string;
