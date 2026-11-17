@@ -2689,7 +2689,7 @@ export const api = {
     );
   },
 
-  getDirectTeamMessages: async (otherUserId: string): Promise<TeamMessage[]> => {
+  getDirectTeamMessages: async (otherUserId: string, currentUserId: string): Promise<TeamMessage[]> => {
     assertProductionBackend();
     if (!otherUserId) throw new Error('Choose a team member to chat with.');
     if (supabase) {
@@ -2710,8 +2710,8 @@ export const api = {
     }
     const { messages } = await apiFetch<{ messages: TeamMessage[] }>('/api/messages');
     return messages.filter((message) =>
-      (message.senderId === otherUserId && message.recipientId === (getCurrentSupabaseUser as unknown as string)) ||
-      (message.recipientId === otherUserId)
+      (message.senderId === currentUserId && message.recipientId === otherUserId) ||
+      (message.senderId === otherUserId && message.recipientId === currentUserId)
     );
   },
 
