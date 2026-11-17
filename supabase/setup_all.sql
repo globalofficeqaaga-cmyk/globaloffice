@@ -1565,6 +1565,20 @@ drop trigger if exists trg_cleanup_expired_team_messages on public.team_messages
 create trigger trg_cleanup_expired_team_messages before insert on public.team_messages
   for each row execute function public.cleanup_expired_team_messages_before_insert();
 
+-- Purge expired message rows every five minutes (also called when opening the chat).
+create extension if not exists pg_cron with schema extensions;
+do $
+declare existing_job bigint;
+begin
+  select jobid into existing_job from cron.job where jobname = 'purge-expired-team-chat-messages';
+  if existing_job is not null then perform cron.unschedule(existing_job); end if;
+  perform cron.schedule(
+    'purge-expired-team-chat-messages',
+    '*/5 * * * *',
+    'delete from public.team_messages where expires_at is not null and expires_at <= now();'
+  );
+end $;
+
 -- Private chat file bucket; direct chat files are visible only to sender/recipient.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -1583,13 +1597,11 @@ drop policy if exists "team_chat_files_select_participants" on storage.objects;
 create policy "team_chat_files_select_participants" on storage.objects
   for select to authenticated using (
     bucket_id = 'team-chat-files'
-    and (
-      (storage.foldername(name))[1] = auth.uid()::text
-      or (storage.foldername(name))[2] = auth.uid()::text
-      or (
-        (storage.foldername(name))[2] = 'all'
-        and exists (select 1 from public.profiles p where p.id = auth.uid())
-      )
+    and exists (
+      select 1 from public.team_messages m
+      where m.attachment_path = name
+        and (m.expires_at is null or m.expires_at > now())
+        and (auth.uid() = m.sender_id or auth.uid() = m.recipient_id or m.recipient_id is null)
     )
   );
 
