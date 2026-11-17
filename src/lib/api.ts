@@ -182,20 +182,41 @@ async function supabaseAdminApiFetch<T>(
   if (!supabase) {
     throw new Error('Supabase is not configured.');
   }
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
+  let { data: sessionData } = await supabase.auth.getSession();
+  let accessToken = sessionData.session?.access_token;
+
+  // Refresh a missing or nearly-expired token before privileged account actions.
+  const expiresAt = sessionData.session?.expires_at ?? 0;
+  if (!accessToken || expiresAt * 1000 <= Date.now() + 60_000) {
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (!refreshError && refreshed.session?.access_token) {
+      sessionData = { session: refreshed.session };
+      accessToken = refreshed.session.access_token;
+    }
+  }
   if (!accessToken) {
-    throw new Error('Active administrator session required.');
+    throw new Error('Your sign-in session has expired. Please sign out and sign in again.');
   }
 
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      ...(options.headers as Record<string, string> | undefined),
-    },
-  });
+  const sendWithToken = (token: string) =>
+    fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers as Record<string, string> | undefined),
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+  let res = await sendWithToken(accessToken);
+
+  // A token can be revoked between page load and account creation. Refresh once on 401.
+  if (res.status === 401) {
+    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+    if (!refreshError && refreshed.session?.access_token) {
+      res = await sendWithToken(refreshed.session.access_token);
+    }
+  }
 
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
   const text = await res.text();
