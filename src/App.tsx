@@ -200,7 +200,7 @@ export default function App() {
         />
       );
     }
-    if (currentUser.role !== 'management' && (currentUser.role === 'accounts' || currentUser.permissions?.includes('view_finance') || currentUser.permissions?.includes('manage_finance'))) {
+    if (currentUser.role !== 'management' && (currentUser.role === 'accounts' || currentUser.permissions?.includes('view_finance') || currentUser.permissions?.includes('manage_finance') || currentUser.permissions?.includes('create_staff_accounts'))) {
       return (
         <AccountsDashboard
           data={dashboardData}
