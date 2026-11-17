@@ -1710,7 +1710,13 @@ export const api = {
         updateBody.total_paid = Number(payload.totalPaid) || 0;
       }
       if (payload.notes !== undefined) updateBody.notes = payload.notes;
-      if (payload.receiptPath !== undefined) updateBody.receipt_path = payload.receiptPath;
+      if (payload.receiptPath !== undefined) {
+        updateBody.receipt_path = payload.receiptPath || null;
+        updateBody.receipt_status = payload.receiptPath ? 'pending' : 'not_submitted';
+        updateBody.receipt_uploaded_at = payload.receiptPath ? new Date().toISOString() : null;
+        updateBody.receipt_verified_at = null;
+        updateBody.receipt_verified_by = null;
+      }
       if (payload.receiptStatus !== undefined) updateBody.receipt_status = payload.receiptStatus;
       if (payload.receiptVerifiedAt !== undefined) updateBody.receipt_verified_at = payload.receiptVerifiedAt;
       if (payload.receiptVerifiedBy !== undefined) updateBody.receipt_verified_by = payload.receiptVerifiedBy;
