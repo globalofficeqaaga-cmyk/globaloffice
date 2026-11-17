@@ -1445,154 +1445,196 @@ create policy "staff_media_owner_delete"
   using (bucket_id = 'staff-media' and ((storage.foldername(name))[1] = auth.uid()::text or public.is_admin()));
 
 -- ----------------------------------------------------------------------------
--- 11b. REAL-TIME TEAM MESSAGING (ADMIN, STAFF & ACCOUNTS)
+-- 11b. REAL-TIME TEAM MESSAGING (ALL AUTHENTICATED TEAM MEMBERS)
 -- ----------------------------------------------------------------------------
 create table if not exists public.team_messages (
   id uuid primary key default gen_random_uuid(),
   sender_id uuid not null references public.profiles(id) on delete cascade,
   recipient_id uuid references public.profiles(id) on delete cascade,
-  body text not null check (char_length(trim(body)) between 1 and 2000),
+  body text not null default '',
   read_at timestamptz,
   client_request_id text,
+  attachment_path text,
+  attachment_name text,
+  attachment_mime text,
+  attachment_size bigint,
+  expires_at timestamptz,
   created_at timestamptz not null default now()
+);
+
+alter table public.team_messages add column if not exists attachment_path text;
+alter table public.team_messages add column if not exists attachment_name text;
+alter table public.team_messages add column if not exists attachment_mime text;
+alter table public.team_messages add column if not exists attachment_size bigint;
+alter table public.team_messages add column if not exists expires_at timestamptz;
+alter table public.team_messages alter column body set default '';
+
+alter table public.team_messages drop constraint if exists team_messages_body_check;
+alter table public.team_messages drop constraint if exists team_messages_body_or_file;
+alter table public.team_messages add constraint team_messages_body_or_file check (
+  char_length(trim(body)) between 0 and 2000
+  and (char_length(trim(body)) > 0 or attachment_path is not null)
+);
+alter table public.team_messages drop constraint if exists team_messages_attachment_size;
+alter table public.team_messages add constraint team_messages_attachment_size check (
+  attachment_size is null or attachment_size between 1 and 20971520
 );
 
 create index if not exists idx_team_messages_sender on public.team_messages(sender_id);
 create index if not exists idx_team_messages_recipient on public.team_messages(recipient_id);
 create index if not exists idx_team_messages_created_at on public.team_messages(created_at desc);
+create index if not exists idx_team_messages_expires_at on public.team_messages(expires_at) where expires_at is not null;
 create unique index if not exists idx_team_messages_request_id
-  on public.team_messages(client_request_id)
-  where client_request_id is not null;
+  on public.team_messages(client_request_id) where client_request_id is not null;
 
 alter table public.team_messages enable row level security;
 
--- Only read_at may change when a recipient marks a direct message as read
 create or replace function public.protect_team_message_immutability()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
+returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if new.id is distinct from old.id
      or new.sender_id is distinct from old.sender_id
      or new.recipient_id is distinct from old.recipient_id
      or new.body is distinct from old.body
      or new.client_request_id is distinct from old.client_request_id
+     or new.attachment_path is distinct from old.attachment_path
+     or new.attachment_name is distinct from old.attachment_name
+     or new.attachment_mime is distinct from old.attachment_mime
+     or new.attachment_size is distinct from old.attachment_size
+     or new.expires_at is distinct from old.expires_at
      or new.created_at is distinct from old.created_at then
     raise exception 'Message content and sender/recipient cannot be modified.';
   end if;
   return new;
 end;
 $$;
-
 revoke all on function public.protect_team_message_immutability() from public, anon, authenticated;
-
 drop trigger if exists trg_protect_team_message_immutability on public.team_messages;
 create trigger trg_protect_team_message_immutability
-  before update on public.team_messages
-  for each row
+  before update on public.team_messages for each row
   execute function public.protect_team_message_immutability();
 
 drop policy if exists "team_messages_select_participants" on public.team_messages;
-create policy "team_messages_select_participants"
-  on public.team_messages
-  for select
-  to authenticated
+create policy "team_messages_select_participants" on public.team_messages
+  for select to authenticated
   using (
-    recipient_id is null
-    or auth.uid() = sender_id
-    or auth.uid() = recipient_id
+    (recipient_id is null or auth.uid() = sender_id or auth.uid() = recipient_id)
+    and (expires_at is null or expires_at > now())
   );
 
 drop policy if exists "team_messages_insert_sender" on public.team_messages;
-create policy "team_messages_insert_sender"
-  on public.team_messages
-  for insert
-  to authenticated
-  with check (auth.uid() = sender_id);
+create policy "team_messages_insert_sender" on public.team_messages
+  for insert to authenticated with check (auth.uid() = sender_id);
 
 drop policy if exists "team_messages_update_recipient_read" on public.team_messages;
-create policy "team_messages_update_recipient_read"
-  on public.team_messages
-  for update
-  to authenticated
+create policy "team_messages_update_recipient_read" on public.team_messages
+  for update to authenticated
   using (auth.uid() = recipient_id)
   with check (auth.uid() = recipient_id);
 
-drop policy if exists "team_messages_delete_admin" on public.team_messages;
-create policy "team_messages_delete_admin"
-  on public.team_messages
-  for delete
-  to authenticated
-  using (public.is_admin());
+drop policy if exists "team_messages_delete_participant" on public.team_messages;
+create policy "team_messages_delete_participant" on public.team_messages
+  for delete to authenticated
+  using (
+    expires_at is not null and expires_at <= now()
+    and (auth.uid() = sender_id or auth.uid() = recipient_id)
+  );
 
--- Non-sensitive team directory for messaging & profile viewing across all authenticated roles
-drop function if exists public.get_team_directory();
-create or replace function public.get_team_directory()
-returns table (
-  id uuid,
-  user_id text,
-  role text,
-  name text,
-  designation text,
-  phone text,
-  personal_phone text,
-  whatsapp text,
-  social_link text,
-  photo_url text,
-  cover_url text,
-  joining_date text
-)
-language plpgsql
-stable
-security definer
-set search_path = public
-as $$
+create or replace function public.cleanup_expired_team_messages()
+returns integer language plpgsql security definer set search_path = public as $$
+declare deleted_count integer;
 begin
-  if auth.uid() is null then
-    raise exception 'Authentication required.';
-  end if;
-
-  return query
-  select
-    p.id,
-    p.user_id,
-    p.role,
-    p.name,
-    p.designation,
-    p.phone,
-    p.personal_phone,
-    p.whatsapp,
-    p.social_link,
-    p.photo_url,
-    p.cover_url,
-    p.joining_date
-  from public.profiles p
-  order by
-    case p.role when 'admin' then 1 when 'accounts' then 2 else 3 end,
-    p.name asc;
+  if auth.uid() is null then raise exception 'Authentication required.'; end if;
+  delete from public.team_messages where expires_at is not null and expires_at <= now();
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
 end;
 $$;
+revoke all on function public.cleanup_expired_team_messages() from public, anon;
+grant execute on function public.cleanup_expired_team_messages() to authenticated;
 
-revoke all on function public.get_team_directory() from public, anon;
-grant execute on function public.get_team_directory() to authenticated;
+create or replace function public.cleanup_expired_team_messages_before_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  delete from public.team_messages where expires_at is not null and expires_at <= now();
+  return new;
+end;
+$$;
+revoke all on function public.cleanup_expired_team_messages_before_insert() from public, anon, authenticated;
+drop trigger if exists trg_cleanup_expired_team_messages on public.team_messages;
+create trigger trg_cleanup_expired_team_messages before insert on public.team_messages
+  for each row execute function public.cleanup_expired_team_messages_before_insert();
 
+-- Purge expired message rows every five minutes (also called when opening the chat).
+create extension if not exists pg_cron with schema extensions;
+do $
+declare existing_job bigint;
+begin
+  select jobid into existing_job from cron.job where jobname = 'purge-expired-team-chat-messages';
+  if existing_job is not null then perform cron.unschedule(existing_job); end if;
+  perform cron.schedule(
+    'purge-expired-team-chat-messages',
+    '*/5 * * * *',
+    'delete from public.team_messages where expires_at is not null and expires_at <= now();'
+  );
+end $;
+
+-- Private chat file bucket; direct chat files are visible only to sender/recipient.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'team-chat-files', 'team-chat-files', false, 20971520,
+  array[
+    'image/jpeg','image/png','image/webp','application/pdf','text/plain',
+    'application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint','application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/zip'
+  ]
+)
+on conflict (id) do update set public = false, file_size_limit = 20971520;
+
+drop policy if exists "team_chat_files_select_participants" on storage.objects;
+create policy "team_chat_files_select_participants" on storage.objects
+  for select to authenticated using (
+    bucket_id = 'team-chat-files'
+    and exists (
+      select 1 from public.team_messages m
+      where m.attachment_path = name
+        and (m.expires_at is null or m.expires_at > now())
+        and (auth.uid() = m.sender_id or auth.uid() = m.recipient_id or m.recipient_id is null)
+    )
+  );
+
+drop policy if exists "team_chat_files_insert_sender" on storage.objects;
+create policy "team_chat_files_insert_sender" on storage.objects
+  for insert to authenticated with check (
+    bucket_id = 'team-chat-files' and (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+drop policy if exists "team_chat_files_delete_participants" on storage.objects;
+create policy "team_chat_files_delete_participants" on storage.objects
+  for delete to authenticated using (
+    bucket_id = 'team-chat-files'
+    and (
+      (storage.foldername(name))[1] = auth.uid()::text
+      or (storage.foldername(name))[2] = auth.uid()::text
+      or ((storage.foldername(name))[2] = 'all' and public.is_admin())
+    )
+  );
+
+-- Enable Realtime delivery for direct and group messages.
 do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
     if not exists (
       select 1 from pg_publication_tables
-      where pubname = 'supabase_realtime'
-        and schemaname = 'public'
-        and tablename = 'team_messages'
+      where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'team_messages'
     ) then
       alter publication supabase_realtime add table public.team_messages;
     end if;
   end if;
 end $$;
 
--- ----------------------------------------------------------------------------
 -- 12. ADMIN USER SETUP (SUPPORED BY SUPABASE AUTHENTICATION — NO DEFAULT PASSWORD)
 -- ----------------------------------------------------------------------------
 -- After running this script:
