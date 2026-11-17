@@ -262,7 +262,7 @@ async function authenticateAdminCaller(
 
   const { data: profile, error: profErr } = await adminClient
     .from('profiles')
-    .select('id, role')
+    .select('id, role, permissions')
     .eq('id', userData.user.id)
     .maybeSingle();
 
@@ -273,10 +273,11 @@ async function authenticateAdminCaller(
     };
   }
 
-  if (!profile || profile.role !== 'admin') {
+  const perms = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
+  if (!profile || (profile.role !== 'admin' && !perms.includes('create_staff_accounts'))) {
     return {
       status: 403,
-      body: { error: 'Only authorized Administrator accounts can manage Staff or Accounts logins.' },
+      body: { error: 'You do not have permission to create or manage staff login accounts.' },
     };
   }
 
