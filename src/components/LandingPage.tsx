@@ -140,7 +140,7 @@ export function LandingPage({ siteSettings }: LandingPageProps) {
   const hasSlider = siteSettings.showPosterSlider && posters.length > 0;
 
   return (
-    <main className="bg-slate-50 flex-1 flex flex-col">
+    <main className="bg-slate-50 flex-1 flex flex-col pb-20 sm:pb-0">
       {/* First Page Focal Split: Track by Phone Number + Running Poster Slider */}
       {(hasTracker || hasSlider) && (
         <section id="track-status" className="bg-white border-b border-slate-200">
