@@ -362,7 +362,16 @@ export async function handleListTeamProfiles(
 ): Promise<ServiceResult> {
   const auth = await authenticateTeamCaller(authHeader);
   if ('status' in auth) return auth;
-  const { adminClient } = auth;
+  const { adminClient, userId } = auth;
+  const { data: caller, error: callerError } = await adminClient
+    .from('profiles')
+    .select('role, permissions')
+    .eq('id', userId)
+    .maybeSingle();
+  const callerPermissions = Array.isArray(caller?.permissions) ? caller.permissions as string[] : [];
+  if (callerError || !caller || !['admin', 'director', 'management'].includes(String(caller.role)) && !callerPermissions.includes('view_team_profiles')) {
+    return { status: 403, body: { error: 'You do not have permission to view team profiles.' } };
+  }
 
   const fullCols =
     'id, user_id, role, permissions, name, designation, phone, personal_phone, whatsapp, social_link, photo_url, cover_url, joining_date, version, created_at';
@@ -627,6 +636,11 @@ export async function createManagedUserRecord(
   const targetRole = ['director', 'management', 'staff'].includes(String(body.role)) ? String(body.role) : 'staff';
   const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
   const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.filter((permission) => allowedPermissions.has(permission)) : [];
+  if (targetRole === 'management') {
+    for (const permission of ['view_team_profiles', 'create_staff_accounts', 'manage_user_permissions']) {
+      if (!requestedPermissions.includes(permission)) requestedPermissions.push(permission);
+    }
+  }
 
   if (!cleanUserId || !cleanName) {
     return {
