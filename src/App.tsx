@@ -194,6 +194,7 @@ export default function App() {
       return (
         <LeadershipDashboard
           data={dashboardData}
+          onRefresh={loadDashboard}
           onGoHome={() => setView('landing')}
           onLogout={handleLogout}
         />
