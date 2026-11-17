@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Briefcase, Calendar, ClipboardList, Printer, Stethoscope, Users } from 'lucide-react';
+import { Briefcase, Calendar, ClipboardList, Plus, Printer, Stethoscope, Users } from 'lucide-react';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { TeamProfilesPanel } from './TeamProfilesPanel';
+import { ClientModal } from './modals/RecordModals';
+import { api } from '../lib/api';
+import type { ClientProfile } from '../types';
 import { formatDateOnly, formatDateTime } from '../lib/api';
 import type { DashboardData } from '../types';
 
@@ -9,11 +12,13 @@ interface LeadershipDashboardProps {
   data: DashboardData;
   onGoHome: () => void;
   onLogout: () => void;
+  onRefresh: () => Promise<void>;
 }
 
 type TabId = 'clients' | 'meetings' | 'medicals' | 'interviews' | 'team';
 
-export function LeadershipDashboard({ data, onGoHome, onLogout }: LeadershipDashboardProps) {
+export function LeadershipDashboard({ data, onGoHome, onLogout, onRefresh }: LeadershipDashboardProps) {
+  const [clientModalOpen, setClientModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('clients');
   const isManagement = data.user.role === 'management';
   const members = useMemo(() => {
@@ -40,9 +45,14 @@ export function LeadershipDashboard({ data, onGoHome, onLogout }: LeadershipDash
       onGoHome={onGoHome}
       onLogout={onLogout}
       primaryAction={activeTab === 'team' ? null : (
-        <button type="button" onClick={printPage} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">
-          <Printer className="h-4 w-4" /> Print A4
-        </button>
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setClientModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
+            <Plus className="h-4 w-4" /> Add Client
+          </button>
+          <button type="button" onClick={printPage} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">
+            <Printer className="h-4 w-4" /> Print A4
+          </button>
+        </div>
       )}
     >
       <style>{'@media print { @page { size: A4; margin: 12mm; } body { background: white !important; } aside, nav, header, button { display: none !important; } main { overflow: visible !important; } }'}</style>
@@ -64,7 +74,20 @@ export function LeadershipDashboard({ data, onGoHome, onLogout }: LeadershipDash
       {activeTab === 'interviews' && (
         <section className="overflow-hidden rounded-xl border border-slate-200 bg-white"><div className="border-b border-slate-200 px-5 py-4"><h2 className="font-semibold">Interview Register</h2></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="p-3">Candidates</th><th className="p-3">Company</th><th className="p-3">Trade</th><th className="p-3">Date</th><th className="p-3">Status</th></tr></thead><tbody>{data.interviews.map((i) => <tr key={i.id} className="border-t border-slate-100"><td className="p-3">{i.candidateNames}</td><td className="p-3">{i.interviewerOrCompany}</td><td className="p-3">{i.trade}</td><td className="p-3">{formatDateOnly(i.interviewDate)}</td><td className="p-3">{i.status}</td></tr>)}</tbody></table></div></section>
       )}
-      {isManagement && <p className="mt-4 text-xs text-slate-500">Management view is read-only. Financial totals, ledger entries and finance reports are not shown in this workspace.</p>}
+      {isManagement && <p className="mt-4 text-xs text-slate-500">Management view is read-only except adding client records. Financial totals, ledger entries and finance reports are not shown in this workspace.</p>}
+      {clientModalOpen && (
+        <ClientModal
+          initial={null}
+          isAdmin={false}
+          staffList={data.staffList}
+          defaultStaffId={data.user.id}
+          onClose={() => setClientModalOpen(false)}
+          onSave={async (payload) => {
+            await api.createClient(payload);
+            await onRefresh();
+          }}
+        />
+      )}
     </DashboardShell>
   );
 }
