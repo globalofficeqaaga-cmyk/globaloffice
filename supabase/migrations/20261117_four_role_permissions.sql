@@ -205,6 +205,7 @@ create policy "clients_update_owner_or_admin"
   using (public.is_admin() or (auth.uid() = staff_id and public.can_edit_client_records()))
   with check (public.is_admin() or (auth.uid() = staff_id and public.can_edit_client_records()));
 
+drop policy if exists "clients_delete_owner_or_admin" on public.clients;
 drop policy if exists "clients_delete_admin_only" on public.clients;
 create policy "clients_delete_admin_only"
   on public.clients for delete to authenticated
@@ -335,7 +336,7 @@ begin
   );
 
   if v_jwt_role = 'service_role'
-     or current_user in ('service_role', 'postgres', 'supabase_admin')
+     or session_user in ('service_role', 'postgres', 'supabase_admin')
      or (auth.uid() is null and v_jwt_role = '') then
     return new;
   end if;
