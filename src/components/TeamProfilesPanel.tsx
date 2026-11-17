@@ -605,21 +605,23 @@ export function TeamProfilesPanel({
 
                 {/* Card Footer Actions */}
                 <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedMember(member)}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>View Full Profile</span>
-                  </button>
-
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMember(member)}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>View Full Profile</span>
+                    </button>
                     {!isSelf && (
                       <button type="button" onClick={() => setChatMember(member)} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md cursor-pointer">
                         <MessageCircle className="w-3 h-3" /><span>Chat</span>
                       </button>
                     )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
                     {member.whatsapp && (
                       <a
                         href={buildWhatsAppUrl(member.whatsapp)}
