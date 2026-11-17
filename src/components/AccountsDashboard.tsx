@@ -35,7 +35,7 @@ import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
 import { TeamProfilesPanel } from './TeamProfilesPanel';
-import { AttendanceModal, DailyLogModal, LedgerEntryModal, StaffAccountModal } from './modals/RecordModals';
+import { AttendanceModal, ClientModal, DailyLogModal, LedgerEntryModal, StaffAccountModal } from './modals/RecordModals';
 
 interface AccountsDashboardProps {
   data: DashboardData;
@@ -60,6 +60,7 @@ export function AccountsDashboard({
   const [typeFilter, setTypeFilter] = useState<'all' | LedgerEntryType>('all');
   const [ledgerModalOpen, setLedgerModalOpen] = useState(false);
   const [staffModalOpen, setStaffModalOpen] = useState(false);
+  const [clientModalOpen, setClientModalOpen] = useState(false);
   const [attendanceModal, setAttendanceModal] = useState<{
     open: boolean;
     item: StaffAttendanceRecord | null;
@@ -342,10 +343,17 @@ export function AccountsDashboard({
         <span className="sm:hidden">Log Talk</span>
         <span className="hidden sm:inline">Log Conversation</span>
       </button>
-    ) : activeTab === 'team' && canCreateStaffAccounts ? (
-      <button type="button" onClick={() => setStaffModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-blue-800 cursor-pointer">
-        <Plus className="w-4 h-4" /> Create Staff Account
-      </button>
+    ) : activeTab === 'team' ? (
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => setClientModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-blue-800 cursor-pointer">
+          <Plus className="w-4 h-4" /> Add Client
+        </button>
+        {canCreateStaffAccounts && (
+          <button type="button" onClick={() => setStaffModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-slate-700 cursor-pointer">
+            <Plus className="w-4 h-4" /> Create Staff Account
+          </button>
+        )}
+      </div>
     ) : null;
 
   return (
@@ -990,6 +998,22 @@ export function AccountsDashboard({
             } catch (err) {
               setActionError(err instanceof Error ? err.message : 'Failed to archive log.');
             }
+          }}
+        />
+      )}
+
+      {clientModalOpen && (
+        <ClientModal
+          initial={null}
+          isAdmin={false}
+          staffList={data.staffList}
+          defaultStaffId={data.user.id}
+          onClose={() => setClientModalOpen(false)}
+          onSave={async (payload) => {
+            await api.createClient(payload);
+            await onRefresh();
+            setClientModalOpen(false);
+            notifySuccess('New client profile saved permanently in database.');
           }}
         />
       )}
