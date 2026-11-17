@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AccountsDashboard } from './components/AccountsDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { LandingPage } from './components/LandingPage';
+import { LeadershipDashboard } from './components/LeadershipDashboard';
 import { LoginModal } from './components/LoginModal';
 import { StaffDashboard } from './components/StaffDashboard';
 import { TopBar } from './components/TopBar';
@@ -184,6 +185,15 @@ export default function App() {
           siteSettings={siteSettings}
           onSiteSettingsSaved={setSiteSettings}
           onRefresh={loadDashboard}
+          onGoHome={() => setView('landing')}
+          onLogout={handleLogout}
+        />
+      );
+    }
+    if (currentUser.role === 'director' || currentUser.role === 'management') {
+      return (
+        <LeadershipDashboard
+          data={dashboardData}
           onGoHome={() => setView('landing')}
           onLogout={handleLogout}
         />
