@@ -21,7 +21,7 @@ export interface ServiceResult {
   body: Record<string, unknown>;
 }
 
-const MIN_PASSWORD_LENGTH = 12;
+const MIN_PASSWORD_LENGTH = 4;
 
 export function validateStrongPasswordServer(
   password: string,
@@ -44,15 +44,17 @@ export function validateStrongPasswordServer(
   if (/\d/.test(value)) classes += 1;
   if (/[^a-zA-Z0-9]/.test(value)) classes += 1;
 
-  if (classes < 2) {
-    return `${fieldLabel} must include at least two character types (e.g. uppercase, lowercase, numbers, or symbols).`;
+  if (classes < 1) {
+    return `${fieldLabel} must include at least one character type (e.g. uppercase, lowercase, numbers, or symbols).`;
   }
 
   const lower = value.toLowerCase();
   if (
-    lower === '123456789012' ||
-    lower === 'password1234' ||
-    lower === 'admin1234567' ||
+    lower === '1234' ||
+    lower === '12345' ||
+    lower === '123456' ||
+    lower === 'password' ||
+    lower === 'admin' ||
     lower === 'globalpathways'
   ) {
     return `${fieldLabel} is too common. Choose a stronger password.`;
