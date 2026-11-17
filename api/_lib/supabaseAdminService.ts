@@ -274,13 +274,35 @@ async function authenticateAdminCaller(
   }
 
   const perms = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
-  if (!profile || (profile.role !== 'admin' && !perms.includes('create_staff_accounts'))) {
+  if (!profile || profile.role !== 'admin') {
     return {
       status: 403,
-      body: { error: 'You do not have permission to create or manage staff login accounts.' },
+      body: { error: 'Administrator permission is required for this action.' },
     };
   }
 
+  return { adminClient, adminId: profile.id };
+}
+
+async function authenticateAccountCreator(
+  authHeader: string | undefined
+): Promise<{ adminClient: SupabaseClient; adminId: string } | ServiceResult> {
+  let adminClient: SupabaseClient;
+  try {
+    adminClient = getSupabaseAdminClient();
+  } catch (err) {
+    return { status: 503, body: { error: err instanceof Error ? err.message : 'Supabase Admin API is not configured.' } };
+  }
+  const jwt = (authHeader || '').replace(/^Bearer\\s+/i, '').trim();
+  if (!jwt) return { status: 401, body: { error: 'Sign-in session is required.' } };
+  const { data, error } = await adminClient.auth.getUser(jwt);
+  if (error || !data?.user) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
+  const { data: profile, error: profileError } = await adminClient.from('profiles').select('id, role, permissions').eq('id', data.user.id).maybeSingle();
+  if (profileError) return { status: 500, body: { error: 'Unable to verify account permissions.' } };
+  const permissions = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
+  if (!profile || (profile.role !== 'admin' && !permissions.includes('create_staff_accounts'))) {
+    return { status: 403, body: { error: 'You do not have permission to create Staff login accounts.' } };
+  }
   return { adminClient, adminId: profile.id };
 }
 
@@ -343,13 +365,14 @@ export async function handleListTeamProfiles(
   const { adminClient } = auth;
 
   const fullCols =
-    'id, user_id, role, name, designation, phone, personal_phone, whatsapp, social_link, photo_url, cover_url, joining_date, version, created_at';
+    'id, user_id, role, permissions, name, designation, phone, personal_phone, whatsapp, social_link, photo_url, cover_url, joining_date, version, created_at';
   const legacyCols =
     'id, user_id, role, name, designation, phone, whatsapp, social_link, photo_url, cover_url, version, created_at';
 
   let { data, error } = await adminClient
     .from('profiles')
     .select(fullCols)
+    .neq('role', 'admin')
     .order('created_at', { ascending: false });
 
   if (
@@ -360,6 +383,7 @@ export async function handleListTeamProfiles(
     const fallback = await adminClient
       .from('profiles')
       .select(legacyCols)
+      .neq('role', 'admin')
       .order('created_at', { ascending: false });
     data = fallback.data as typeof data;
     error = fallback.error;
@@ -820,7 +844,7 @@ export async function handleCreateManagedUser(
   authHeader: string | undefined,
   body: AdminUserPayload
 ): Promise<ServiceResult> {
-  const auth = await authenticateAdminCaller(authHeader);
+  const auth = await authenticateAccountCreator(authHeader);
   if ('status' in auth) return auth;
   return createManagedUserRecord(auth.adminClient, body);
 }
