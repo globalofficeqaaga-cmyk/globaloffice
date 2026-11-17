@@ -869,7 +869,7 @@ export async function handleCreateManagedUser(
     }
     const safeDelegatedPermissions = new Set([
       'view_team_profiles', 'add_clients', 'edit_clients', 'delete_clients',
-      'print_a4', 'send_messages', 'view_finance', 'manage_finance',
+      'print_a4', 'send_messages', 'view_finance', 'manage_finance', 'create_staff_accounts',
     ]);
     body = {
       ...body,
