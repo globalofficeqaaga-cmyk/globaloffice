@@ -2441,8 +2441,8 @@ export function StaffAccountModal({
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               {initial
-                ? 'New Login Password (leave blank to keep current, min. 12 chars)'
-                : 'Login Password (min. 12 chars, letters + numbers/symbols) *'}
+                ? 'New Login Password (leave blank to keep current, min. 4 chars)'
+                : 'Login Password (min. 4 chars, letters + numbers/symbols) *'}
             </label>
             <input
               type="password"
