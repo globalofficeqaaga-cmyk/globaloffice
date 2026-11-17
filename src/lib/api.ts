@@ -1477,7 +1477,8 @@ export const api = {
     email?: string;
     password: string;
     name: string;
-    role?: 'staff' | 'accounts';
+    role?: UserRole;
+    permissions?: import('../types').UserPermission[];
     designation?: string;
     phone?: string;
     personalPhone?: string;
