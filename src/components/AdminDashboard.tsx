@@ -2962,7 +2962,7 @@ export function AdminDashboard({
                 Admin Login User ID & Password
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Change your Admin User ID or set a strong login password (min. 12 characters).
+                Change your Admin User ID or set a strong login password (min. 4 characters).
                 Changes take effect immediately on your next sign-in.
               </p>
             </div>
@@ -3051,7 +3051,7 @@ export function AdminDashboard({
                   htmlFor="admin-newpass-input"
                   className="block text-xs font-semibold text-slate-700 mb-1"
                 >
-                  New Password (min. 12 characters)
+                  New Password (min. 4 characters)
                 </label>
                 <div className="relative">
                   <input
