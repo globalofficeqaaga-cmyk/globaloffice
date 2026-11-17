@@ -189,7 +189,7 @@ export default function App() {
         />
       );
     }
-    if (currentUser.role === 'accounts') {
+    if (currentUser.role !== 'management' && (currentUser.role === 'accounts' || currentUser.permissions?.includes('view_finance') || currentUser.permissions?.includes('manage_finance'))) {
       return (
         <AccountsDashboard
           data={dashboardData}
