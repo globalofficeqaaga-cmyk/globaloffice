@@ -21,13 +21,17 @@ export type ProfileViewTarget = PublicUser | TeamDirectoryMember;
 
 function formatRoleLabel(role: UserRole): string {
   if (role === 'admin') return 'Administrator';
-  if (role === 'accounts') return 'Accounts';
+  if (role === 'accounts') return 'Accounts (legacy)';
+  if (role === 'director') return 'Director';
+  if (role === 'management') return 'Management';
   return 'Staff';
 }
 
 function getRoleBadgeClass(role: UserRole): string {
   if (role === 'admin') return 'bg-slate-900 text-white';
   if (role === 'accounts') return 'bg-emerald-50 text-emerald-800 border border-emerald-200';
+  if (role === 'director') return 'bg-violet-50 text-violet-800 border border-violet-200';
+  if (role === 'management') return 'bg-amber-50 text-amber-800 border border-amber-200';
   return 'bg-blue-50 text-blue-800 border border-blue-200';
 }
 
@@ -275,12 +279,16 @@ export function TeamProfilesPanel({
     let admin = 0;
     let staff = 0;
     let accounts = 0;
+    let directors = 0;
+    let management = 0;
     for (const m of normalizedMembers) {
       if (m.role === 'admin') admin += 1;
       else if (m.role === 'accounts') accounts += 1;
+      else if (m.role === 'director') directors += 1;
+      else if (m.role === 'management') management += 1;
       else staff += 1;
     }
-    return { total: normalizedMembers.length, admin, staff, accounts };
+    return { total: normalizedMembers.length, admin, staff, accounts, directors, management };
   }, [normalizedMembers]);
 
   const filteredMembers = useMemo(() => {
