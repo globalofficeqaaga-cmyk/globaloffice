@@ -417,6 +417,11 @@ export interface TeamMessage {
   body: string;
   readAt?: string | null;
   clientRequestId?: string;
+  attachmentPath?: string;
+  attachmentName?: string;
+  attachmentMime?: string;
+  attachmentSize?: number;
+  expiresAt?: string;
   createdAt: string;
 }
 
