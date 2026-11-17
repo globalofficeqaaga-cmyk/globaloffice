@@ -127,3 +127,115 @@ revoke all on function public.get_team_directory() from public, anon;
 grant execute on function public.get_team_directory() to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- Operational visibility: Director and Management can read company-wide records.
+create or replace function public.can_view_all_operations()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and p.role in ('admin', 'director', 'management')
+  );
+$$;
+revoke all on function public.can_view_all_operations() from public, anon;
+grant execute on function public.can_view_all_operations() to authenticated;
+
+-- Management is read-only. Staff can maintain their own records; explicit edit
+-- permissions can be granted to other non-Management roles.
+create or replace function public.can_edit_client_records()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and p.role <> 'management'
+      and (p.role = 'admin' or p.role = 'staff' or p.permissions @> '["edit_clients"]'::jsonb)
+  );
+$$;
+revoke all on function public.can_edit_client_records() from public, anon;
+grant execute on function public.can_edit_client_records() to authenticated;
+
+create or replace function public.can_delete_client_records()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and p.role <> 'management'
+      and (p.role = 'admin' or p.permissions @> '["delete_clients"]'::jsonb)
+  );
+$$;
+revoke all on function public.can_delete_client_records() from public, anon;
+grant execute on function public.can_delete_client_records() to authenticated;
+
+-- Company-wide read policies for leadership; Staff remains scoped to own records.
+drop policy if exists "clients_select_owner_or_admin" on public.clients;
+create policy "clients_select_owner_or_admin"
+  on public.clients for select to authenticated
+  using (auth.uid() = staff_id or public.can_view_all_operations());
+
+drop policy if exists "meetings_select_owner_or_admin" on public.meetings;
+create policy "meetings_select_owner_or_admin"
+  on public.meetings for select to authenticated
+  using (auth.uid() = staff_id or public.can_view_all_operations());
+
+drop policy if exists "medicals_select_owner_or_admin" on public.medicals;
+create policy "medicals_select_owner_or_admin"
+  on public.medicals for select to authenticated
+  using (auth.uid() = staff_id or public.can_view_all_operations());
+
+drop policy if exists "interviews_select_owner_or_admin" on public.interviews;
+create policy "interviews_select_owner_or_admin"
+  on public.interviews for select to authenticated
+  using (auth.uid() = staff_id or public.can_view_all_operations());
+
+drop policy if exists "staff_daily_logs_select" on public.staff_daily_logs;
+create policy "staff_daily_logs_select"
+  on public.staff_daily_logs for select to authenticated
+  using (auth.uid() = staff_id or public.can_view_all_operations());
+
+-- Leadership can add clients, but Management cannot update or remove any records.
+drop policy if exists "clients_update_owner_or_admin" on public.clients;
+create policy "clients_update_owner_or_admin"
+  on public.clients for update to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_edit_client_records()))
+  with check (public.is_admin() or (auth.uid() = staff_id and public.can_edit_client_records()));
+
+drop policy if exists "clients_delete_admin_only" on public.clients;
+create policy "clients_delete_admin_only"
+  on public.clients for delete to authenticated
+  using (public.is_admin() or (auth.uid() = staff_id and public.can_delete_client_records()));
+
+-- Finance view and finance entry management are separate capabilities.
+create or replace function public.can_manage_finance()
+returns boolean
+language sql stable security definer set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and (
+        p.role = 'admin'
+        or (p.role <> 'management' and p.permissions @> '["manage_finance"]'::jsonb)
+      )
+  );
+$$;
+revoke all on function public.can_manage_finance() from public, anon;
+grant execute on function public.can_manage_finance() to authenticated;
+
+drop policy if exists "account_ledger_insert_admin_or_accounts" on public.account_ledger;
+create policy "account_ledger_insert_admin_or_accounts"
+  on public.account_ledger for insert to authenticated
+  with check (public.can_manage_finance() and (public.is_admin() or account_owner_id = auth.uid()));
+
+drop policy if exists "account_ledger_update_admin_only" on public.account_ledger;
+create policy "account_ledger_update_admin_only"
+  on public.account_ledger for update to authenticated
+  using (public.can_manage_finance())
+  with check (public.can_manage_finance());
+
+notify pgrst, 'reload schema';
