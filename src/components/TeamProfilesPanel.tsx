@@ -30,6 +30,7 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const canVerifyAttachments = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.permissions?.includes('manage_finance') === true;
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +95,22 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
     } finally { setSending(false); }
   };
 
+  const attestAttachment = async (messageId: string) => {
+    try {
+      const updated = await api.attestTeamMessageAttachment(messageId);
+      setMessages((prev) => prev.map((m) => m.id === updated.id ? updated : m));
+      setError('');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Attestation failed.'); }
+  };
+
+  const verifyAttachment = async (messageId: string) => {
+    try {
+      const updated = await api.verifyTeamMessageAttachment(messageId);
+      setMessages((prev) => prev.map((m) => m.id === updated.id ? updated : m));
+      setError('');
+    } catch (err) { setError(err instanceof Error ? err.message : 'Verification failed.'); }
+  };
+
   const openAttachment = async (path: string) => {
     try {
       const url = await api.getTeamChatFileUrl(path);
@@ -119,7 +136,14 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
             return <div key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
               <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 shadow-sm ${mine ? 'bg-blue-700 text-white rounded-br-sm' : 'bg-white text-slate-800 border border-slate-200 rounded-bl-sm'}`}>
                 {m.body && <p className="text-sm whitespace-pre-wrap break-words">{m.body}</p>}
-                {m.attachmentPath && <button type="button" onClick={() => void openAttachment(m.attachmentPath!)} className={`mt-2 flex items-center gap-2 text-xs underline ${mine ? 'text-blue-100' : 'text-blue-700'}`}><FileText className="w-4 h-4"/>{m.attachmentName || 'Open attachment'}</button>}
+                {m.attachmentPath && <>
+                  <button type="button" onClick={() => void openAttachment(m.attachmentPath!)} className={`mt-2 flex items-center gap-2 text-xs underline ${mine ? 'text-blue-100' : 'text-blue-700'}`}><FileText className="w-4 h-4"/>{m.attachmentName || 'Open attachment'}</button>
+                  <div className={`mt-2 flex flex-wrap items-center gap-2 text-[10px] ${mine ? 'text-blue-100' : 'text-slate-500'}`}>
+                    {m.attachmentReceivedAt ? <span>Received attested</span> : !mine ? <button type="button" onClick={() => void attestAttachment(m.id)} className="rounded-md border border-current px-2 py-1 font-semibold">Attest received</button> : <span>Awaiting recipient attestation</span>}
+                    {m.attachmentVerifiedAt ? <span className="font-semibold">Verified {new Date(m.attachmentVerifiedAt).toLocaleDateString()}</span> : canVerifyAttachments && m.attachmentReceivedAt ? <button type="button" onClick={() => void verifyAttachment(m.id)} className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 font-semibold text-emerald-800">Verify file</button> : null}
+                    {m.attachmentVerificationNote && <span>Note: {m.attachmentVerificationNote}</span>}
+                  </div>
+                </>}
                 <div className={`mt-1 flex gap-2 text-[10px] ${mine ? 'text-blue-100' : 'text-slate-400'}`}><span>{new Date(m.createdAt).toLocaleString()}</span>{m.expiresAt && <span>Auto-delete {new Date(m.expiresAt).toLocaleString()}</span>}{mine && m.readAt && <span>Seen</span>}</div>
               </div>
             </div>;
