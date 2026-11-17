@@ -495,6 +495,11 @@ interface TeamMessageRow {
   attachment_mime?: string | null;
   attachment_size?: number | null;
   expires_at?: string | null;
+  attachment_received_at?: string | null;
+  attachment_received_by?: string | null;
+  attachment_verified_at?: string | null;
+  attachment_verified_by?: string | null;
+  attachment_verification_note?: string | null;
   created_at: string;
 }
 
@@ -691,6 +696,11 @@ function mapTeamMessageRow(row: TeamMessageRow): TeamMessage {
     attachmentMime: row.attachment_mime || undefined,
     attachmentSize: row.attachment_size ? Number(row.attachment_size) : undefined,
     expiresAt: row.expires_at || undefined,
+    attachmentReceivedAt: row.attachment_received_at || undefined,
+    attachmentReceivedBy: row.attachment_received_by || undefined,
+    attachmentVerifiedAt: row.attachment_verified_at || undefined,
+    attachmentVerifiedBy: row.attachment_verified_by || undefined,
+    attachmentVerificationNote: row.attachment_verification_note || undefined,
     createdAt: row.created_at,
   };
 }
@@ -2796,6 +2806,20 @@ export const api = {
         expiresInSeconds: payload.expiresInSeconds || null,
       }),
     });
+  },
+
+  attestTeamMessageAttachment: async (messageId: string): Promise<TeamMessage> => {
+    if (!supabase) throw new Error('Attachment attestation requires Supabase.');
+    const { data, error } = await supabase.rpc('attest_team_message_attachment', { p_message_id: messageId });
+    if (error) throw new Error(error.message);
+    return mapTeamMessageRow(data as TeamMessageRow);
+  },
+
+  verifyTeamMessageAttachment: async (messageId: string): Promise<TeamMessage> => {
+    if (!supabase) throw new Error('Attachment verification requires Supabase.');
+    const { data, error } = await supabase.rpc('verify_team_message_attachment', { p_message_id: messageId, p_note: null });
+    if (error) throw new Error(error.message);
+    return mapTeamMessageRow(data as TeamMessageRow);
   },
 
   getTeamChatFileUrl: async (path: string): Promise<string> => {
