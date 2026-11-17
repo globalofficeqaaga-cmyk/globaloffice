@@ -1489,6 +1489,11 @@ create unique index if not exists idx_team_messages_request_id
 
 alter table public.team_messages enable row level security;
 
+-- Expose only the operations the signed-in chat client needs. No anonymous access.
+revoke all on table public.team_messages from anon, authenticated;
+grant select, insert, update on table public.team_messages to authenticated;
+grant all on table public.team_messages to service_role;
+
 create or replace function public.protect_team_message_immutability()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
