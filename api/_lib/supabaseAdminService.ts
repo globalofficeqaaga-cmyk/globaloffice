@@ -782,13 +782,13 @@ export async function createManagedUserRecord(
 
   let { data: savedProfileData, error: saveErr } = await saveDesired(desiredProfile);
 
-  // Graceful fallback if DB hasn't added personal_phone / joining_date yet and user left them blank
+  // Keep account creation working on databases that have not yet applied the
+  // optional staff profile fields migration. The account remains valid; the
+  // missing optional fields can be saved after the migration is applied.
   if (
     saveErr &&
     (saveErr.code === '42703' || saveErr.code === 'PGRST204') &&
-    (saveErr.message?.includes('personal_phone') || saveErr.message?.includes('joining_date')) &&
-    !personalPhone &&
-    !joiningDate
+    (saveErr.message?.includes('personal_phone') || saveErr.message?.includes('joining_date'))
   ) {
     const { personal_phone: _p, joining_date: _j, ...legacyFields } = desiredProfile;
     const retry = await saveDesired(legacyFields);
