@@ -1020,6 +1020,7 @@ export function AccountsDashboard({
 
       {staffModalOpen && (
         <StaffAccountModal
+          allowedRoles={['staff']}
           defaultRole="staff"
           onClose={() => setStaffModalOpen(false)}
           onSave={async (payload) => {
