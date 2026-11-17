@@ -48,8 +48,8 @@ notify pgrst, 'reload schema';
 -- Management users can delegate account creation and permission setup as requested.
 update public.profiles
 set permissions = (
-  select coalesce(jsonb_agg(distinct permission), '[]'::jsonb)
-  from jsonb_array_elements_text(coalesce(public.profiles.permissions, '[]'::jsonb) || '["view_team_profiles","create_staff_accounts","manage_user_permissions"]'::jsonb) as permission
+  select coalesce(jsonb_agg(distinct p.permission), '[]'::jsonb)
+  from jsonb_array_elements_text(coalesce(public.profiles.permissions, '[]'::jsonb) || '["view_team_profiles","create_staff_accounts","manage_user_permissions"]'::jsonb) as p(permission)
 )
 where role = 'management';
 
