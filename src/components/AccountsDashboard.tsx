@@ -35,7 +35,7 @@ import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
 import { TeamProfilesPanel } from './TeamProfilesPanel';
-import { AttendanceModal, DailyLogModal, LedgerEntryModal } from './modals/RecordModals';
+import { AttendanceModal, DailyLogModal, LedgerEntryModal, StaffAccountModal } from './modals/RecordModals';
 
 interface AccountsDashboardProps {
   data: DashboardData;
@@ -52,10 +52,14 @@ export function AccountsDashboard({
   onGoHome,
   onLogout,
 }: AccountsDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AccountsTab>('ledger');
+  const canViewFinance = data.user.role === 'admin' || Boolean(data.user.permissions?.includes('view_finance') || data.user.permissions?.includes('manage_finance'));
+  const canManageFinance = data.user.role === 'admin' || Boolean(data.user.permissions?.includes('manage_finance'));
+  const canCreateStaffAccounts = data.user.role === 'admin' || Boolean(data.user.permissions?.includes('create_staff_accounts'));
+  const [activeTab, setActiveTab] = useState<AccountsTab>(canViewFinance ? 'ledger' : 'team');
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | LedgerEntryType>('all');
   const [ledgerModalOpen, setLedgerModalOpen] = useState(false);
+  const [staffModalOpen, setStaffModalOpen] = useState(false);
   const [attendanceModal, setAttendanceModal] = useState<{
     open: boolean;
     item: StaffAttendanceRecord | null;
@@ -292,12 +296,12 @@ export function AccountsDashboard({
   }
 
   const tabs: NavTab[] = [
-    {
+    ...(canViewFinance ? [{
       id: 'ledger',
       label: 'Debit & Credit Ledger',
       icon: <Wallet className="w-4 h-4" />,
       count: entries.length,
-    },
+    }] : []),
     {
       id: 'daily',
       label: 'Staff Daily Report',
@@ -318,7 +322,7 @@ export function AccountsDashboard({
   ];
 
   const primaryAction =
-    activeTab === 'ledger' ? (
+    activeTab === 'ledger' && canManageFinance ? (
       <button
         type="button"
         onClick={() => setLedgerModalOpen(true)}
@@ -337,6 +341,10 @@ export function AccountsDashboard({
         <Plus className="w-4 h-4" />
         <span className="sm:hidden">Log Talk</span>
         <span className="hidden sm:inline">Log Conversation</span>
+      </button>
+    ) : activeTab === 'team' && canCreateStaffAccounts ? (
+      <button type="button" onClick={() => setStaffModalOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-blue-800 cursor-pointer">
+        <Plus className="w-4 h-4" /> Create Staff Account
       </button>
     ) : null;
 
@@ -666,11 +674,13 @@ export function AccountsDashboard({
           TEAM PROFILES DIRECTORY TAB
          ==================================================================== */}
       {activeTab === 'team' && (
+        <>
         <TeamProfilesPanel
           currentUser={data.user}
           members={teamRoster}
           onEditOwnProfile={() => setActiveTab('profile')}
         />
+        </>
       )}
 
       {/* ====================================================================
@@ -984,7 +994,21 @@ export function AccountsDashboard({
         />
       )}
 
-      {ledgerModalOpen && (
+      {staffModalOpen && (
+        <StaffAccountModal
+          defaultRole="staff"
+          onClose={() => setStaffModalOpen(false)}
+          onSave={async (payload) => {
+            if (!payload.password) throw new Error('Password is required to create an account.');
+            await api.createStaff({ ...payload, password: payload.password });
+            await onRefresh();
+            setStaffModalOpen(false);
+            notifySuccess('Staff login account created successfully.');
+          }}
+        />
+      )}
+
+      {ledgerModalOpen && canManageFinance && (
         <LedgerEntryModal
           initial={null}
           ownerId={data.user.id}
