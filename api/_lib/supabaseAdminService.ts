@@ -286,7 +286,7 @@ async function authenticateAdminCaller(
 
 async function authenticateAccountCreator(
   authHeader: string | undefined
-): Promise<{ adminClient: SupabaseClient; adminId: string } | ServiceResult> {
+): Promise<{ adminClient: SupabaseClient; adminId: string; role: string } | ServiceResult> {
   let adminClient: SupabaseClient;
   try {
     adminClient = getSupabaseAdminClient();
@@ -303,7 +303,7 @@ async function authenticateAccountCreator(
   if (!profile || (profile.role !== 'admin' && !permissions.includes('create_staff_accounts'))) {
     return { status: 403, body: { error: 'You do not have permission to create Staff login accounts.' } };
   }
-  return { adminClient, adminId: profile.id };
+  return { adminClient, adminId: profile.id, role: profile.role };
 }
 
 async function authenticateTeamCaller(
@@ -863,6 +863,22 @@ export async function handleCreateManagedUser(
 ): Promise<ServiceResult> {
   const auth = await authenticateAccountCreator(authHeader);
   if ('status' in auth) return auth;
+  if (auth.role !== 'admin') {
+    if (body.role && body.role !== 'staff') {
+      return { status: 403, body: { error: 'Account-permission users can create Staff accounts only.' } };
+    }
+    const safeDelegatedPermissions = new Set([
+      'view_team_profiles', 'add_clients', 'edit_clients', 'delete_clients',
+      'print_a4', 'send_messages', 'view_finance', 'manage_finance',
+    ]);
+    body = {
+      ...body,
+      role: 'staff',
+      permissions: Array.isArray(body.permissions)
+        ? body.permissions.filter((permission) => safeDelegatedPermissions.has(permission))
+        : [],
+    };
+  }
   return createManagedUserRecord(auth.adminClient, body);
 }
 
