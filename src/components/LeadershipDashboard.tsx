@@ -4,7 +4,6 @@ import { DashboardShell, type NavTab } from './DashboardShell';
 import { TeamProfilesPanel } from './TeamProfilesPanel';
 import { ClientModal } from './modals/RecordModals';
 import { api } from '../lib/api';
-import type { ClientProfile } from '../types';
 import { formatDateOnly, formatDateTime } from '../lib/api';
 import type { DashboardData } from '../types';
 
