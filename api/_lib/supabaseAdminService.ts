@@ -293,7 +293,7 @@ async function authenticateAccountCreator(
   } catch (err) {
     return { status: 503, body: { error: err instanceof Error ? err.message : 'Supabase Admin API is not configured.' } };
   }
-  const jwt = (authHeader || '').replace(/^Bearer\\s+/i, '').trim();
+  const jwt = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
   if (!jwt) return { status: 401, body: { error: 'Sign-in session is required.' } };
   const { data, error } = await adminClient.auth.getUser(jwt);
   if (error || !data?.user) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
