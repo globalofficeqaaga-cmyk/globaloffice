@@ -9,6 +9,7 @@ import {
   CalendarCheck,
   CheckCircle2,
   ClipboardList,
+  ImagePlus,
   Eye,
   EyeOff,
   Globe,
@@ -115,6 +116,8 @@ export function AdminDashboard({
   const [adminPersonalPhone, setAdminPersonalPhone] = useState(data.user.personalPhone || '');
   const [adminWhatsapp, setAdminWhatsapp] = useState(data.user.whatsapp);
   const [adminJoiningDate, setAdminJoiningDate] = useState(data.user.joiningDate || '');
+  const [adminPhotoUrl, setAdminPhotoUrl] = useState(data.user.photoUrl || '');
+  const [adminPhotoUploading, setAdminPhotoUploading] = useState(false);
   const [adminNewPassword, setAdminNewPassword] = useState('');
   const [adminConfirmPassword, setAdminConfirmPassword] = useState('');
   const [showAdminPass, setShowAdminPass] = useState(false);
@@ -132,8 +135,32 @@ export function AdminDashboard({
       setAdminPersonalPhone(data.user.personalPhone || '');
       setAdminWhatsapp(data.user.whatsapp);
       setAdminJoiningDate(data.user.joiningDate || '');
+      setAdminPhotoUrl(data.user.photoUrl || '');
     }
   }, [data.user, settingsDirty]);
+
+  async function handleAdminPhotoChange(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setSettingsError('Please choose an image file.');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setSettingsError('Admin photo must be 8 MB or smaller.');
+      return;
+    }
+    setSettingsError('');
+    setAdminPhotoUploading(true);
+    try {
+      const photoUrl = await api.uploadStaffMediaFile(file, data.user.id, 'avatar');
+      setAdminPhotoUrl(photoUrl);
+      setSettingsDirty(true);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : 'Failed to upload admin photo.');
+    } finally {
+      setAdminPhotoUploading(false);
+    }
+  }
 
   function notifySuccess(msg: string) {
     setActionError('');
@@ -168,6 +195,7 @@ export function AdminDashboard({
         personalPhone: adminPersonalPhone.trim(),
         whatsapp: adminWhatsapp.trim(),
         joiningDate: adminJoiningDate.trim(),
+        photoUrl: adminPhotoUrl,
         newPassword: adminNewPassword.trim() || undefined,
         expectedVersion: data.user.version,
       });
@@ -2944,6 +2972,35 @@ export function AdminDashboard({
                 {settingsError}
               </div>
             )}
+
+            <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="h-20 w-20 overflow-hidden rounded-full border border-slate-200 bg-white flex items-center justify-center">
+                {adminPhotoUrl ? (
+                  <img src={adminPhotoUrl} alt="Admin profile" className="h-full w-full object-cover" />
+                ) : (
+                  <ImagePlus className="h-7 w-7 text-slate-400" />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <label htmlFor="admin-photo-input" className="block text-xs font-semibold text-slate-700 mb-1">
+                  Admin Profile Photo
+                </label>
+                <input
+                  id="admin-photo-input"
+                  type="file"
+                  accept="image/*"
+                  disabled={adminPhotoUploading || settingsSaving}
+                  onChange={(e) => {
+                    void handleAdminPhotoChange(e.target.files?.[0]);
+                    e.currentTarget.value = '';
+                  }}
+                  className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-xs file:font-semibold file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-60"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  {adminPhotoUploading ? 'Uploading photo...' : 'Choose JPG, PNG or WebP (maximum 8 MB), then save your profile.'}
+                </p>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
