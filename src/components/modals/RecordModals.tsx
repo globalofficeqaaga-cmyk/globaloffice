@@ -47,6 +47,8 @@ import type {
   MeetingRecord,
   MeetingStatus,
   PublicUser,
+  UserPermission,
+  UserRole,
   StaffAttendanceRecord,
   StaffDailyLog,
 } from '../../types';
@@ -2176,14 +2178,15 @@ export function InterviewModal({
  * ========================================================================== */
 interface StaffAccountModalProps {
   initial?: PublicUser | null;
-  defaultRole?: 'staff' | 'accounts';
+  defaultRole?: UserRole;
   onClose: () => void;
   onSave: (payload: {
     userId: string;
     email?: string;
     password?: string;
     name: string;
-    role: 'staff' | 'accounts';
+    role: Exclude<UserRole, 'accounts'>;
+    permissions: UserPermission[];
     designation: string;
     phone: string;
     personalPhone: string;
@@ -2201,11 +2204,27 @@ export function StaffAccountModal({
   onClose,
   onSave,
 }: StaffAccountModalProps) {
-  const effectiveRole: 'staff' | 'accounts' =
-    initial?.role === 'accounts' || (!initial && defaultRole === 'accounts')
-      ? 'accounts'
-      : 'staff';
-  const isAccounts = effectiveRole === 'accounts';
+  const [role, setRole] = useState<Exclude<UserRole, 'accounts'>>(
+    initial?.role === 'accounts' ? 'staff' : (initial?.role || (defaultRole === 'accounts' ? 'staff' : defaultRole)) as Exclude<UserRole, 'accounts'>
+  );
+  const [permissions, setPermissions] = useState<UserPermission[]>(
+    initial?.role === 'accounts'
+      ? ['view_team_profiles', 'view_finance', 'manage_finance', 'create_staff_accounts']
+      : (initial?.permissions || [])
+  );
+  const isAccounts = permissions.includes('view_finance') || permissions.includes('manage_finance');
+  const permissionOptions: { value: UserPermission; label: string }[] = [
+    { value: 'view_team_profiles', label: 'View team profiles' },
+    { value: 'add_clients', label: 'Add clients' },
+    { value: 'edit_clients', label: 'Edit clients' },
+    { value: 'delete_clients', label: 'Delete clients' },
+    { value: 'print_a4', label: 'A4 print' },
+    { value: 'send_messages', label: 'Send messages' },
+    { value: 'view_finance', label: 'View finance' },
+    { value: 'manage_finance', label: 'Add / verify financial entries and receipts' },
+    { value: 'create_staff_accounts', label: 'Create Staff login accounts' },
+    { value: 'manage_user_permissions', label: 'Assign user permissions' },
+  ];
 
   const [name, setName] = useState(initial?.name || '');
   const [designation, setDesignation] = useState(
@@ -2307,7 +2326,8 @@ export function StaffAccountModal({
     try {
       await onSave({
         name: name.trim(),
-        role: effectiveRole,
+        role,
+        permissions,
         designation: designation.trim(),
         userId: userId.trim(),
         email: email.trim() || undefined,
@@ -2335,18 +2355,10 @@ export function StaffAccountModal({
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
             <h2 className="font-display text-lg font-bold text-slate-900">
-              {initial
-                ? isAccounts
-                  ? 'Edit Accounts Dashboard ID'
-                  : 'Edit Staff Account'
-                : isAccounts
-                ? 'Create Accounts Dashboard ID'
-                : 'Create Staff Account'}
+              {initial ? 'Edit Team Account' : 'Create Team Account'}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              {isAccounts
-                ? 'Accounts officers sign in with this ID & password to enter Debit and Credit records.'
-                : 'Staff will use this User ID and Password to sign in and create client accounts.'}
+              Choose a dashboard role, then enable only the permissions this user needs.
             </p>
           </div>
           <button
@@ -2371,6 +2383,30 @@ export function StaffAccountModal({
               {error}
             </div>
           )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Dashboard Role *</label>
+            <select value={role} onChange={(e) => { markDirty(); setRole(e.target.value as Exclude<UserRole, 'accounts'>); }} className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg">
+              <option value="staff">Staff</option>
+              <option value="director">Director</option>
+              <option value="management">Management</option>
+            </select>
+          </div>
+
+          <div className="pt-3 border-t border-slate-200">
+            <p className="text-xs font-bold text-slate-800 mb-2">Additional permissions</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {permissionOptions.map((item) => (
+                <label key={item.value} className="flex items-start gap-2 text-xs text-slate-700">
+                  <input type="checkbox" checked={permissions.includes(item.value)} onChange={(e) => {
+                    markDirty();
+                    setPermissions((prev) => e.target.checked ? [...prev, item.value] : prev.filter((p) => p !== item.value));
+                  }} className="mt-0.5" />
+                  <span>{item.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -2602,15 +2638,7 @@ export function StaffAccountModal({
               disabled={saving || uploadingKind !== null}
               className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
             >
-              {saving
-                ? 'Saving...'
-                : initial
-                ? isAccounts
-                  ? 'Update Accounts ID'
-                  : 'Update Staff'
-                : isAccounts
-                ? 'Create Accounts ID'
-                : 'Create Staff'}
+              {saving ? 'Saving...' : initial ? 'Update Account' : 'Create Account'}
             </button>
           </div>
         </form>
