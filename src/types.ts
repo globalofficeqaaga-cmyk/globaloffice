@@ -188,6 +188,11 @@ export interface AccountLedgerEntry {
   entryDate: string;
   paymentMethod: string;
   notes: string;
+  receiptPath?: string;
+  receiptStatus?: 'not_submitted' | 'pending' | 'verified' | 'rejected';
+  receiptUploadedAt?: string;
+  receiptVerifiedAt?: string;
+  receiptVerifiedBy?: string;
   createdByName?: string;
   version?: number;
   clientRequestId?: string;
