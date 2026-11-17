@@ -545,7 +545,7 @@ function mapSupabaseAuthCreateError(message: string): { status: number; message:
   if (lower.includes('password')) {
     return {
       status: 400,
-      message: 'Password does not meet security requirements (minimum 12 characters).',
+      message: 'Password does not meet security requirements (minimum 4 characters).',
     };
   }
   if (lower.includes('email')) {
