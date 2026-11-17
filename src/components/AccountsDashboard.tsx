@@ -878,7 +878,7 @@ export function AccountsDashboard({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Change Password (Optional, min. 12 chars)
+                  Change Password (Optional, min. 4 chars)
                 </label>
                 <input
                   type="password"
