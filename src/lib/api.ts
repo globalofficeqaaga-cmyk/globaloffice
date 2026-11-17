@@ -252,6 +252,7 @@ interface ProfileRow {
   user_id: string;
   email?: string;
   role: UserRole;
+  permissions?: import('../types').UserPermission[];
   name: string;
   designation: string;
   phone: string;
@@ -472,6 +473,7 @@ function mapProfileRow(row: ProfileRow): PublicUser {
     userId: row.user_id,
     email: row.email,
     role: row.role,
+    permissions: Array.isArray(row.permissions) ? row.permissions : [],
     name: row.name,
     designation: row.designation || 'Visa & Recruitment Coordinator',
     phone: row.phone || '',
@@ -1119,7 +1121,7 @@ export const api = {
     if (supabase) {
       const user = await getCurrentSupabaseUser();
       const isAdmin = user.role === 'admin';
-      const isAccounts = user.role === 'accounts';
+      const isAccounts = Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
 
       const [
         profilesRes,
@@ -1142,6 +1144,7 @@ export const api = {
         supabase
           .from('profiles')
           .select('*')
+          .neq('role', 'admin')
           .order('created_at', { ascending: false }),
         user.role !== 'accounts'
           ? supabase
