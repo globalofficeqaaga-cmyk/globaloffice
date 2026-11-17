@@ -422,6 +422,11 @@ export interface TeamMessage {
   attachmentMime?: string;
   attachmentSize?: number;
   expiresAt?: string;
+  attachmentReceivedAt?: string;
+  attachmentReceivedBy?: string;
+  attachmentVerifiedAt?: string;
+  attachmentVerifiedBy?: string;
+  attachmentVerificationNote?: string;
   createdAt: string;
 }
 

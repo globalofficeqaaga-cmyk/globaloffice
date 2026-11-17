@@ -1706,3 +1706,59 @@ end $$;
 --    Accounts logins securely via Supabase Auth Admin APIs.
 
 notify pgrst, 'reload schema';
+
+
+-- Chat attachment receipt attestation and privileged verification.
+alter table public.team_messages
+  add column if not exists attachment_received_at timestamptz,
+  add column if not exists attachment_received_by uuid references public.profiles(id) on delete set null,
+  add column if not exists attachment_verified_at timestamptz,
+  add column if not exists attachment_verified_by uuid references public.profiles(id) on delete set null,
+  add column if not exists attachment_verification_note text;
+
+create or replace function public.attest_team_message_attachment(p_message_id uuid)
+returns public.team_messages
+language plpgsql security definer set search_path = public as $$
+declare v_message public.team_messages;
+begin
+  if auth.uid() is null then raise exception 'Authentication required.'; end if;
+  update public.team_messages
+     set attachment_received_at = coalesce(attachment_received_at, now()),
+         attachment_received_by = coalesce(attachment_received_by, auth.uid())
+   where id = p_message_id and recipient_id = auth.uid()
+     and attachment_path is not null
+     and (expires_at is null or expires_at > now())
+   returning * into v_message;
+  if not found then raise exception 'Only the recipient can attest an active attachment.'; end if;
+  return v_message;
+end;
+$$;
+
+create or replace function public.verify_team_message_attachment(p_message_id uuid, p_note text default null)
+returns public.team_messages
+language plpgsql security definer set search_path = public as $$
+declare v_message public.team_messages;
+begin
+  if auth.uid() is null then raise exception 'Authentication required.'; end if;
+  if not exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid()
+      and (p.role in ('admin', 'accounts') or coalesce(p.permissions, '[]'::jsonb) ? 'manage_finance')
+  ) then raise exception 'Admin or Accounts verification permission required.'; end if;
+  update public.team_messages
+     set attachment_verified_at = now(),
+         attachment_verified_by = auth.uid(),
+         attachment_verification_note = nullif(left(trim(coalesce(p_note, '')), 500), '')
+   where id = p_message_id and attachment_path is not null
+     and attachment_received_at is not null
+     and (expires_at is null or expires_at > now())
+   returning * into v_message;
+  if not found then raise exception 'Recipient must attest the active attachment before verification.'; end if;
+  return v_message;
+end;
+$$;
+
+revoke all on function public.attest_team_message_attachment(uuid) from public, anon;
+revoke all on function public.verify_team_message_attachment(uuid, text) from public, anon;
+grant execute on function public.attest_team_message_attachment(uuid) to authenticated;
+grant execute on function public.verify_team_message_attachment(uuid, text) to authenticated;
