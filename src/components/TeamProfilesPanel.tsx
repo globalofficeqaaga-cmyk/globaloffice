@@ -39,7 +39,7 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
       (m.senderId === member.id && m.recipientId === currentUser.id);
     const refresh = async () => {
       try {
-        const rows = await api.getDirectTeamMessages(member.id);
+        const rows = await api.getDirectTeamMessages(member.id, currentUser.id);
         if (!active) return;
         setMessages(rows);
         setError('');
@@ -61,8 +61,8 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
         }
       },
       onMessagesRead: (senderId, readerId, readAt) => {
-        if (active && senderId === member.id && readerId === currentUser.id) {
-          setMessages((prev) => prev.map((m) => m.senderId === member.id ? { ...m, readAt } : m));
+        if (active && senderId === currentUser.id && readerId === member.id) {
+          setMessages((prev) => prev.map((m) => m.senderId === currentUser.id ? { ...m, readAt } : m));
         }
       },
       onReconnectSync: () => { void refresh(); },
