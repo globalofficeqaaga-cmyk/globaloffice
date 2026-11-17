@@ -167,6 +167,26 @@ export function AdminDashboard({
     setSaveToast(msg);
   }
 
+  async function openLedgerReceipt(path?: string) {
+    if (!path) return;
+    try {
+      const url = await api.getLedgerReceiptSignedUrl(path);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Unable to open receipt.');
+    }
+  }
+
+  async function verifyLedgerReceipt(id: string, verified: boolean) {
+    try {
+      await api.verifyLedgerReceipt(id, verified);
+      await onRefresh();
+      notifySuccess(verified ? 'Receipt verified.' : 'Receipt marked as rejected.');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Receipt verification failed.');
+    }
+  }
+
   async function handleSaveAdminCredentials(e: FormEvent) {
     e.preventDefault();
     setSettingsError('');
@@ -2396,6 +2416,14 @@ export function AdminDashboard({
                           </div>
                         </div>
 
+                        {item.receiptPath && (
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <button type="button" onClick={() => openLedgerReceipt(item.receiptPath)} className="font-semibold text-blue-700 underline">View receipt</button>
+                            <span className={item.receiptStatus === 'verified' ? 'text-emerald-700' : item.receiptStatus === 'rejected' ? 'text-red-700' : 'text-amber-700'}>{item.receiptStatus || 'pending'}</span>
+                            {item.receiptStatus !== 'verified' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, true)} className="font-semibold text-emerald-700 underline">Verify</button>}
+                            {item.receiptStatus !== 'rejected' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, false)} className="font-semibold text-red-700 underline">Reject</button>}
+                          </div>
+                        )}
                         <div className="flex items-center justify-between pt-1">
                           <span
                             className={`inline-flex items-center gap-1 text-xs font-semibold ${
@@ -2480,6 +2508,7 @@ export function AdminDashboard({
                         <th className="px-4 py-3 font-medium">Party &amp; Ref</th>
                         <th className="px-4 py-3 font-medium">Method</th>
                         <th className="px-4 py-3 font-medium">Entered By</th>
+                        <th className="px-4 py-3 font-medium">Receipt / Verification</th>
                         <th className="px-4 py-3 font-medium text-right">Amount (BDT)</th>
                         <th className="px-6 py-3 font-medium text-right">Actions</th>
                       </tr>
@@ -2526,6 +2555,16 @@ export function AdminDashboard({
                             </td>
                             <td className="px-4 py-3.5 text-slate-600 whitespace-nowrap">
                               {item.createdByName || 'Admin'}
+                            </td>
+                            <td className="px-4 py-3.5 min-w-[180px]">
+                              {item.receiptPath ? (
+                                <div className="space-y-1.5">
+                                  <button type="button" onClick={() => openLedgerReceipt(item.receiptPath)} className="text-xs font-semibold text-blue-700 underline">Open receipt</button>
+                                  <p className={`text-[11px] font-semibold ${item.receiptStatus === 'verified' ? 'text-emerald-700' : item.receiptStatus === 'rejected' ? 'text-red-700' : 'text-amber-700'}`}>{item.receiptStatus || 'pending'}</p>
+                                  {item.receiptStatus !== 'verified' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, true)} className="mr-2 text-[11px] font-semibold text-emerald-700 underline">Verify</button>}
+                                  {item.receiptStatus !== 'rejected' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, false)} className="text-[11px] font-semibold text-red-700 underline">Reject</button>}
+                                </div>
+                              ) : <span className="text-xs text-slate-400">No receipt</span>}
                             </td>
                             <td
                               className={`px-4 py-3.5 text-right font-mono tabular-nums font-semibold whitespace-nowrap ${
