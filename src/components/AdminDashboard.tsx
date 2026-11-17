@@ -3287,7 +3287,7 @@ export function AdminDashboard({
           defaultRole={staffModal.defaultRole}
           onClose={() => setStaffModal({ open: false, item: null, defaultRole: 'staff' })}
           onSave={async (payload) => {
-            const label = payload.role === 'accounts' ? 'Accounts dashboard ID' : 'Staff account';
+            const label = payload.role === 'director' ? 'Director account' : payload.role === 'management' ? 'Management account' : 'Staff account';
             if (staffModal.item) {
               await api.updateStaff(staffModal.item.id, payload);
               await onRefresh();
