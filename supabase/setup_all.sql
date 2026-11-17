@@ -127,7 +127,7 @@ security definer
 set search_path = public
 as $
 begin
-  if auth.uid() is null or not public.can_view_team_profiles() then
+  if auth.uid() is null or (not public.is_admin() and not public.can_view_team_profiles()) then
     raise exception 'Authenticated team account required.';
   end if;
   return query
