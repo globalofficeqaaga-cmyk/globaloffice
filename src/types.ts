@@ -10,7 +10,9 @@ export type UserPermission =
   | 'view_finance'
   | 'manage_finance'
   | 'create_staff_accounts'
-  | 'manage_user_permissions';
+  | 'manage_user_permissions'
+  | 'view_all_reports'
+  | 'sub_admin';
 
 export interface PublicUser {
   id: string;
