@@ -117,6 +117,8 @@ export function DashboardShell({
           )
         );
       },
+      onMessageUpdated: (msg) => mergeIncomingMessage(msg),
+      onMessageDeleted: (messageId) => setTeamMessages((prev) => prev.filter((m) => m.id !== messageId)),
       onReconnectSync: () => {
         void loadMessages();
       },
