@@ -2831,8 +2831,12 @@ export const api = {
 
   deleteTeamMessage: async (messageId: string): Promise<void> => {
     if (!supabase) throw new Error('Message deletion requires Supabase.');
-    const { error } = await supabase.rpc('delete_team_message', { p_message_id: messageId });
+    const { data: attachmentPath, error } = await supabase.rpc('delete_team_message', { p_message_id: messageId });
     if (error) throw new Error(error.message);
+    if (typeof attachmentPath === 'string' && attachmentPath) {
+      const { error: storageError } = await supabase.storage.from('team-chat-files').remove([attachmentPath]);
+      if (storageError) throw new Error('Message deleted, but its attachment could not be removed: ' + storageError.message);
+    }
   },
 
   markDirectMessagesRead: async (senderId: string): Promise<void> => {
