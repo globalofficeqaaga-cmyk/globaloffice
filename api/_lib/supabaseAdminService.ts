@@ -321,7 +321,7 @@ async function authenticateAccountCreator(
   if (!jwt) return { status: 401, body: { error: 'Sign-in session is required.' } };
   const { user: callerUser, error } = await verifyCallerJwt(jwt);
   if (error || !callerUser) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
-  const { data: profile, error: profileError } = await adminClient.from('profiles').select('id, role, permissions').eq('id', data.user.id).maybeSingle();
+  const { data: profile, error: profileError } = await adminClient.from('profiles').select('id, role, permissions').eq('id', callerUser.id).maybeSingle();
   if (profileError) return { status: 500, body: { error: 'Unable to verify account permissions.' } };
   const permissions = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
   if (!profile || (profile.role !== 'admin' && !permissions.includes('create_staff_accounts'))) {
