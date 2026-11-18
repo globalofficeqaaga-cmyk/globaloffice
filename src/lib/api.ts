@@ -2829,6 +2829,12 @@ export const api = {
     return data.signedUrl;
   },
 
+  deleteTeamMessage: async (messageId: string): Promise<void> => {
+    if (!supabase) throw new Error('Message deletion requires Supabase.');
+    const { error } = await supabase.rpc('delete_team_message', { p_message_id: messageId });
+    if (error) throw new Error(error.message);
+  },
+
   markDirectMessagesRead: async (senderId: string): Promise<void> => {
     assertProductionBackend();
     if (!senderId) return;
