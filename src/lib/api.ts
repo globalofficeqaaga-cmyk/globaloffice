@@ -2865,6 +2865,8 @@ export const api = {
     callbacks: {
       onMessageCreated: (msg: TeamMessage) => void;
       onMessagesRead: (senderId: string, readerId: string, readAt: string) => void;
+      onMessageUpdated?: (msg: TeamMessage) => void;
+      onMessageDeleted?: (messageId: string) => void;
       onReconnectSync?: () => void;
       onStatusChange?: (connected: boolean) => void;
     }
@@ -2892,17 +2894,19 @@ export const api = {
           { event: 'UPDATE', schema: 'public', table: 'team_messages' },
           (payload) => {
             const row = payload.new as TeamMessageRow | undefined;
-            if (!row || !row.read_at) return;
-            if (
-              row.sender_id === currentUserId ||
-              row.recipient_id === currentUserId
-            ) {
-              callbacks.onMessagesRead(
-                row.sender_id,
-                row.recipient_id || '',
-                row.read_at
-              );
+            if (!row || !row.id) return;
+            if (row.sender_id === currentUserId || row.recipient_id === currentUserId || row.recipient_id === null) {
+              callbacks.onMessageUpdated?.(mapTeamMessageRow(row));
+              if (row.read_at) callbacks.onMessagesRead(row.sender_id, row.recipient_id || '', row.read_at);
             }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'team_messages' },
+          (payload) => {
+            const row = payload.old as Partial<TeamMessageRow> | undefined;
+            if (row && row.id) callbacks.onMessageDeleted?.(row.id);
           }
         )
         .subscribe((status) => {
