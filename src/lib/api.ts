@@ -1171,7 +1171,8 @@ export const api = {
     assertProductionBackend();
     if (supabase) {
       const user = await getCurrentSupabaseUser();
-      const isAdmin = user.role === 'admin';
+      const isAdmin = user.role === 'admin' || Boolean(user.permissions?.includes('sub_admin'));
+      const canViewAllReports = isAdmin || Boolean(user.permissions?.includes('view_all_reports'));
       const isAccounts = user.role !== 'management' && Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
 
       const [
@@ -1225,7 +1226,7 @@ export const api = {
               .is('deleted_at', null)
               .order('created_at', { ascending: false })
           : Promise.resolve({ data: [], error: null }),
-        isAdmin || isAccounts
+        canViewAllReports || isAccounts
           ? supabase
               .from('account_ledger')
               .select('*')
@@ -1245,7 +1246,7 @@ export const api = {
           .is('deleted_at', null)
           .order('log_date', { ascending: false })
           .order('created_at', { ascending: false }),
-        isAdmin || isAccounts
+        canViewAllReports || isAccounts
           ? supabase.rpc('get_daily_client_activity')
           : Promise.resolve({ data: [], error: null }),
         isAdmin
