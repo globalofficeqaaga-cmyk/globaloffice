@@ -130,7 +130,7 @@ export function DashboardShell({
   }, [user.id, loadMessages, mergeIncomingMessage]);
 
   const handleSendMessage = useCallback(
-    async (recipientId: string | null, body: string) => {
+    async (recipientId: string | null, body: string, attachment: File | null, expiresInSeconds: number | null) => {
       const clientRequestId =
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
@@ -140,11 +140,33 @@ export function DashboardShell({
         recipientId,
         body,
         clientRequestId,
+        attachment,
+        expiresInSeconds,
       });
       mergeIncomingMessage(message);
     },
     [mergeIncomingMessage]
   );
+
+  const handleAttestAttachment = useCallback(async (messageId: string) => {
+    const updated = await api.attestTeamMessageAttachment(messageId);
+    mergeIncomingMessage(updated);
+  }, [mergeIncomingMessage]);
+
+  const handleVerifyAttachment = useCallback(async (messageId: string) => {
+    const updated = await api.verifyTeamMessageAttachment(messageId);
+    mergeIncomingMessage(updated);
+  }, [mergeIncomingMessage]);
+
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    await api.deleteTeamMessage(messageId);
+    setTeamMessages((prev) => prev.filter((message) => message.id !== messageId));
+  }, []);
+
+  const handleOpenAttachment = useCallback(async (path: string) => {
+    const url = await api.getTeamChatFileUrl(path);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
 
   const handleMarkDirectRead = useCallback(
     (senderId: string) => {
@@ -398,6 +420,10 @@ export function DashboardShell({
         unreadBySender={unreadBySender}
         unreadGroupCount={unreadGroupCount}
         onSendMessage={handleSendMessage}
+        onAttestAttachment={handleAttestAttachment}
+        onVerifyAttachment={handleVerifyAttachment}
+        onDeleteMessage={handleDeleteMessage}
+        onOpenAttachment={handleOpenAttachment}
         onMarkDirectRead={handleMarkDirectRead}
         onMarkGroupSeen={handleMarkGroupSeen}
       />
