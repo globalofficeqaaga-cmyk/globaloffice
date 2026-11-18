@@ -10,6 +10,11 @@ import {
   User,
   Users,
   X,
+  Paperclip,
+  Download,
+  Trash2,
+  ShieldCheck,
+  Clock,
 } from 'lucide-react';
 import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser, TeamDirectoryMember, TeamMessage, UserRole } from '../types';
@@ -27,7 +32,11 @@ interface TeamMessengerProps {
   realtimeConnected: boolean;
   unreadBySender: Record<string, number>;
   unreadGroupCount: number;
-  onSendMessage: (recipientId: string | null, body: string) => Promise<void>;
+  onSendMessage: (recipientId: string | null, body: string, attachment: File | null, expiresInSeconds: number | null) => Promise<void>;
+  onAttestAttachment: (messageId: string) => Promise<void>;
+  onVerifyAttachment: (messageId: string) => Promise<void>;
+  onDeleteMessage: (messageId: string) => Promise<void>;
+  onOpenAttachment: (path: string) => Promise<void>;
   onMarkDirectRead: (senderId: string) => void;
   onMarkGroupSeen: () => void;
 }
@@ -75,6 +84,10 @@ export function TeamMessenger({
   unreadBySender,
   unreadGroupCount,
   onSendMessage,
+  onAttestAttachment,
+  onVerifyAttachment,
+  onDeleteMessage,
+  onOpenAttachment,
   onMarkDirectRead,
   onMarkGroupSeen,
 }: TeamMessengerProps) {
@@ -82,6 +95,10 @@ export function TeamMessenger({
   const [mobilePane, setMobilePane] = useState<'list' | 'chat'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [draft, setDraft] = useState('');
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [expiresInSeconds, setExpiresInSeconds] = useState('0');
+  const [actionBusyId, setActionBusyId] = useState('');
+  const [actionError, setActionError] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [profileMember, setProfileMember] = useState<TeamDirectoryMember | null>(null);
@@ -216,15 +233,17 @@ export function TeamMessenger({
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const clean = draft.trim();
-    if (!clean || sending) return;
+    if ((!clean && !attachment) || sending) return;
 
     setSending(true);
     setSendError('');
     try {
       const recipientId =
         selectedThreadId === TEAM_GROUP_THREAD_ID ? null : selectedThreadId;
-      await onSendMessage(recipientId, clean);
+      await onSendMessage(recipientId, clean, attachment, Number(expiresInSeconds) || null);
       setDraft('');
+      setAttachment(null);
+      setExpiresInSeconds('0');
     } catch (err) {
       setSendError(err instanceof Error ? err.message : 'Failed to send message.');
     } finally {
@@ -233,6 +252,13 @@ export function TeamMessenger({
   };
 
   const lastGroupMsg = groupMessages[groupMessages.length - 1];
+  const canVerifyAttachments = currentUser.role === 'admin' || currentUser.permissions?.includes('manage_finance');
+  const canDeleteAnyMessage = currentUser.role === 'admin';
+  const runMessageAction = async (messageId: string, action: () => Promise<void>) => {
+    setActionBusyId(messageId); setActionError('');
+    try { await action(); } catch (err) { setActionError(err instanceof Error ? err.message : 'Unable to complete this action.'); }
+    finally { setActionBusyId(''); }
+  };
 
   return (
     <div
@@ -524,7 +550,36 @@ export function TeamMessenger({
                             : 'bg-white text-slate-900 border border-slate-200 rounded-bl-sm'
                         }`}
                       >
-                        <p className="whitespace-pre-wrap">{msg.body}</p>
+                        {msg.body && <p className="whitespace-pre-wrap">{msg.body}</p>}
+                        {msg.attachmentPath && (
+                          <div className={`mt-2 rounded-lg p-2 ${isMine ? 'bg-blue-700/60' : 'bg-slate-50 border border-slate-200'}`}>
+                            <button type="button" onClick={() => void runMessageAction(msg.id, () => onOpenAttachment(msg.attachmentPath!))}
+                              className="flex items-center gap-2 text-xs font-semibold underline underline-offset-2 break-all">
+                              <Download className="w-4 h-4 shrink-0" /> {msg.attachmentName || 'Download attachment'}
+                              <span className="font-normal opacity-75">({Math.max(1, Math.round((msg.attachmentSize || 0) / 1024))} KB)</span>
+                            </button>
+                            <div className="mt-2 text-[10px] space-y-1">
+                              <p>{msg.attachmentReceivedAt ? '✓ Received / attested' : (isMine ? 'Waiting for recipient attestation' : 'Receipt confirmation pending')}</p>
+                              <p>{msg.attachmentVerifiedAt ? '✓ Verified' : 'Verification pending'}</p>
+                            </div>
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {!isMine && !msg.attachmentReceivedAt && (
+                                <button type="button" disabled={actionBusyId === msg.id}
+                                  onClick={() => void runMessageAction(msg.id, () => onAttestAttachment(msg.id))}
+                                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold bg-white text-blue-700 border border-blue-200 disabled:opacity-50">
+                                  <Check className="w-3 h-3" /> Attest Received
+                                </button>
+                              )}
+                              {canVerifyAttachments && msg.attachmentReceivedAt && !msg.attachmentVerifiedAt && (
+                                <button type="button" disabled={actionBusyId === msg.id}
+                                  onClick={() => void runMessageAction(msg.id, () => onVerifyAttachment(msg.id))}
+                                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold bg-white text-emerald-700 border border-emerald-200 disabled:opacity-50">
+                                  <ShieldCheck className="w-3 h-3" /> Verify File
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                         <div
                           className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
                             isMine ? 'text-blue-100' : 'text-slate-400'
@@ -538,6 +593,13 @@ export function TeamMessenger({
                               <Check className="w-3.5 h-3.5 text-blue-200" aria-label="Sent" />
                             )
                           )}
+                          {(isMine || canDeleteAnyMessage) && (
+                            <button type="button" title="Delete message and attached file" disabled={actionBusyId === msg.id}
+                              onClick={() => { if (window.confirm("Delete this message and its attached file permanently?")) void runMessageAction(msg.id, () => onDeleteMessage(msg.id)); }}
+                              className="ml-1 opacity-80 hover:opacity-100 disabled:opacity-40" aria-label="Delete message">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -549,10 +611,11 @@ export function TeamMessenger({
 
             {/* Sticky Bottom Message Composer */}
             <div className="p-2.5 sm:p-3 bg-white border-t border-slate-200 shrink-0">
-              {sendError && (
-                <p className="text-xs text-red-600 mb-2 px-1 font-medium">{sendError}</p>
+              {(sendError || actionError) && (
+                <p className="text-xs text-red-600 mb-2 px-1 font-medium">{sendError || actionError}</p>
               )}
-              <form onSubmit={handleSubmit} className="flex items-center gap-2">
+              <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
                 <input
                   ref={inputRef}
                   type="text"
@@ -569,13 +632,28 @@ export function TeamMessenger({
                 />
                 <button
                   type="submit"
-                  disabled={!draft.trim() || sending || schemaMissing}
+                  disabled={(!draft.trim() && !attachment) || sending || schemaMissing}
                   aria-label="Send message"
                   className="min-w-[44px] min-h-[44px] px-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white rounded-lg font-medium text-sm inline-flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
                 >
                   <Send className="w-4 h-4" />
                   <span className="hidden sm:inline">{sending ? 'Sending...' : 'Send'}</span>
                 </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                  <label className="inline-flex items-center gap-1.5 cursor-pointer rounded-md border border-slate-200 px-2 py-1.5 hover:bg-slate-50">
+                    <Paperclip className="w-3.5 h-3.5" /> Attach file
+                    <input type="file" className="sr-only" disabled={schemaMissing} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip" onChange={(e) => setAttachment(e.target.files?.[0] || null)} />
+                  </label>
+                  {attachment && <span className="max-w-[150px] truncate">{attachment.name}</span>}
+                  <label className="inline-flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> Auto delete
+                    <select value={expiresInSeconds} onChange={(e) => setExpiresInSeconds(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                      <option value="0">Off</option><option value="3600">1 Hour</option><option value="86400">24 Hours</option><option value="604800">7 Days</option><option value="2592000">30 Days</option>
+                    </select>
+                  </label>
+                  <span className="text-slate-400">Max file size 20 MB</span>
+                </div>
               </form>
             </div>
           </section>
