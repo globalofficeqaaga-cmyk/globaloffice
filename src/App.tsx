@@ -178,7 +178,7 @@ export default function App() {
   }
 
   if (view === 'dashboard' && currentUser && dashboardData) {
-    if (currentUser.role === 'admin' || currentUser.permissions?.includes('sub_admin') || currentUser.permissions?.includes('view_all_reports')) {
+    if (currentUser.role === 'admin') {
       return (
         <AdminDashboard
           data={dashboardData}
