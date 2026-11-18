@@ -110,3 +110,54 @@ create trigger trg_cleanup_expired_team_messages before insert on public.team_me
   for each row execute function public.cleanup_expired_team_messages_before_insert();
 
 notify pgrst, 'reload schema';
+
+-- Ensure scheduled expiry cleanup also removes private Storage objects.
+create or replace function public.purge_expired_team_messages()
+returns integer language plpgsql security definer set search_path = public, storage as $$
+declare deleted_count integer;
+begin
+  delete from storage.objects o
+  using public.team_messages m
+  where o.bucket_id = 'team-chat-files'
+    and o.name = m.attachment_path
+    and m.expires_at is not null
+    and m.expires_at <= now();
+  delete from public.team_messages where expires_at is not null and expires_at <= now();
+  get diagnostics deleted_count = row_count;
+  return deleted_count;
+end;
+$$;
+revoke all on function public.purge_expired_team_messages() from public, anon, authenticated;
+grant execute on function public.purge_expired_team_messages() to service_role;
+
+create or replace function public.cleanup_expired_team_messages()
+returns integer language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Authentication required.'; end if;
+  return public.purge_expired_team_messages();
+end;
+$$;
+revoke all on function public.cleanup_expired_team_messages() from public, anon;
+grant execute on function public.cleanup_expired_team_messages() to authenticated;
+
+create or replace function public.cleanup_expired_team_messages_before_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.purge_expired_team_messages();
+  return new;
+end;
+$$;
+revoke all on function public.cleanup_expired_team_messages_before_insert() from public, anon, authenticated;
+
+do $$
+declare existing_job bigint;
+begin
+  select jobid into existing_job from cron.job where jobname = 'purge-expired-team-chat-messages';
+  if existing_job is not null then perform cron.unschedule(existing_job); end if;
+  perform cron.schedule(
+    'purge-expired-team-chat-messages',
+    '*/5 * * * *',
+    'select public.purge_expired_team_messages();'
+  );
+end $$;
+notify pgrst, 'reload schema';
