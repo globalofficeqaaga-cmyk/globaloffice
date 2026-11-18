@@ -233,7 +233,7 @@ async function verifyCallerJwt(jwt: string): Promise<{ user: { id: string; email
   try {
     // Explicitly send the caller JWT. This avoids AuthClient falling back to the
     // service-role default Authorization header in server runtimes.
-    const response = await fetch(`${supabaseUrl.replace(/\\/$/, '')}/auth/v1/user`, {
+    const response = await fetch(`${(supabaseUrl.endsWith('/') ? supabaseUrl.slice(0, -1) : supabaseUrl)}/auth/v1/user`, {
       method: 'GET',
       headers: {
         apikey: serviceRoleKey,
