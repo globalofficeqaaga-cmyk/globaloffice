@@ -2766,41 +2766,19 @@ export const api = {
       const expiresAt = payload.expiresInSeconds && payload.expiresInSeconds > 0
         ? new Date(Date.now() + payload.expiresInSeconds * 1000).toISOString()
         : null;
-      const rowData = await withRetry(async () => {
-        const { data, error } = await supabase!
-          .from('team_messages')
-          .insert({
-            sender_id: current.id,
-            recipient_id: payload.recipientId || null,
-            body: cleanBody,
-            client_request_id: payload.clientRequestId || null,
-            attachment_path: attachmentPath,
-            attachment_name: payload.attachment?.name || null,
-            attachment_mime: payload.attachment?.type || null,
-            attachment_size: payload.attachment?.size || null,
-            expires_at: expiresAt,
-          })
-          .select('*')
-          .single();
-
-        if (error) {
-          if (error.code === '23505' && payload.clientRequestId) {
-            const { data: existing } = await supabase!
-              .from('team_messages')
-              .select('*')
-              .eq('client_request_id', payload.clientRequestId)
-              .maybeSingle();
-            if (existing) return existing as TeamMessageRow;
-          }
-          if (isMissingSupabaseSchemaError(error)) {
-            throw new DatabaseSetupError(
-              'Team messaging table is not installed yet. Run supabase/setup_all.sql in Supabase SQL Editor.'
-            );
-          }
-          throw new Error(error.message);
-        }
-        return data as TeamMessageRow;
+      const { data: rpcData, error: sendError } = await supabase.rpc('send_team_message', {
+        p_recipient_id: payload.recipientId || null,
+        p_body: cleanBody,
+        p_client_request_id: payload.clientRequestId || null,
+        p_attachment_path: attachmentPath,
+        p_attachment_name: payload.attachment?.name || null,
+        p_attachment_mime: payload.attachment?.type || null,
+        p_attachment_size: payload.attachment?.size || null,
+        p_expires_at: expiresAt,
       });
+      if (sendError) throw new Error(sendError.message);
+      const rowData = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (!rowData) throw new Error('Message was not saved. Please try again.');
 
       return { message: mapTeamMessageRow(rowData) };
     }
