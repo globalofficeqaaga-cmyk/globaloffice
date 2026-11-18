@@ -2643,9 +2643,17 @@ export const api = {
     assertProductionBackend();
     if (supabase) {
       await getCurrentSupabaseUser();
-      const { error: cleanupError } = await supabase.rpc('cleanup_expired_team_messages');
-      if (cleanupError && !isMissingSupabaseSchemaError(cleanupError)) {
-        throw new Error(cleanupError.message);
+      // Expired files are removed only through the Supabase Storage API.
+      // Cleanup must never block opening or sending chat messages.
+      try {
+        const result = await supabase.rpc('get_expired_team_message_attachments');
+        if (!result.error && Array.isArray(result.data) && result.data.length) {
+          const paths = result.data.map((item) => item.attachment_path).filter((path) => typeof path === 'string' && path.length > 0);
+          if (paths.length) await supabase.storage.from('team-chat-files').remove(paths);
+        }
+        await supabase.rpc('cleanup_expired_team_messages');
+      } catch (cleanupError) {
+        console.warn('Team chat expiry cleanup deferred:', cleanupError);
       }
       const [dirRes, msgRes] = await Promise.all([
         supabase.rpc('get_team_directory'),
