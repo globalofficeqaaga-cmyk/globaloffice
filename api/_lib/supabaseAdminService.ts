@@ -225,6 +225,30 @@ function getSupabaseAdminClient(): SupabaseClient {
   });
 }
 
+async function verifyCallerJwt(jwt: string): Promise<{ user: { id: string; email?: string | null } | null; error: boolean }> {
+  const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
+  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+  if (!supabaseUrl || !serviceRoleKey || !jwt) return { user: null, error: true };
+
+  try {
+    // Explicitly send the caller JWT. This avoids AuthClient falling back to the
+    // service-role default Authorization header in server runtimes.
+    const response = await fetch(`${supabaseUrl.replace(/\\/$/, '')}/auth/v1/user`, {
+      method: 'GET',
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${jwt}`,
+        Accept: 'application/json',
+      },
+    });
+    if (!response.ok) return { user: null, error: true };
+    const user = await response.json() as { id?: string; email?: string | null };
+    return user?.id ? { user: { id: user.id, email: user.email }, error: false } : { user: null, error: true };
+  } catch {
+    return { user: null, error: true };
+  }
+}
+
 async function authenticateAdminCaller(
   authHeader: string | undefined
 ): Promise<{ adminClient: SupabaseClient; adminId: string } | ServiceResult> {
@@ -252,8 +276,8 @@ async function authenticateAdminCaller(
     };
   }
 
-  const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
-  if (userErr || !userData?.user) {
+  const { user: callerUser, error: userErr } = await verifyCallerJwt(jwt);
+  if (userErr || !callerUser) {
     return {
       status: 401,
       body: { error: 'Your session has expired or is invalid. Please sign in again.' },
@@ -263,7 +287,7 @@ async function authenticateAdminCaller(
   const { data: profile, error: profErr } = await adminClient
     .from('profiles')
     .select('id, role, permissions')
-    .eq('id', userData.user.id)
+    .eq('id', callerUser.id)
     .maybeSingle();
 
   if (profErr) {
@@ -295,8 +319,8 @@ async function authenticateAccountCreator(
   }
   const jwt = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
   if (!jwt) return { status: 401, body: { error: 'Sign-in session is required.' } };
-  const { data, error } = await adminClient.auth.getUser(jwt);
-  if (error || !data?.user) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
+  const { user: callerUser, error } = await verifyCallerJwt(jwt);
+  if (error || !callerUser) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
   const { data: profile, error: profileError } = await adminClient.from('profiles').select('id, role, permissions').eq('id', data.user.id).maybeSingle();
   if (profileError) return { status: 500, body: { error: 'Unable to verify account permissions.' } };
   const permissions = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
@@ -333,8 +357,8 @@ async function authenticateTeamCaller(
     };
   }
 
-  const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
-  if (userErr || !userData?.user) {
+  const { user: callerUser, error: userErr } = await verifyCallerJwt(jwt);
+  if (userErr || !callerUser) {
     return {
       status: 401,
       body: { error: 'Your session has expired or is invalid. Please sign in again.' },
@@ -344,7 +368,7 @@ async function authenticateTeamCaller(
   const { data: profile, error: profErr } = await adminClient
     .from('profiles')
     .select('id')
-    .eq('id', userData.user.id)
+    .eq('id', callerUser.id)
     .maybeSingle();
 
   if (profErr || !profile) {
@@ -464,8 +488,8 @@ export async function handleVerifyCallerPassword(
     return { status: 401, body: { error: 'Sign-in session is required.' } };
   }
 
-  const { data: userData, error: userErr } = await adminClient.auth.getUser(jwt);
-  if (userErr || !userData?.user) {
+  const { user: callerUser, error: userErr } = await verifyCallerJwt(jwt);
+  if (userErr || !callerUser) {
     return {
       status: 401,
       body: { error: 'Your session has expired or is invalid. Please sign in again.' },
