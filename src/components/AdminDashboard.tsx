@@ -106,7 +106,7 @@ export function AdminDashboard({
 }: AdminDashboardProps) {
   const userPermissions = data.user.permissions || [];
   const canViewAllReports = !readOnly || userPermissions.includes('view_all_reports');
-  const canViewClients = canViewAllReports || ['add_clients', 'edit_clients', 'delete_clients'].some((p) => userPermissions.includes(p as UserPermission));
+  const canViewClients = canViewAllReports || ['add_clients', 'edit_clients', 'delete_clients', 'print_a4'].some((p) => userPermissions.includes(p as UserPermission));
   const canAddClients = !readOnly || userPermissions.includes('add_clients');
   const canEditClients = !readOnly || userPermissions.includes('edit_clients');
   const canDeleteClients = !readOnly || userPermissions.includes('delete_clients');
@@ -118,7 +118,7 @@ export function AdminDashboard({
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
     if (!readOnly || userPermissions.includes('view_all_reports')) return 'overview';
     if (userPermissions.includes('view_finance') || userPermissions.includes('manage_finance')) return 'accounts';
-    if (['add_clients', 'edit_clients', 'delete_clients'].some((p) => userPermissions.includes(p as UserPermission))) return 'clients';
+    if (['add_clients', 'edit_clients', 'delete_clients', 'print_a4'].some((p) => userPermissions.includes(p as UserPermission))) return 'clients';
     if (userPermissions.includes('view_team_profiles') || userPermissions.includes('send_messages')) return 'team';
     if (userPermissions.includes('create_staff_accounts') || userPermissions.includes('manage_user_permissions')) return 'staff';
     return 'overview';
@@ -735,7 +735,7 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={primaryAction}
     >
-      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]):not([data-client-action="true"]):not([data-print-action="true"]):not([data-permission-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea, .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
+      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]):not([data-client-action="true"]):not([data-print-action="true"]):not([data-permission-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .client-permission-modal button, .admin-readonly-content .client-permission-modal input, .admin-readonly-content .client-permission-modal select, .admin-readonly-content .client-permission-modal textarea, .admin-readonly-content .team-message-permission-modal button, .admin-readonly-content .team-message-permission-modal input, .admin-readonly-content .team-message-permission-modal textarea, .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea, .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
@@ -1946,10 +1946,12 @@ export function AdminDashboard({
                           >
                             <Pencil className="w-4 h-4" />
                           </button>
-                          {confirmDeleteId === c.id ? (
+                          {canDeleteClients && confirmDeleteId === c.id ? (
                             <span className="inline-flex items-center gap-1">
                               <button
                                 type="button"
+                                data-client-action="true"
+                                disabled={!canDeleteClients}
                                 onClick={async () => {
                                   setActionError('');
                                   try {
@@ -1979,6 +1981,7 @@ export function AdminDashboard({
                               type="button"
                               onClick={() => setConfirmDeleteId(c.id)}
                               data-client-action="true"
+                              disabled={!canDeleteClients}
                               className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
                               title="Delete client"
                             >
@@ -2067,10 +2070,12 @@ export function AdminDashboard({
                             >
                               <Pencil className="w-4 h-4" />
                             </button>
-                            {confirmDeleteId === c.id ? (
+                            {canDeleteClients && confirmDeleteId === c.id ? (
                               <span className="inline-flex items-center gap-1 ml-2">
                                 <button
                                   type="button"
+                                  data-client-action="true"
+                                  disabled={!canDeleteClients}
                                   onClick={async () => {
                                     setActionError('');
                                     try {
@@ -2089,6 +2094,8 @@ export function AdminDashboard({
                                 </button>
                                 <button
                                   type="button"
+                                  data-client-action="true"
+                                  disabled={!canDeleteClients}
                                   onClick={() => setConfirmDeleteId(null)}
                                   className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
                                 >
@@ -2100,6 +2107,7 @@ export function AdminDashboard({
                                 type="button"
                                 onClick={() => setConfirmDeleteId(c.id)}
                                 data-client-action="true"
+                                disabled={!canDeleteClients}
                                 className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
                                 title="Delete client"
                               >
@@ -3335,6 +3343,7 @@ export function AdminDashboard({
         <ClientModal
           initial={clientModal.item}
           isAdmin={true}
+          permissionActions={readOnly && (clientModal.item ? canEditClients : canAddClients)}
           staffList={data.staffList}
           defaultStaffId={defaultStaffId}
           onClose={() => setClientModal({ open: false, item: null })}
