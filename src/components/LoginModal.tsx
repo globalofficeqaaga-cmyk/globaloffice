@@ -77,7 +77,6 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
       const msg = err instanceof Error ? err.message : 'Unable to sign in.';
       const isSetupMissing =
         err instanceof DatabaseSetupError ||
-        msg.toLowerCase().includes('resolve_login_email') ||
         msg.toLowerCase().includes('setup_all.sql') ||
         msg.toLowerCase().includes('database setup is incomplete');
       setNeedsDbSetup(isSetupMissing);
