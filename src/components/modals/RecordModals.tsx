@@ -2876,12 +2876,9 @@ export function LedgerEntryModal({
   }
 
   function handleCloseAttempt() {
-    if (saving) return;
-    if (isDirty && !confirmClose) {
-      setConfirmClose(true);
-      return;
-    }
-    if (isCreate) clearSafeDraft(draftKey);
+    if (saving || receiptUploading) return;
+    // Drafts are persisted automatically while editing. Closing the modal should
+    // never trap the user behind a confirmation overlay; reopening restores the draft.
     onClose();
   }
 
@@ -3246,8 +3243,7 @@ export function LedgerEntryModal({
                 Cancel
               </button>
               <button
-                type="button"
-                onClick={executeSave}
+                type="submit"
                 disabled={saving || receiptUploading}
                 className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
               >
