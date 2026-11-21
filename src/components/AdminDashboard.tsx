@@ -75,6 +75,7 @@ interface AdminDashboardProps {
   onRefresh: () => Promise<void>;
   onGoHome: () => void;
   onLogout: () => void;
+  readOnly?: boolean;
 }
 
 type AdminTab =
@@ -98,6 +99,7 @@ export function AdminDashboard({
   onRefresh,
   onGoHome,
   onLogout,
+  readOnly = false,
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -687,8 +689,8 @@ export function AdminDashboard({
   return (
     <DashboardShell
       user={data.user}
-      roleLabel="Admin Control Center"
-      tabs={tabs}
+      roleLabel={readOnly ? 'Dashboard & Reports (Read Only)' : 'Admin Control Center'}
+      tabs={readOnly ? tabs.filter((tab) => tab.id !== 'website' && tab.id !== 'settings') : tabs}
       activeTab={activeTab}
       onTabChange={(id) => {
         setActiveTab(id as AdminTab);
@@ -696,8 +698,10 @@ export function AdminDashboard({
       }}
       onGoHome={onGoHome}
       onLogout={onLogout}
-      primaryAction={primaryAction}
+      primaryAction={readOnly ? null : primaryAction}
     >
+      {readOnly && <style>{'.admin-readonly-content button { display: none !important; } .admin-readonly-content input, .admin-readonly-content select, .admin-readonly-content textarea { pointer-events: none !important; }'}</style>}
+      <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
           <div className="flex items-center gap-2 font-medium">
@@ -3463,6 +3467,7 @@ export function AdminDashboard({
           }
         />
       )}
+      </div>
     </DashboardShell>
   );
 }
