@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Calendar,
   CheckCircle2,
@@ -88,6 +88,7 @@ interface DailyOperationsPanelProps {
   dailyLogs: StaffDailyLog[];
   dailyClientSummaries: DailyClientSummary[];
   canManageAll: boolean;
+  showAllDates?: boolean;
   onQuickCheckIn: () => Promise<void>;
   onQuickCheckOut: (existing: StaffAttendanceRecord) => Promise<void>;
   onOpenAttendanceModal: (
@@ -108,6 +109,7 @@ export function DailyOperationsPanel({
   dailyLogs,
   dailyClientSummaries,
   canManageAll,
+  showAllDates = false,
   onQuickCheckIn,
   onQuickCheckOut,
   onOpenAttendanceModal,
@@ -118,6 +120,7 @@ export function DailyOperationsPanel({
   const yesterday = getYesterdayLocalDateStr();
 
   const [dateFilter, setDateFilter] = useState<string>(today);
+  useEffect(() => { if (showAllDates) setDateFilter('all'); }, [showAllDates]);
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [checkingBusy, setCheckingBusy] = useState(false);
@@ -894,6 +897,7 @@ export function DailyOperationsPanel({
                     <p className="text-xs text-slate-700 whitespace-pre-line leading-relaxed">
                       {log.discussionSummary}
                     </p>
+                    {!!log.editHistory?.length && <p className="text-[11px] text-slate-500">Edit history dates: {Array.from(new Set(log.editHistory.map((h) => new Date(h.changedAt).toLocaleDateString()))).join(' · ')}</p>}
 
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-xs font-mono text-slate-500 tabular-nums">
@@ -973,6 +977,7 @@ export function DailyOperationsPanel({
                           <p className="text-xs text-slate-600 whitespace-pre-line leading-relaxed">
                             {log.discussionSummary}
                           </p>
+                          {!!log.editHistory?.length && <p className="text-[11px] text-slate-500 mt-1">Edited on: {Array.from(new Set(log.editHistory.map((h) => new Date(h.changedAt).toLocaleDateString()))).join(' · ')}</p>}
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           <span
