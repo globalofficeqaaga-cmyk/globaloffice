@@ -1017,23 +1017,16 @@ export const api = {
     }
 
     if (supabase) {
-      const { data, error } = await withRetry(async () =>
-        supabase!.rpc('lookup_client_by_phone', { p_phone: clean })
-      );
-      if (error) {
-        if (isMissingSupabaseSchemaError(error)) {
-          throw new DatabaseSetupError(
-            'Supabase database functions are not installed yet. Run the SQL Setup script once in your Supabase Dashboard → SQL Editor.'
-          );
-        }
-        throw new Error(error.message);
+      const response = await fetch('/api/client-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: clean }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : `Client lookup failed (${response.status}).`);
       }
-      if (!data) {
-        throw new Error(
-          'No client record found for this phone number. Please verify the number or contact your coordinator.'
-        );
-      }
-      return data as ClientLookupResponse;
+      return payload as ClientLookupResponse;
     }
 
     return apiFetch<ClientLookupResponse>(
@@ -1047,51 +1040,29 @@ export const api = {
   ): Promise<{ token: string; user: PublicUser }> => {
     assertProductionBackend();
     if (supabase) {
-      const cleanIdentifier = identifier.trim();
-      if (!cleanIdentifier || !password) {
-        throw new Error('User ID and password are required.');
-      }
-
-      let emailToUse = cleanIdentifier;
-
-      if (!cleanIdentifier.includes('@')) {
-        const { data: resolvedEmail, error: resolveErr } = await supabase.rpc(
-          'resolve_login_email',
-          { p_identifier: cleanIdentifier }
-        );
-        if (resolveErr) {
-          if (isMissingSupabaseSchemaError(resolveErr)) {
-            throw new DatabaseSetupError(
-              'Supabase database setup is incomplete. Click "Copy Setup SQL" below, run it once in your Supabase Dashboard → SQL Editor, then create & promote your Admin account.'
-            );
-          }
-          throw new Error(resolveErr.message);
-        }
-        if (!resolvedEmail) {
-          if (cleanIdentifier.toLowerCase() === 'admin') {
-            throw new Error(
-              'No Admin profile found yet. Create an admin user in Supabase Dashboard → Authentication → Users and promote it in SQL Editor.'
-            );
-          }
-          throw new Error(
-            'No account found for this User ID. Please check your User ID or verify the account exists.'
-          );
-        }
-        emailToUse = String(resolvedEmail);
-      }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: emailToUse,
-        password,
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: cleanIdentifier, password }),
       });
-      if (error) {
-        throw new Error(error.message);
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : `Sign-in failed (${response.status}).`);
       }
-
-      const profile = await getCurrentSupabaseUser();
+      const session = payload?.session as
+        | { access_token?: string; refresh_token?: string }
+        | undefined;
+      if (!session?.access_token || !session.refresh_token || !payload?.user) {
+        throw new Error('The sign-in service returned an incomplete session. Please try again.');
+      }
+      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      });
+      if (sessionError) throw new Error(sessionError.message);
       return {
-        token: data.session?.access_token || '',
-        user: profile,
+        token: sessionData.session?.access_token || session.access_token,
+        user: payload.user as PublicUser,
       };
     }
 
