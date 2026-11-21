@@ -190,7 +190,11 @@ export default function App() {
         />
       );
     }
-    if (currentUser.permissions?.includes('view_all_reports') || currentUser.permissions?.includes('manage_user_permissions')) {
+    const permissionScopedAccess = currentUser.permissions?.some((permission) =>
+      ['view_team_profiles', 'add_clients', 'edit_clients', 'delete_clients', 'print_a4', 'send_messages',
+        'view_finance', 'manage_finance', 'create_staff_accounts', 'manage_user_permissions', 'view_all_reports'].includes(permission)
+    );
+    if (permissionScopedAccess) {
       return (
         <AdminDashboard
           data={dashboardData}
