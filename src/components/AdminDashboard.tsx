@@ -700,7 +700,7 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={readOnly ? null : primaryAction}
     >
-      {readOnly && <style>{'.admin-readonly-content button { display: none !important; } .admin-readonly-content input, .admin-readonly-content select, .admin-readonly-content textarea { pointer-events: none !important; }'}</style>}
+      {readOnly && <style>{'.admin-readonly-content button { pointer-events: none !important; cursor: default !important; } .admin-readonly-content input, .admin-readonly-content select, .admin-readonly-content textarea { pointer-events: none !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
