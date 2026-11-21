@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser, TeamDirectoryMember, TeamMessage } from '../types';
 import { TeamMessenger } from './TeamMessenger';
+import { TeamCallProvider } from './TeamCallProvider';
 
 export interface NavTab {
   id: string;
@@ -340,6 +341,7 @@ export function DashboardShell({
   );
 
   return (
+    <TeamCallProvider currentUser={user}>
     <div className="min-h-screen bg-slate-50 flex dashboard-shell-root">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:block w-[256px] shrink-0 bg-white border-r border-slate-200 sticky top-0 h-screen no-print">
@@ -430,5 +432,6 @@ export function DashboardShell({
         onMarkGroupSeen={handleMarkGroupSeen}
       />
     </div>
+    </TeamCallProvider>
   );
 }
