@@ -591,7 +591,11 @@ export function AdminDashboard({
     },
   ];
 
+  const canManageFinance = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_finance') === true;
+  const canManageUserPermissions = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_user_permissions') === true;
+
   const primaryAction = (() => {
+    if (readOnly && !(activeTab === 'accounts' && canManageFinance)) return null;
     if (
       activeTab === 'audit' ||
       activeTab === 'website' ||
@@ -689,8 +693,6 @@ export function AdminDashboard({
   })();
 
   const defaultStaffId = data.staffList[0]?.id || data.user.id;
-  const canManageUserPermissions = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_user_permissions') === true;
-  const canManageFinance = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_finance') === true;
 
   return (
     <DashboardShell
