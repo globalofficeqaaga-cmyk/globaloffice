@@ -52,26 +52,12 @@ export default async function handler(req: PublicApiRequest, res: import('node:h
       sendJson(res, 429, { error: 'Too many sign-in attempts. Please try again after 15 minutes.' });
       return;
     }
-    // Resolve the login identifier with the server-only service client.
-    // The public resolve_login_email RPC is intentionally not executable by
-    // anon/authenticated roles, so login must not depend on that RPC.
-    const escapedIdentifier = identifier.replace(/[\\%_]/g, '\\    const { data: resolvedEmail, error: resolveError } = await admin.rpc('resolve_login_email', { p_identifier: identifier });
-    if (resolveError) {
-      console.error('[api/auth/login] User ID resolution failed:', resolveError.message);
-      sendJson(res, 503, { error: 'Sign-in is temporarily unavailable. Please try again later.' });
-      return;
-    }
-    if (typeof resolvedEmail !== 'string' || !resolvedEmail) {
-      sendJson(res, 401, { error: 'Invalid User ID or password.' });
-      return;
-    }
-    const { data: authData, error: authError } = await auth.auth.signInWithPassword({
-      email: resolvedEmail, password,
-    });');
+    // Resolve User ID or email with the server-only service-role client.
+    // Do not call the public resolve_login_email RPC: it is intentionally revoked.
     const { data: userIdProfile, error: userIdLookupError } = await admin
       .from('profiles')
       .select('email')
-      .ilike('user_id', escapedIdentifier)
+      .ilike('user_id', identifier)
       .maybeSingle();
     if (userIdLookupError) {
       console.error('[api/auth/login] User ID profile lookup failed:', userIdLookupError.message);
@@ -83,7 +69,7 @@ export default async function handler(req: PublicApiRequest, res: import('node:h
       const { data: emailProfile, error: emailLookupError } = await admin
         .from('profiles')
         .select('email')
-        .ilike('email', escapedIdentifier)
+        .ilike('email', identifier)
         .maybeSingle();
       if (emailLookupError) {
         console.error('[api/auth/login] Email profile lookup failed:', emailLookupError.message);
