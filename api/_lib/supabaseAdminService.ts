@@ -227,16 +227,24 @@ function getSupabaseAdminClient(): SupabaseClient {
 
 async function verifyCallerJwt(jwt: string): Promise<{ user: { id: string; email?: string | null } | null; error: boolean }> {
   const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').trim();
-  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!supabaseUrl || !serviceRoleKey || !jwt) return { user: null, error: true };
+  // The caller's JWT belongs in Authorization. The apikey header must use the
+  // public project key; sb_secret_/service-role keys are server credentials and
+  // are not a substitute for the project's public API key on Auth endpoints.
+  const publishableKey = (
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    ''
+  ).trim();
+  if (!supabaseUrl || !publishableKey || !jwt) return { user: null, error: true };
 
   try {
-    // Explicitly send the caller JWT. This avoids AuthClient falling back to the
-    // service-role default Authorization header in server runtimes.
-    const response = await fetch(`${(supabaseUrl.endsWith('/') ? supabaseUrl.slice(0, -1) : supabaseUrl)}/auth/v1/user`, {
+    const baseUrl = supabaseUrl.endsWith('/') ? supabaseUrl.slice(0, -1) : supabaseUrl;
+    const response = await fetch(`${baseUrl}/auth/v1/user`, {
       method: 'GET',
       headers: {
-        apikey: serviceRoleKey,
+        apikey: publishableKey,
         Authorization: `Bearer ${jwt}`,
         Accept: 'application/json',
       },
@@ -522,7 +530,7 @@ export async function handleVerifyCallerPassword(
     };
   }
 
-  const email = (userData.user.email || '').trim();
+  const email = (callerUser.email || '').trim();
   if (!email) {
     return {
       status: 400,
