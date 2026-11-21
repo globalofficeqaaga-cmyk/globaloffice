@@ -196,6 +196,13 @@ export function TeamMessenger({
   // Mark messages read when viewing a thread while open
   useEffect(() => {
     if (!isOpen) return;
+
+    // On phones, opening the messenger initially shows only the thread list.
+    // Do not mark anything as seen until the actual conversation pane is visible.
+    const isDesktopLayout =
+      typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+    if (!isDesktopLayout && mobilePane !== 'chat') return;
+
     if (selectedThreadId === TEAM_GROUP_THREAD_ID) {
       onMarkGroupSeen();
       return;
@@ -205,6 +212,7 @@ export function TeamMessenger({
     }
   }, [
     isOpen,
+    mobilePane,
     selectedThreadId,
     unreadBySender,
     activeThreadMessages.length,
