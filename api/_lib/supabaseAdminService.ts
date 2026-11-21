@@ -988,7 +988,7 @@ export async function handleUpdateManagedUser(
     updateBody.role = nextRole;
   }
   if (Array.isArray(body.permissions)) {
-    const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
+    const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','view_all_reports','sub_admin']);
     const nextPermissions = body.permissions.filter((permission) => allowed.has(permission));
     if (nextPermissions.includes('create_staff_accounts') && !nextPermissions.includes('view_team_profiles')) {
       nextPermissions.push('view_team_profiles');
