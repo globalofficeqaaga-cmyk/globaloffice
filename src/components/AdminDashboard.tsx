@@ -1092,6 +1092,7 @@ export function AdminDashboard({
                 <button
                   type="button"
                   onClick={() => setActiveTab('meetings')}
+                  data-view-action="true"
                   className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
                 >
                   View All
@@ -1131,6 +1132,7 @@ export function AdminDashboard({
                 <button
                   type="button"
                   onClick={() => setActiveTab('interviews')}
+                  data-view-action="true"
                   className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
                 >
                   View All
