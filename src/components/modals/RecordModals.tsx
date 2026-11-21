@@ -2573,29 +2573,51 @@ export function StaffAccountModal({
                 ? 'New Login Password (leave blank to keep current, min. 4 chars)'
                 : 'Login Password (min. 4 chars, letters + numbers/symbols) *'}
             </label>
-            <div className="relative">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                required={!initial}
-                value={password}
-                onChange={(e) => {
-                  markDirty();
-                  setPassword(e.target.value);
-                }}
-                placeholder={initial ? 'Leave blank to keep current password' : 'Set login password'}
-                className="w-full px-3.5 py-2 pr-11 text-sm font-mono border border-slate-300 rounded-lg"
-                autoComplete="new-password"
-              />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required={!initial}
+                  value={password}
+                  onChange={(e) => {
+                    markDirty();
+                    setPassword(e.target.value);
+                  }}
+                  placeholder={initial ? 'Enter a new password to reset it' : 'Set login password'}
+                  className="w-full px-3.5 py-2 pr-11 text-sm font-mono border border-slate-300 rounded-lg"
+                  autoComplete="new-password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-500 hover:text-slate-800"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowPassword((visible) => !visible)}
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                title={showPassword ? 'Hide password' : 'Show password'}
-                className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-500 hover:text-slate-800"
+                disabled={!password}
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(password);
+                    setError('New password copied. Save the account to apply it.');
+                  } catch {
+                    setError('Copy is unavailable in this browser. Use Show to view the new password.');
+                  }
+                }}
+                className="px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-40"
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                Copy
               </button>
             </div>
+            {initial ? (
+              <p className="mt-1 text-[11px] text-slate-500">
+                For security, the current/old password cannot be viewed. Enter a new password, then Save Account to reset it.
+              </p>
+            ) : null}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
