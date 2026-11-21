@@ -427,8 +427,13 @@ export async function handleListTeamProfiles(
     .eq('id', userId)
     .maybeSingle();
   const callerPermissions = Array.isArray(caller?.permissions) ? caller.permissions as string[] : [];
-  if (callerError || !caller || !['admin', 'director', 'management'].includes(String(caller.role)) && !callerPermissions.includes('view_team_profiles')) {
-    return { status: 403, body: { error: 'You do not have permission to view team profiles.' } };
+  const canAccessTeamDirectory =
+    caller?.role === 'admin' ||
+    callerPermissions.some((permission) =>
+      ['view_team_profiles', 'view_all_reports', 'send_messages', 'manage_user_permissions', 'sub_admin'].includes(permission)
+    );
+  if (callerError || !caller || !canAccessTeamDirectory) {
+    return { status: 403, body: { error: 'A team-profile, report-view, messaging, or user-permission permission is required.' } };
   }
 
   const fullCols =
