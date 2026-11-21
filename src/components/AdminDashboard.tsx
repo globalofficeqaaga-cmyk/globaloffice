@@ -3457,14 +3457,28 @@ export function AdminDashboard({
           permissionActions={readOnly && canManageFinance}
           onClose={() => setLedgerModal({ open: false, item: null })}
           onSave={async (payload) => {
+            // Treat the database write as the commit point. A dashboard refresh
+            // failure must never make a successfully saved entry look unsaved
+            // or keep the modal open (which can lead to duplicate submissions).
             if (ledgerModal.item) {
               await api.updateLedgerEntry(ledgerModal.item.id, payload);
-              await onRefresh();
-              notifySuccess('Debit / Credit entry updated in database.');
+              notifySuccess('Debit / Credit entry updated successfully.');
             } else {
-              await api.createLedgerEntry(payload);
+              const result = await api.createLedgerEntry(payload);
+              if (!result?.entry?.id) {
+                throw new Error('The ledger did not confirm that this entry was saved. Please try again.');
+              }
+              notifySuccess('Debit / Credit entry saved successfully.');
+            }
+
+            try {
               await onRefresh();
-              notifySuccess('Debit / Credit entry saved permanently in database.');
+            } catch (refreshError) {
+              setActionError(
+                refreshError instanceof Error
+                  ? `Entry was saved, but the dashboard could not refresh: ${refreshError.message}`
+                  : 'Entry was saved, but the dashboard could not refresh. Reload the page to see the latest ledger.'
+              );
             }
           }}
         />
