@@ -298,7 +298,8 @@ async function authenticateAdminCaller(
   }
 
   const perms = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
-  if (!profile || profile.role !== 'admin') {
+  const isAdminLike = profile?.role === 'admin' || perms.includes('sub_admin');
+  if (!profile || !isAdminLike) {
     return {
       status: 403,
       body: { error: 'Administrator permission is required for this action.' },
@@ -324,10 +325,11 @@ async function authenticateAccountCreator(
   const { data: profile, error: profileError } = await adminClient.from('profiles').select('id, role, permissions').eq('id', callerUser.id).maybeSingle();
   if (profileError) return { status: 500, body: { error: 'Unable to verify account permissions.' } };
   const permissions = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
-  if (!profile || (profile.role !== 'admin' && !permissions.includes('create_staff_accounts'))) {
-    return { status: 403, body: { error: 'You do not have permission to create Staff login accounts.' } };
+  const isAdminLike = profile?.role === 'admin' || permissions.includes('sub_admin');
+  if (!profile || (!isAdminLike && !permissions.includes('create_staff_accounts'))) {
+    return { status: 403, body: { error: 'You do not have permission to create login accounts.' } };
   }
-  return { adminClient, adminId: profile.id, role: profile.role };
+  return { adminClient, adminId: profile.id, role: isAdminLike ? 'admin' : profile.role };
 }
 
 async function authenticateTeamCaller(
