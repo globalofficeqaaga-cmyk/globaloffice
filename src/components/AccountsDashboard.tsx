@@ -1076,9 +1076,20 @@ export function AccountsDashboard({
           ownerId={data.user.id}
           onClose={() => setLedgerModalOpen(false)}
           onSave={async (payload) => {
-            await api.createLedgerEntry(payload);
-            await onRefresh();
-            notifySuccess('Debit / Credit entry saved permanently in database.');
+            const result = await api.createLedgerEntry(payload);
+            if (!result?.entry?.id) {
+              throw new Error('The ledger did not confirm that this entry was saved. Please try again.');
+            }
+            notifySuccess('Debit / Credit entry saved successfully.');
+            try {
+              await onRefresh();
+            } catch (refreshError) {
+              setActionError(
+                refreshError instanceof Error
+                  ? `Entry was saved, but the dashboard could not refresh: ${refreshError.message}`
+                  : 'Entry was saved, but the dashboard could not refresh. Reload the page to see the latest ledger.'
+              );
+            }
           }}
         />
       )}
