@@ -309,6 +309,30 @@ async function authenticateAdminCaller(
   return { adminClient, adminId: profile.id };
 }
 
+async function authenticateUserPermissionManager(
+  authHeader: string | undefined
+): Promise<{ adminClient: SupabaseClient; adminId: string; isAdminLike: boolean } | ServiceResult> {
+  let adminClient: SupabaseClient;
+  try {
+    adminClient = getSupabaseAdminClient();
+  } catch (err) {
+    return { status: 503, body: { error: err instanceof Error ? err.message : 'Supabase Admin API is not configured.' } };
+  }
+  const jwt = (authHeader || '').replace(/^Bearer\\s+/i, '').trim();
+  if (!jwt) return { status: 401, body: { error: 'Sign-in session is required.' } };
+  const { user: callerUser, error } = await verifyCallerJwt(jwt);
+  if (error || !callerUser) return { status: 401, body: { error: 'Your session has expired or is invalid.' } };
+  const { data: profile, error: profileError } = await adminClient
+    .from('profiles').select('id, role, permissions').eq('id', callerUser.id).maybeSingle();
+  if (profileError) return { status: 500, body: { error: 'Unable to verify user-management permissions.' } };
+  const permissions = Array.isArray(profile?.permissions) ? profile.permissions as string[] : [];
+  const isAdminLike = profile?.role === 'admin' || permissions.includes('sub_admin');
+  if (!profile || (!isAdminLike && !permissions.includes('manage_user_permissions'))) {
+    return { status: 403, body: { error: 'Assign user permissions permission is required.' } };
+  }
+  return { adminClient, adminId: profile.id, isAdminLike };
+}
+
 async function authenticateAccountCreator(
   authHeader: string | undefined
 ): Promise<{ adminClient: SupabaseClient; adminId: string; role: string } | ServiceResult> {
@@ -913,9 +937,9 @@ export async function handleUpdateManagedUser(
   targetId: string,
   body: AdminUserPayload
 ): Promise<ServiceResult> {
-  const auth = await authenticateAdminCaller(authHeader);
+  const auth = await authenticateUserPermissionManager(authHeader);
   if ('status' in auth) return auth;
-  const { adminClient } = auth;
+  const { adminClient, isAdminLike } = auth;
 
   const cleanTargetId = String(targetId || '').trim();
   if (!cleanTargetId) {
@@ -934,6 +958,15 @@ export async function handleUpdateManagedUser(
 
   if (!['staff', 'accounts', 'director', 'management'].includes(String(targetProfile.role))) {
     return { status: 403, body: { error: 'This account cannot be updated from the team account manager.' } };
+  }
+
+  // A delegated permission manager may administer Staff accounts only.
+  // They cannot promote roles or grant themselves another permission manager / sub-admin.
+  if (!isAdminLike && targetProfile.role !== 'staff') {
+    return { status: 403, body: { error: 'You may manage permissions for Staff accounts only.' } };
+  }
+  if (!isAdminLike && body.role && body.role !== 'staff') {
+    return { status: 403, body: { error: 'Delegated permission managers cannot change account roles.' } };
   }
 
   const nextPass = typeof body.password === 'string' ? body.password.trim() : '';
@@ -991,7 +1024,10 @@ export async function handleUpdateManagedUser(
   }
   if (Array.isArray(body.permissions)) {
     const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','view_all_reports','sub_admin']);
-    const nextPermissions = body.permissions.filter((permission) => allowed.has(permission));
+    const delegatedAllowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','view_all_reports']);
+    const nextPermissions = body.permissions.filter((permission) =>
+      allowed.has(permission) && (isAdminLike || delegatedAllowed.has(permission))
+    );
     if (nextPermissions.includes('create_staff_accounts') && !nextPermissions.includes('view_team_profiles')) {
       nextPermissions.push('view_team_profiles');
     }
