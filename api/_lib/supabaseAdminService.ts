@@ -691,7 +691,7 @@ export async function createManagedUserRecord(
       if (!requestedPermissions.includes(permission)) requestedPermissions.push(permission);
     }
   }
-  if (requestedPermissions.includes('create_staff_accounts') && !requestedPermissions.includes('view_team_profiles')) {
+  if ((requestedPermissions.includes('create_staff_accounts') || requestedPermissions.includes('manage_user_permissions')) && !requestedPermissions.includes('view_team_profiles')) {
     requestedPermissions.push('view_team_profiles');
   }
 
@@ -965,6 +965,10 @@ export async function handleUpdateManagedUser(
   if (!isAdminLike && targetProfile.role !== 'staff') {
     return { status: 403, body: { error: 'You may manage permissions for Staff accounts only.' } };
   }
+  const existingTargetPermissions = Array.isArray(targetProfile.permissions) ? targetProfile.permissions as string[] : [];
+  if (!isAdminLike && (cleanTargetId === auth.adminId || existingTargetPermissions.includes('sub_admin') || existingTargetPermissions.includes('manage_user_permissions'))) {
+    return { status: 403, body: { error: 'You cannot manage your own account or another privileged permission manager.' } };
+  }
   if (!isAdminLike && body.role && body.role !== 'staff') {
     return { status: 403, body: { error: 'Delegated permission managers cannot change account roles.' } };
   }
@@ -1028,7 +1032,7 @@ export async function handleUpdateManagedUser(
     const nextPermissions = body.permissions.filter((permission) =>
       allowed.has(permission) && (isAdminLike || delegatedAllowed.has(permission))
     );
-    if (nextPermissions.includes('create_staff_accounts') && !nextPermissions.includes('view_team_profiles')) {
+    if ((nextPermissions.includes('create_staff_accounts') || nextPermissions.includes('manage_user_permissions')) && !nextPermissions.includes('view_team_profiles')) {
       nextPermissions.push('view_team_profiles');
     }
     updateBody.permissions = nextPermissions;
