@@ -2980,7 +2980,7 @@ export function LedgerEntryModal({
           />
         )}
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
+        <form noValidate onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[82vh] overflow-y-auto">
           {restoredDraftBanner && (
             <div className="px-4 py-2.5 text-xs bg-blue-50 border border-blue-200 text-blue-800 rounded-lg flex items-center justify-between gap-2">
               <span>Restored an unsaved Debit/Credit draft from your last session.</span>
@@ -3245,7 +3245,8 @@ export function LedgerEntryModal({
                 Cancel
               </button>
               <button
-                type="submit"
+                type="button"
+                onClick={executeSave}
                 disabled={saving || receiptUploading}
                 className="px-5 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg cursor-pointer"
               >
