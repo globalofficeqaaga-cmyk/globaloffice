@@ -2,6 +2,7 @@ export type UserRole = 'admin' | 'director' | 'management' | 'staff' | 'accounts
 
 export type UserPermission =
   | 'view_team_profiles'
+  | 'view_all_clients'
   | 'add_clients'
   | 'edit_clients'
   | 'delete_clients'
