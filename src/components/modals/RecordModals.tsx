@@ -4,6 +4,8 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   ExternalLink,
+  Eye,
+  EyeOff,
   Lock,
   Plus,
   RefreshCw,
@@ -2242,6 +2244,7 @@ export function StaffAccountModal({
   const [userId, setUserId] = useState(initial?.userId || '');
   const [email, setEmail] = useState(initial?.email || '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState(initial?.phone || '');
   const [personalPhone, setPersonalPhone] = useState(initial?.personalPhone || '');
   const [whatsapp, setWhatsapp] = useState(initial?.whatsapp || '');
@@ -2490,17 +2493,29 @@ export function StaffAccountModal({
                 ? 'New Login Password (leave blank to keep current, min. 4 chars)'
                 : 'Login Password (min. 4 chars, letters + numbers/symbols) *'}
             </label>
-            <input
-              type="password"
-              required={!initial}
-              value={password}
-              onChange={(e) => {
-                markDirty();
-                setPassword(e.target.value);
-              }}
-              placeholder={initial ? 'Leave blank to keep current password' : 'Set login password'}
-              className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required={!initial}
+                value={password}
+                onChange={(e) => {
+                  markDirty();
+                  setPassword(e.target.value);
+                }}
+                placeholder={initial ? 'Leave blank to keep current password' : 'Set login password'}
+                className="w-full px-3.5 py-2 pr-11 text-sm font-mono border border-slate-300 rounded-lg"
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-500 hover:text-slate-800"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
