@@ -694,11 +694,6 @@ export async function createManagedUserRecord(
   const targetRole = ['director', 'management', 'staff'].includes(String(body.role)) ? String(body.role) : 'staff';
   const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','view_all_reports','sub_admin']);
   const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.filter((permission) => allowedPermissions.has(permission)) : [];
-  if (targetRole === 'management') {
-    for (const permission of ['view_team_profiles', 'create_staff_accounts', 'manage_user_permissions']) {
-      if (!requestedPermissions.includes(permission)) requestedPermissions.push(permission);
-    }
-  }
   if ((requestedPermissions.includes('create_staff_accounts') || requestedPermissions.includes('manage_user_permissions')) && !requestedPermissions.includes('view_team_profiles')) {
     requestedPermissions.push('view_team_profiles');
   }
