@@ -211,6 +211,7 @@ export function ClientModal({
   const remainingDue = Math.max(0, (Number(totalPayable) || 0) - effectivePaid);
 
   function markDirty() {
+    setSaved(false);
     if (!isDirty) setIsDirty(true);
     if (confirmClose) setConfirmClose(false);
   }
@@ -335,7 +336,7 @@ export function ClientModal({
       });
       if (isCreate) clearSafeDraft(draftKey);
       setIsDirty(false);
-      onClose();
+      setSaved(true);
     } catch (err) {
       if (err instanceof ConflictError) {
         setIsConflict(true);
@@ -2343,6 +2344,7 @@ export function StaffAccountModal({
   const [uploadingKind, setUploadingKind] = useState<'avatar' | 'cover' | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
 
   useUnsavedChangesWarning(isDirty && !saving);
 
@@ -2567,12 +2569,20 @@ export function StaffAccountModal({
             </div>
           </div>
 
+          {saved && (
+            <div className="px-3 py-2 text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg">
+              Account details saved successfully. The new password remains visible here so you can copy it before closing.
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
               {initial
-                ? 'New Login Password (leave blank to keep current, min. 4 chars)'
-                : 'Login Password (min. 4 chars, letters + numbers/symbols) *'}
+                ? 'Set New Login Password (leave blank to keep current, min. 4 chars)'
+                : 'Login Password (min. 4 chars) *'}
             </label>
+            <p className="text-[11px] text-slate-500 mb-2">
+              Existing/current passwords cannot be viewed or recovered. For security, only a newly entered password can be shown and copied. Leave blank to keep the account password unchanged.
+            </p>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
