@@ -1148,6 +1148,7 @@ export const api = {
       const user = await getCurrentSupabaseUser();
       const isAdmin = user.role === 'admin' || Boolean(user.permissions?.includes('sub_admin') || user.permissions?.includes('view_all_reports'));
       const canViewAllReports = isAdmin || Boolean(user.permissions?.includes('view_all_reports'));
+      const canViewAllClients = isAdmin || Boolean(user.permissions?.includes('view_all_clients'));
       const isAccounts = user.role === 'accounts' || Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
 
       const [
@@ -1173,12 +1174,19 @@ export const api = {
           .select('*')
           .neq('role', 'admin')
           .order('created_at', { ascending: false }),
-        user.role !== 'accounts'
-          ? supabase
-              .from('clients')
-              .select('*')
-              .is('deleted_at', null)
-              .order('created_at', { ascending: false })
+        user.role !== 'accounts' || canViewAllClients
+          ? (canViewAllClients
+              ? supabase
+                  .from('clients')
+                  .select('*')
+                  .is('deleted_at', null)
+                  .order('created_at', { ascending: false })
+              : supabase
+                  .from('clients')
+                  .select('*')
+                  .eq('staff_id', user.id)
+                  .is('deleted_at', null)
+                  .order('created_at', { ascending: false }))
           : Promise.resolve({ data: [], error: null }),
         user.role !== 'accounts'
           ? supabase
