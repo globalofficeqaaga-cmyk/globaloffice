@@ -1085,6 +1085,7 @@ async function startServer() {
     const db = loadDb();
     const current = req.currentUser!;
     const isAdmin = current.role === 'admin';
+    const isAccounts = current.role === 'accounts';
     const canViewAllClients =
       isAdmin ||
       Boolean(current.permissions?.includes('view_all_clients') ||
