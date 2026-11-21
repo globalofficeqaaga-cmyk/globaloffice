@@ -127,6 +127,7 @@ export function AdminDashboard({
   const [dailyShowAll, setDailyShowAll] = useState(false);
   const [showAllFollowUps, setShowAllFollowUps] = useState(false);
   const [followUpNameFilter, setFollowUpNameFilter] = useState('');
+  const [followUpStaffFilter, setFollowUpStaffFilter] = useState('all');
   useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
@@ -333,13 +334,30 @@ export function AdminDashboard({
   }, [data.teamProfiles, data.staffList, data.accountsList, data.user]);
 
   const upcomingFollowUps = useMemo(() => dailyLogs.filter((log) => !log.deletedAt && log.nextFollowUpDate && log.outcome !== 'Resolved' && log.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs]);
+  const followUpStaffOptions = useMemo(() => {
+    const roster = fullTeamRoster.filter((member) => member.role === 'staff');
+    const byId = new Map(roster.map((member) => [member.id, member]));
+    upcomingFollowUps.forEach((log) => {
+      if (log.staffId && !byId.has(log.staffId)) {
+        byId.set(log.staffId, {
+          id: log.staffId, userId: log.staffId, name: log.staffName || 'Staff member',
+          role: 'staff', designation: '', permissions: [], phone: '', personalPhone: '',
+          whatsapp: '', socialLink: '', photoUrl: '', coverUrl: '', joiningDate: '', createdAt: '',
+        } as PublicUser);
+      }
+    });
+    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [fullTeamRoster, upcomingFollowUps]);
   const filteredFollowUps = useMemo(() => {
     const term = followUpNameFilter.trim().toLowerCase();
-    if (!term) return upcomingFollowUps;
-    return upcomingFollowUps.filter((log) =>
-      [log.contactName, log.staffName, log.contactPhone].some((value) => (value || '').toLowerCase().includes(term))
-    );
-  }, [upcomingFollowUps, followUpNameFilter]);
+    return upcomingFollowUps.filter((log) => {
+      const matchesStaff = followUpStaffFilter === 'all' || log.staffId === followUpStaffFilter ||
+        (!log.staffId && log.staffName === followUpStaffOptions.find((member) => member.id === followUpStaffFilter)?.name);
+      const matchesName = !term || [log.contactName, log.staffName, log.contactPhone]
+        .some((value) => (value || '').toLowerCase().includes(term));
+      return matchesStaff && matchesName;
+    });
+  }, [upcomingFollowUps, followUpNameFilter, followUpStaffFilter, followUpStaffOptions]);
   const visibleFollowUps = showAllFollowUps ? filteredFollowUps : filteredFollowUps.slice(0, 3);
   const todaySummary = useMemo(() => {
     const presentCount = attendanceRecords.filter(
@@ -829,7 +847,13 @@ export function AdminDashboard({
             </div>
             {upcomingFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-up dates are scheduled.</p> : (
               <>
-                <input type="search" value={followUpNameFilter} onChange={(event) => setFollowUpNameFilter(event.target.value)} placeholder="Filter by client or staff name..." aria-label="Filter follow-ups by client or staff name" className="mb-3 w-full sm:max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600" />
+                <div className="mb-3 flex flex-col sm:flex-row gap-2 sm:items-center">
+                  <select value={followUpStaffFilter} onChange={(event) => setFollowUpStaffFilter(event.target.value)} aria-label="Filter follow-ups by staff member" className="w-full sm:max-w-xs px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-600">
+                    <option value="all">All staff</option>
+                    {followUpStaffOptions.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                  </select>
+                  <input type="search" value={followUpNameFilter} onChange={(event) => setFollowUpNameFilter(event.target.value)} placeholder="Search client, staff or phone..." aria-label="Search follow-ups by client, staff or phone" className="w-full sm:max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600" />
+                </div>
                 {filteredFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-ups match that name.</p> : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleFollowUps.map((log) => {
                   const target = new Date(`${log.nextFollowUpDate}T${log.nextFollowUpTime || '23:59'}:00`).getTime();
