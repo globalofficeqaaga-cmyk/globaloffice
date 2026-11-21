@@ -660,7 +660,7 @@ export async function createManagedUserRecord(
   const cleanPass = String(body.password || '').trim();
   const cleanName = String(body.name || '').trim();
   const targetRole = ['director', 'management', 'staff'].includes(String(body.role)) ? String(body.role) : 'staff';
-  const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions']);
+  const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','view_all_reports','sub_admin']);
   const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.filter((permission) => allowedPermissions.has(permission)) : [];
   if (targetRole === 'management') {
     for (const permission of ['view_team_profiles', 'create_staff_accounts', 'manage_user_permissions']) {
