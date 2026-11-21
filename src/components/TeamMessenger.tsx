@@ -493,7 +493,7 @@ export function TeamMessenger({
                   <div className="flex items-center gap-1 shrink-0">
                     <button
                       type="button"
-                      onClick={() => void startCall({ id: activePartner.id, name: activePartner.name, photoUrl: activePartner.photoUrl }, 'audio').catch(() => undefined)}
+                      onClick={() => void startCall({ id: activePartner.id, name: activePartner.name, photoUrl: activePartner.photoUrl }, 'audio').catch((err) => setSendError(err instanceof Error ? err.message : 'Could not start call.'))}
                       aria-label={`Audio call ${activePartner.name}`}
                       title="Audio call"
                       className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer"
