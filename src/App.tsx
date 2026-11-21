@@ -178,7 +178,7 @@ export default function App() {
   }
 
   if (view === 'dashboard' && currentUser && dashboardData) {
-    if (currentUser.role === 'admin') {
+    if (currentUser.role === 'admin' || currentUser.permissions?.includes('sub_admin')) {
       return (
         <AdminDashboard
           data={dashboardData}
@@ -187,6 +187,19 @@ export default function App() {
           onRefresh={loadDashboard}
           onGoHome={() => setView('landing')}
           onLogout={handleLogout}
+        />
+      );
+    }
+    if (currentUser.permissions?.includes('view_all_reports')) {
+      return (
+        <AdminDashboard
+          data={dashboardData}
+          siteSettings={siteSettings}
+          onSiteSettingsSaved={setSiteSettings}
+          onRefresh={loadDashboard}
+          onGoHome={() => setView('landing')}
+          onLogout={handleLogout}
+          readOnly
         />
       );
     }
