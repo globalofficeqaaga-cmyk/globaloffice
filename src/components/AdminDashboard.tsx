@@ -106,6 +106,7 @@ export function AdminDashboard({
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [clockNow, setClockNow] = useState(Date.now());
   const [dailyShowAll, setDailyShowAll] = useState(false);
+  const [showAllFollowUps, setShowAllFollowUps] = useState(false);
   useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
@@ -311,7 +312,8 @@ export function AdminDashboard({
     return Array.from(map.values());
   }, [data.teamProfiles, data.staffList, data.accountsList, data.user]);
 
-  const upcomingFollowUps = useMemo(() => dailyLogs.filter((log) => log.nextFollowUpDate && log.outcome !== 'Resolved' && log.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs]);
+  const upcomingFollowUps = useMemo(() => dailyLogs.filter((log) => !log.deletedAt && log.nextFollowUpDate && log.outcome !== 'Resolved' && log.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs]);
+  const visibleFollowUps = showAllFollowUps ? upcomingFollowUps : upcomingFollowUps.slice(0, 3);
   const todaySummary = useMemo(() => {
     const presentCount = attendanceRecords.filter(
       (a) => a.attendanceDate === todayStr && a.status !== 'Leave'
@@ -790,11 +792,11 @@ export function AdminDashboard({
                 <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /> Call Outcome Follow-Up Timers</h3>
                 <p className="text-xs text-slate-500 mt-1">Upcoming follow-ups — update the log when the timer expires</p>
               </div>
-              <button type="button" onClick={() => { setDailyShowAll(true); setActiveTab('daily'); }} className="text-xs font-semibold text-blue-700 hover:underline">See All ({upcomingFollowUps.length})</button>
+              {upcomingFollowUps.length > 3 && <button type="button" onClick={() => setShowAllFollowUps((value) => !value)} className="text-xs font-semibold text-blue-700 hover:underline">{showAllFollowUps ? 'Show Less' : `See All (${upcomingFollowUps.length})`}</button>}
             </div>
             {upcomingFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-up dates are scheduled.</p> : (
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {upcomingFollowUps.slice(0, 3).map((log) => {
+                {visibleFollowUps.map((log) => {
                   const target = new Date(`${log.nextFollowUpDate}T${log.nextFollowUpTime || '23:59'}:00`).getTime();
                   const diff = target - clockNow;
                   const expired = diff <= 0;
