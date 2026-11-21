@@ -447,6 +447,8 @@ interface StaffDailyLogRow {
   discussion_summary: string;
   outcome: LogOutcome;
   next_follow_up_date: string;
+  next_follow_up_time?: string | null;
+  edit_history?: Array<{ changed_at: string; log_date: string; log_time: string; outcome: LogOutcome; next_follow_up_date: string; next_follow_up_time?: string }>;
   version?: number;
   client_request_id?: string | null;
   deleted_at?: string | null;
@@ -721,6 +723,8 @@ function mapDailyLogRow(row: StaffDailyLogRow): StaffDailyLog {
     discussionSummary: row.discussion_summary || '',
     outcome: row.outcome || 'Follow Up Needed',
     nextFollowUpDate: row.next_follow_up_date || '',
+    nextFollowUpTime: row.next_follow_up_time || '',
+    editHistory: (row.edit_history || []).map((h) => ({ changedAt: h.changed_at, logDate: h.log_date, logTime: h.log_time, outcome: h.outcome, nextFollowUpDate: h.next_follow_up_date, nextFollowUpTime: h.next_follow_up_time || '' })),
     version: row.version ?? 1,
     clientRequestId: row.client_request_id || undefined,
     deletedAt: row.deleted_at || null,
@@ -2500,6 +2504,7 @@ export const api = {
             discussion_summary: payload.discussionSummary || '',
             outcome: payload.outcome || 'Follow Up Needed',
             next_follow_up_date: payload.nextFollowUpDate || '',
+            next_follow_up_time: payload.nextFollowUpTime || null,
             client_request_id: payload.clientRequestId || null,
           })
           .select('*')
@@ -2561,6 +2566,9 @@ export const api = {
       if (payload.outcome !== undefined) updateBody.outcome = payload.outcome;
       if (payload.nextFollowUpDate !== undefined) {
         updateBody.next_follow_up_date = payload.nextFollowUpDate;
+      }
+      if (payload.nextFollowUpTime !== undefined) {
+        updateBody.next_follow_up_time = payload.nextFollowUpTime || null;
       }
 
       const rowData = await withRetry(async () => {
