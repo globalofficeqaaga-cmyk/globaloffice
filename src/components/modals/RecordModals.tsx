@@ -3554,6 +3554,7 @@ export function DailyLogModal({
   const [discussionSummary, setDiscussionSummary] = useState(initial?.discussionSummary || '');
   const [outcome, setOutcome] = useState<LogOutcome>(initial?.outcome || 'Follow Up Needed');
   const [nextFollowUpDate, setNextFollowUpDate] = useState(initial?.nextFollowUpDate || '');
+  const [nextFollowUpTime, setNextFollowUpTime] = useState(initial?.nextFollowUpTime || '');
   const [requestId] = useState(() => initial?.clientRequestId || generateRequestId());
 
   const [dirty, setDirty] = useState(false);
@@ -3607,6 +3608,7 @@ export function DailyLogModal({
         discussionSummary: discussionSummary.trim(),
         outcome,
         nextFollowUpDate: nextFollowUpDate.trim(),
+        nextFollowUpTime: nextFollowUpTime.trim(),
         expectedVersion: initial?.version,
         clientRequestId: initial ? undefined : requestId,
       });
@@ -3863,6 +3865,20 @@ export function DailyLogModal({
                 onChange={(e) => {
                   setDirty(true);
                   setNextFollowUpDate(e.target.value);
+                }}
+                className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Follow-Up Time
+              </label>
+              <input
+                type="time"
+                value={nextFollowUpTime}
+                onChange={(e) => {
+                  setDirty(true);
+                  setNextFollowUpTime(e.target.value);
                 }}
                 className="w-full px-3.5 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
               />
