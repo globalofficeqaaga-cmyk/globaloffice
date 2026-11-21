@@ -61,6 +61,7 @@ import { WebsiteControlPanel } from './WebsiteControlPanel';
 import {
   AttendanceModal,
   ClientModal,
+  ClientDetailsModal,
   DailyLogModal,
   InterviewModal,
   LedgerEntryModal,
@@ -252,6 +253,7 @@ export function AdminDashboard({
     open: false,
     item: null,
   });
+  const [clientDetails, setClientDetails] = useState<ClientProfile | null>(null);
   const [meetingModal, setMeetingModal] = useState<{ open: boolean; item: MeetingRecord | null }>({
     open: false,
     item: null,
@@ -612,17 +614,14 @@ export function AdminDashboard({
       );
     }
     if (activeTab === 'accounts') {
-      return (
-        <button
-          type="button"
-          onClick={() => setLedgerModal({ open: true, item: null })}
-          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
-        >
+      return canManageFinance ? (
+        <button type="button" data-finance-action="true" onClick={() => setLedgerModal({ open: true, item: null })}
+          className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]">
           <Plus className="w-4 h-4" />
           <span className="sm:hidden">Add Entry</span>
           <span className="hidden sm:inline">Add Debit / Credit</span>
         </button>
-      );
+      ) : null;
     }
     if (activeTab === 'staff') {
       return (
@@ -691,6 +690,7 @@ export function AdminDashboard({
 
   const defaultStaffId = data.staffList[0]?.id || data.user.id;
   const canManageUserPermissions = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_user_permissions') === true;
+  const canManageFinance = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_finance') === true;
 
   return (
     <DashboardShell
@@ -706,6 +706,7 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={primaryAction}
     >
+      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
@@ -1896,7 +1897,8 @@ export function AdminDashboard({
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => setClientModal({ open: true, item: c })}
+                            onClick={() => setClientDetails(c)}
+                            data-view-action="true"
                             className="p-2 text-slate-500 hover:text-emerald-700 rounded cursor-pointer"
                             title="View all client details and edit options"
                             aria-label="View all client details"
@@ -2013,7 +2015,8 @@ export function AdminDashboard({
                           <td className="px-6 py-3.5 text-right whitespace-nowrap">
                             <button
                               type="button"
-                              onClick={() => setClientModal({ open: true, item: c })}
+                              onClick={() => setClientDetails(c)}
+                              data-view-action="true"
                               className="p-1.5 text-slate-500 hover:text-emerald-700 rounded cursor-pointer"
                               title="View all client details and edit options"
                               aria-label="View all client details"
@@ -2471,10 +2474,10 @@ export function AdminDashboard({
 
                         {item.receiptPath && (
                           <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <button type="button" onClick={() => openLedgerReceipt(item.receiptPath)} className="font-semibold text-blue-700 underline">View receipt</button>
+                            <button type="button" onClick={() => openLedgerReceipt(item.receiptPath)} data-view-action="true" className="font-semibold text-blue-700 underline">View receipt</button>
                             <span className={item.receiptStatus === 'verified' ? 'text-emerald-700' : item.receiptStatus === 'rejected' ? 'text-red-700' : 'text-amber-700'}>{item.receiptStatus || 'pending'}</span>
-                            {item.receiptStatus !== 'verified' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, true)} className="font-semibold text-emerald-700 underline">Verify</button>}
-                            {item.receiptStatus !== 'rejected' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, false)} className="font-semibold text-red-700 underline">Reject</button>}
+                            {canManageFinance && item.receiptStatus !== 'verified' && <button type="button" data-finance-action="true" onClick={() => verifyLedgerReceipt(item.id, true)} className="font-semibold text-emerald-700 underline">Verify</button>}
+                            {canManageFinance && item.receiptStatus !== 'rejected' && <button type="button" data-finance-action="true" onClick={() => verifyLedgerReceipt(item.id, false)} className="font-semibold text-red-700 underline">Reject</button>}
                           </div>
                         )}
                         <div className="flex items-center justify-between pt-1">
@@ -2612,10 +2615,10 @@ export function AdminDashboard({
                             <td className="px-4 py-3.5 min-w-[180px]">
                               {item.receiptPath ? (
                                 <div className="space-y-1.5">
-                                  <button type="button" onClick={() => openLedgerReceipt(item.receiptPath)} className="text-xs font-semibold text-blue-700 underline">Open receipt</button>
+                                  <button type="button" onClick={() => openLedgerReceipt(item.receiptPath)} data-view-action="true" className="text-xs font-semibold text-blue-700 underline">Open receipt</button>
                                   <p className={`text-[11px] font-semibold ${item.receiptStatus === 'verified' ? 'text-emerald-700' : item.receiptStatus === 'rejected' ? 'text-red-700' : 'text-amber-700'}`}>{item.receiptStatus || 'pending'}</p>
-                                  {item.receiptStatus !== 'verified' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, true)} className="mr-2 text-[11px] font-semibold text-emerald-700 underline">Verify</button>}
-                                  {item.receiptStatus !== 'rejected' && <button type="button" onClick={() => verifyLedgerReceipt(item.id, false)} className="text-[11px] font-semibold text-red-700 underline">Reject</button>}
+                                  {canManageFinance && item.receiptStatus !== 'verified' && <button type="button" data-finance-action="true" onClick={() => verifyLedgerReceipt(item.id, true)} className="mr-2 text-[11px] font-semibold text-emerald-700 underline">Verify</button>}
+                                  {canManageFinance && item.receiptStatus !== 'rejected' && <button type="button" data-finance-action="true" onClick={() => verifyLedgerReceipt(item.id, false)} className="text-[11px] font-semibold text-red-700 underline">Reject</button>}
                                 </div>
                               ) : <span className="text-xs text-slate-400">No receipt</span>}
                             </td>
@@ -3288,6 +3291,7 @@ export function AdminDashboard({
       {/* ====================================================================
           MODALS
          ==================================================================== */}
+      {clientDetails && <ClientDetailsModal client={clientDetails} staffName={getStaffLabel(clientDetails.staffId)} onClose={() => setClientDetails(null)} />}
       {clientModal.open && (
         <ClientModal
           initial={clientModal.item}
@@ -3442,10 +3446,11 @@ export function AdminDashboard({
         />
       )}
 
-      {ledgerModal.open && (
+      {ledgerModal.open && (!readOnly || canManageFinance) && (
         <LedgerEntryModal
           initial={ledgerModal.item}
           ownerId={data.user.id}
+          permissionActions={readOnly && canManageFinance}
           onClose={() => setLedgerModal({ open: false, item: null })}
           onSave={async (payload) => {
             if (ledgerModal.item) {
