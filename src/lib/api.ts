@@ -1047,7 +1047,7 @@ export const api = {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: cleanIdentifier, password }),
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -1072,7 +1072,7 @@ export const api = {
 
     return apiFetch<{ token: string; user: PublicUser }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ userId: identifier, password }),
+      body: JSON.stringify({ identifier: identifier.trim(), password }),
     });
   },
 
