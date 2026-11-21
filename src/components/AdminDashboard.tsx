@@ -861,12 +861,16 @@ export function AdminDashboard({
                   const expired = diff <= 0;
                   const total = Math.max(0, Math.floor(diff / 1000));
                   const countdown = expired ? 'TIME EXPIRED' : `${Math.floor(total / 86400)}d ${String(Math.floor((total % 86400) / 3600)).padStart(2,'0')}:${String(Math.floor((total % 3600) / 60)).padStart(2,'0')}:${String(total % 60).padStart(2,'0')}`;
-                  return <button key={log.id} type="button" onClick={() => setDailyLogModal({ open: true, item: log })} className={`text-left rounded-lg border p-3 ${expired ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
+                  const cardClass = `text-left rounded-lg border p-3 ${expired ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'}`;
+                  const cardContent = <>
                     <p className="text-sm font-semibold text-slate-900 truncate">{log.contactName} · {log.outcome}</p>
                     <p className="text-xs text-slate-500 mt-1">{log.nextFollowUpDate} {log.nextFollowUpTime || '23:59'} · {log.staffName}</p>
                     <p className={`font-mono text-xl sm:text-2xl font-bold tabular-nums mt-2 ${expired ? 'text-red-700' : 'text-amber-700'}`}>{countdown}</p>
-                    <p className="text-xs font-semibold mt-1">{expired ? 'Update required' : 'Open and update log'}</p>
-                  </button>;
+                    <p className="text-xs font-semibold mt-1">{expired ? (readOnly ? 'Read-only · Follow-up time expired' : 'Update required') : (readOnly ? 'Read-only follow-up' : 'Open and update log')}</p>
+                  </>;
+                  return readOnly
+                    ? <div key={log.id} className={cardClass} aria-label={`Follow-up for ${log.contactName}`}>{cardContent}</div>
+                    : <button key={log.id} type="button" onClick={() => setDailyLogModal({ open: true, item: log })} className={cardClass}>{cardContent}</button>;
                 })}
                 </div>}
               </>
