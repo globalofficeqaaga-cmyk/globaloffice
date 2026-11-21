@@ -5,6 +5,8 @@ import {
   Check,
   CheckCheck,
   MessageSquare,
+  PhoneCall,
+  Video,
   Search,
   Send,
   User,
@@ -19,6 +21,7 @@ import {
 import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser, TeamDirectoryMember, TeamMessage, UserRole } from '../types';
 import { UserProfileModal } from './TeamProfilesPanel';
+import { useTeamCalls } from './TeamCallProvider';
 
 export const TEAM_GROUP_THREAD_ID = '__team_group__';
 
@@ -102,6 +105,7 @@ export function TeamMessenger({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [profileMember, setProfileMember] = useState<TeamDirectoryMember | null>(null);
+  const { startCall } = useTeamCalls();
   const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -486,15 +490,35 @@ export function TeamMessenger({
                       </p>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setProfileMember(activePartner)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer shrink-0"
-                  >
-                    <User className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">View Profile</span>
-                    <span className="sm:hidden">Profile</span>
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => void startCall({ id: activePartner.id, name: activePartner.name, photoUrl: activePartner.photoUrl }, 'audio').catch(() => undefined)}
+                      aria-label={`Audio call ${activePartner.name}`}
+                      title="Audio call"
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 cursor-pointer"
+                    >
+                      <PhoneCall className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void startCall({ id: activePartner.id, name: activePartner.name, photoUrl: activePartner.photoUrl }, 'video').catch(() => undefined)}
+                      aria-label={`Video call ${activePartner.name}`}
+                      title="Video call"
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 cursor-pointer"
+                    >
+                      <Video className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProfileMember(activePartner)}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg cursor-pointer"
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">View Profile</span>
+                      <span className="sm:hidden">Profile</span>
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">Select a team member to chat</p>
