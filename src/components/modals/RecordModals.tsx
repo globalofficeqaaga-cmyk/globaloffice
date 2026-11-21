@@ -2312,6 +2312,7 @@ export function StaffAccountModal({
   const isAccounts = permissions.includes('view_finance') || permissions.includes('manage_finance');
   const permissionOptions: { value: UserPermission; label: string }[] = [
     { value: 'view_team_profiles', label: 'View team profiles' },
+    { value: 'view_all_clients', label: 'View all clients (all staff)' },
     { value: 'add_clients', label: 'Add clients' },
     { value: 'edit_clients', label: 'Edit clients' },
     { value: 'delete_clients', label: 'Delete clients' },
@@ -2325,7 +2326,7 @@ export function StaffAccountModal({
     { value: 'sub_admin', label: 'Full Admin Management (Sub Admin)' },
   ];
 
-  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'view_all_reports', 'sub_admin'].includes(item.value));
+  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'view_all_reports', 'view_all_clients', 'sub_admin'].includes(item.value));
 
   const [name, setName] = useState(initial?.name || '');
   const [designation, setDesignation] = useState(
