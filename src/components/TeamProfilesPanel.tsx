@@ -134,7 +134,7 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
   };
 
   return (
-    <div className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
+    <div className="team-message-permission-modal fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4" role="dialog" aria-modal="true">
       <div className="w-full max-w-xl h-[min(720px,92vh)] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden">
         <header className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
