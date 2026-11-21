@@ -16,6 +16,9 @@ import {
   Stethoscope,
   Trash2,
   Upload,
+  Eye,
+  EyeOff,
+  Copy,
   UserCircle2,
   Users,
   X,
@@ -122,6 +125,7 @@ export function StaffDashboard({
   const [profPhoto, setProfPhoto] = useState(data.user.photoUrl);
   const [profCover, setProfCover] = useState(data.user.coverUrl);
   const [profPassword, setProfPassword] = useState('');
+  const [showProfPassword, setShowProfPassword] = useState(false);
   const [profDirty, setProfDirty] = useState(false);
   const [profUploadingKind, setProfUploadingKind] = useState<'avatar' | 'cover' | null>(null);
   const [profSaving, setProfSaving] = useState(false);
@@ -323,7 +327,6 @@ export function StaffDashboard({
         newPassword: profPassword.trim() || undefined,
         expectedVersion: data.user.version,
       });
-      setProfPassword('');
       setProfDirty(false);
       await onRefresh();
       setProfMessage('Profile saved to database. Clients searching their status will see these details.');
@@ -1697,18 +1700,51 @@ export function StaffDashboard({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Change Password (Optional, min. 12 chars)
+                  New Login Password (Optional)
                 </label>
-                <input
-                  type="password"
-                  value={profPassword}
-                  onChange={(e) => {
-                    setProfDirty(true);
-                    setProfPassword(e.target.value);
-                  }}
-                  placeholder="Leave blank to keep current"
-                  className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg"
-                />
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={showProfPassword ? 'text' : 'password'}
+                      value={profPassword}
+                      onChange={(e) => {
+                        setProfDirty(true);
+                        setProfPassword(e.target.value);
+                      }}
+                      placeholder="Leave blank to keep current password"
+                      autoComplete="new-password"
+                      className="w-full px-3.5 py-2 pr-10 text-sm font-mono border border-slate-300 rounded-lg"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowProfPassword((visible) => !visible)}
+                      aria-label={showProfPassword ? 'Hide new password' : 'Show new password'}
+                      title={showProfPassword ? 'Hide new password' : 'Show new password'}
+                      className="absolute inset-y-0 right-0 px-3 flex items-center text-slate-500 hover:text-slate-800"
+                    >
+                      {showProfPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!profPassword}
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(profPassword);
+                        setProfMessage('New password copied. Save Profile to apply it.');
+                        setProfError('');
+                      } catch {
+                        setProfError('Copy is unavailable in this browser. Use the eye icon to view the new password.');
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Copy
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Your current password cannot be viewed. Enter a new password to reset it; after saving, you can still view or copy the new password until you leave this page.
+                </p>
               </div>
             </div>
 
