@@ -2903,6 +2903,7 @@ export function LedgerEntryModal({
   }
 
   async function executeSave() {
+    if (saving) return;
     setError('');
     setConflictDetected(false);
 
