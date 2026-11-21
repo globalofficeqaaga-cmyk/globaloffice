@@ -435,6 +435,7 @@ interface TeamProfilesPanelProps {
   onEditMember?: (member: PublicUser) => void;
   onEditOwnProfile?: () => void;
   editableMemberRoles?: UserRole[];
+  canSendMessages?: boolean;
 }
 
 export function TeamProfilesPanel({
@@ -443,6 +444,7 @@ export function TeamProfilesPanel({
   onEditMember,
   onEditOwnProfile,
   editableMemberRoles,
+  canSendMessages = true,
 }: TeamProfilesPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
@@ -683,7 +685,7 @@ export function TeamProfilesPanel({
                       <Eye className="w-3.5 h-3.5" />
                       <span>View Full Profile</span>
                     </button>
-                    {!isSelf && (
+                    {!isSelf && canSendMessages && (
                       <button type="button" onClick={() => setChatMember(member)} className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md cursor-pointer">
                         <MessageCircle className="w-3 h-3" /><span>Chat</span>
                       </button>
