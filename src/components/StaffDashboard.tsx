@@ -360,7 +360,7 @@ export function StaffDashboard({
     },
     {
       id: 'clients',
-      label: 'My Clients',
+      label: data.user.permissions?.includes('view_all_clients') ? 'All Clients' : 'My Clients',
       icon: <ClipboardList className="w-4 h-4" />,
       count: data.clients.length,
     },
@@ -645,7 +645,7 @@ export function StaffDashboard({
 
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5">
             <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
-              <p className="text-[11px] sm:text-xs font-medium text-slate-500">My Clients</p>
+              <p className="text-[11px] sm:text-xs font-medium text-slate-500">{data.user.permissions?.includes('view_all_clients') ? 'All Clients' : 'My Clients'}</p>
               <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
                 {data.clients.length}
               </p>
