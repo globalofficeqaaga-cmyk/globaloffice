@@ -968,10 +968,12 @@ export function ClientDetailsModal({
   client,
   staffName,
   onClose,
+  canPrint = true,
 }: {
   client: ClientProfile;
   staffName: string;
   onClose: () => void;
+  canPrint?: boolean;
 }) {
   const due = Math.max(0, (client.totalPayable || 0) - (client.totalPaid || 0));
   const fields: Array<[string, string]> = [
@@ -999,14 +1001,19 @@ export function ClientDetailsModal({
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Client details">
       <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Client Details</h2>
-            <p className="mt-0.5 text-xs text-slate-500">Read-only complete client profile</p>
+        <style>{'@media print { body * { visibility: hidden !important; } #client-details-print-area, #client-details-print-area * { visibility: visible !important; } #client-details-print-area { position: absolute !important; inset: 0 !important; width: 100% !important; max-height: none !important; overflow: visible !important; } .client-details-no-print { display: none !important; } }'}</style>
+        <div id="client-details-print-area" className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+          <div className="client-details-no-print flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Client Details</h2>
+              <p className="mt-0.5 text-xs text-slate-500">Read-only complete client profile</p>
+            </div>
+            <div className="flex items-center gap-2">
+              {canPrint && <button type="button" data-print-action="true" onClick={() => window.print()} className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-semibold text-white">Print A4</button>}
+              <button type="button" data-view-action="true" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close client details"><X className="h-5 w-5" /></button>
+            </div>
           </div>
-          <button type="button" data-view-action="true" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close client details"><X className="h-5 w-5" /></button>
-        </div>
-        <div className="max-h-[calc(90vh-68px)] space-y-6 overflow-y-auto p-5">
+        <div className="max-h-[calc(90vh-68px)] space-y-6 overflow-y-auto p-5 print:max-h-none print:overflow-visible">
           <section>
             <h3 className="mb-3 text-sm font-bold text-slate-900">Profile information</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -1031,9 +1038,10 @@ export function ClientDetailsModal({
             <h3 className="mb-3 text-sm font-bold text-slate-900">Payment history ({client.payments?.length || 0})</h3>
             {client.payments?.length ? <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="p-3">Date</th><th className="p-3">Purpose</th><th className="p-3">Notes</th><th className="p-3 text-right">Amount</th></tr></thead><tbody className="divide-y divide-slate-100">{client.payments.map((payment) => <tr key={payment.id}><td className="p-3 whitespace-nowrap">{payment.date || '—'}</td><td className="p-3">{payment.purpose || '—'}</td><td className="p-3">{payment.note || '—'}</td><td className="p-3 text-right font-mono">{formatBDT(payment.amount)}</td></tr>)}</tbody></table></div> : <p className="text-sm text-slate-500">No payment history recorded.</p>}
           </section>
-          <div className="flex justify-end border-t border-slate-200 pt-4">
+          <div className="client-details-no-print flex justify-end border-t border-slate-200 pt-4">
             <button type="button" data-view-action="true" onClick={onClose} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Close</button>
           </div>
+        </div>
         </div>
       </div>
     </div>
