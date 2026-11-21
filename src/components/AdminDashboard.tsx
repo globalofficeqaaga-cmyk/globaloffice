@@ -2432,6 +2432,7 @@ export function AdminDashboard({
               </div>
               <button
                 type="button"
+                data-finance-action="true"
                 onClick={() => setLedgerModal({ open: true, item: null })}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
               >
