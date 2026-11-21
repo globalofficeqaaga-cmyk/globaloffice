@@ -203,9 +203,14 @@ export default function App() {
         />
       );
     }
-    if (currentUser.role === 'director' || currentUser.role === 'management') {
+    if (
+      currentUser.role === 'accounts' ||
+      currentUser.permissions?.includes('view_finance') ||
+      currentUser.permissions?.includes('manage_finance') ||
+      currentUser.permissions?.includes('create_staff_accounts')
+    ) {
       return (
-        <LeadershipDashboard
+        <AccountsDashboard
           data={dashboardData}
           onRefresh={loadDashboard}
           onGoHome={() => setView('landing')}
@@ -213,9 +218,9 @@ export default function App() {
         />
       );
     }
-    if (currentUser.role !== 'management' && (currentUser.role === 'accounts' || currentUser.permissions?.includes('view_finance') || currentUser.permissions?.includes('manage_finance') || currentUser.permissions?.includes('create_staff_accounts'))) {
+    if (currentUser.role === 'director' || currentUser.role === 'management') {
       return (
-        <AccountsDashboard
+        <LeadershipDashboard
           data={dashboardData}
           onRefresh={loadDashboard}
           onGoHome={() => setView('landing')}
