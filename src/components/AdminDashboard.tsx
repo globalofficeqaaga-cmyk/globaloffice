@@ -695,7 +695,7 @@ export function AdminDashboard({
   return (
     <DashboardShell
       user={data.user}
-      roleLabel={readOnly ? 'Dashboard & Reports (Read Only)' : 'Admin Control Center'}
+      roleLabel={readOnly ? 'Dashboard & Reports · Permission Scoped' : 'Admin Control Center'}
       tabs={readOnly ? tabs.filter((tab) => tab.id !== 'website' && tab.id !== 'settings') : tabs}
       activeTab={activeTab}
       onTabChange={(id) => {
@@ -704,9 +704,8 @@ export function AdminDashboard({
       }}
       onGoHome={onGoHome}
       onLogout={onLogout}
-      primaryAction={readOnly ? null : primaryAction}
+      primaryAction={primaryAction}
     >
-      {readOnly && <style>{'.admin-readonly-content button:not([data-permission-action="true"]) { pointer-events: none !important; cursor: default !important; } .admin-readonly-content input, .admin-readonly-content select, .admin-readonly-content textarea { pointer-events: none !important; } .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; cursor: pointer !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
