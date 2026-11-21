@@ -52,6 +52,7 @@ import type {
   SiteSettings,
   StaffAttendanceRecord,
   StaffDailyLog,
+  UserPermission,
 } from '../types';
 import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
@@ -103,7 +104,25 @@ export function AdminDashboard({
   onLogout,
   readOnly = false,
 }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const userPermissions = data.user.permissions || [];
+  const canViewAllReports = !readOnly || userPermissions.includes('view_all_reports');
+  const canViewClients = canViewAllReports || ['add_clients', 'edit_clients', 'delete_clients'].some((p) => userPermissions.includes(p as UserPermission));
+  const canAddClients = !readOnly || userPermissions.includes('add_clients');
+  const canEditClients = !readOnly || userPermissions.includes('edit_clients');
+  const canDeleteClients = !readOnly || userPermissions.includes('delete_clients');
+  const canViewFinance = !readOnly || userPermissions.includes('view_finance') || userPermissions.includes('manage_finance');
+  const canManageFinance = !readOnly || userPermissions.includes('manage_finance');
+  const canViewTeam = !readOnly || userPermissions.includes('view_team_profiles') || userPermissions.includes('send_messages');
+  const canManageStaff = !readOnly || userPermissions.includes('create_staff_accounts') || userPermissions.includes('manage_user_permissions');
+  const canPrintA4 = !readOnly || userPermissions.includes('print_a4');
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => {
+    if (!readOnly || userPermissions.includes('view_all_reports')) return 'overview';
+    if (userPermissions.includes('view_finance') || userPermissions.includes('manage_finance')) return 'accounts';
+    if (['add_clients', 'edit_clients', 'delete_clients'].some((p) => userPermissions.includes(p as UserPermission))) return 'clients';
+    if (userPermissions.includes('view_team_profiles') || userPermissions.includes('send_messages')) return 'team';
+    if (userPermissions.includes('create_staff_accounts') || userPermissions.includes('manage_user_permissions')) return 'staff';
+    return 'overview';
+  });
   const [clockNow, setClockNow] = useState(Date.now());
   const [dailyShowAll, setDailyShowAll] = useState(false);
   const [showAllFollowUps, setShowAllFollowUps] = useState(false);
@@ -593,11 +612,9 @@ export function AdminDashboard({
     },
   ];
 
-  const canManageFinance = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_finance') === true;
-  const canManageUserPermissions = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_user_permissions') === true;
+  const canManageUserPermissions = !readOnly || data.user.permissions?.includes('manage_user_permissions') === true;
 
   const primaryAction = (() => {
-    if (readOnly && !(activeTab === 'accounts' && canManageFinance)) return null;
     if (
       activeTab === 'audit' ||
       activeTab === 'website' ||
@@ -606,7 +623,7 @@ export function AdminDashboard({
     ) {
       return null;
     }
-    if (activeTab === 'daily') {
+    if (activeTab === 'daily' && canViewAllReports) {
       return (
         <button
           type="button"
@@ -629,7 +646,7 @@ export function AdminDashboard({
         </button>
       ) : null;
     }
-    if (activeTab === 'staff') {
+    if (activeTab === 'staff' && (!readOnly || userPermissions.includes('create_staff_accounts'))) {
       return (
         <button
           type="button"
@@ -642,7 +659,7 @@ export function AdminDashboard({
         </button>
       );
     }
-    if (activeTab === 'meetings') {
+    if (activeTab === 'meetings' && canViewAllReports) {
       return (
         <button
           type="button"
@@ -655,7 +672,7 @@ export function AdminDashboard({
         </button>
       );
     }
-    if (activeTab === 'medicals') {
+    if (activeTab === 'medicals' && canViewAllReports) {
       return (
         <button
           type="button"
@@ -668,7 +685,7 @@ export function AdminDashboard({
         </button>
       );
     }
-    if (activeTab === 'interviews') {
+    if (activeTab === 'interviews' && canViewAllReports) {
       return (
         <button
           type="button"
@@ -681,9 +698,10 @@ export function AdminDashboard({
         </button>
       );
     }
-    return (
+    return canAddClients ? (
       <button
         type="button"
+        data-client-action="true"
         onClick={() => setClientModal({ open: true, item: null })}
         className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg cursor-pointer whitespace-nowrap min-h-[40px]"
       >
@@ -691,7 +709,7 @@ export function AdminDashboard({
         <span className="sm:hidden">Client</span>
         <span className="hidden sm:inline">Add Client</span>
       </button>
-    );
+    ) : null;
   })();
 
   const defaultStaffId = data.staffList[0]?.id || data.user.id;
@@ -700,7 +718,14 @@ export function AdminDashboard({
     <DashboardShell
       user={data.user}
       roleLabel={readOnly ? 'Dashboard & Reports · Permission Scoped' : 'Admin Control Center'}
-      tabs={readOnly ? tabs.filter((tab) => tab.id !== 'website' && tab.id !== 'settings') : tabs}
+      tabs={readOnly ? tabs.filter((tab) => {
+        if (tab.id === 'overview' || ['daily', 'meetings', 'medicals', 'interviews', 'audit'].includes(tab.id)) return canViewAllReports;
+        if (tab.id === 'clients') return canViewClients;
+        if (tab.id === 'accounts') return canViewFinance;
+        if (tab.id === 'team') return canViewTeam;
+        if (tab.id === 'staff') return canManageStaff;
+        return false;
+      }) : tabs}
       activeTab={activeTab}
       onTabChange={(id) => {
         setActiveTab(id as AdminTab);
@@ -710,7 +735,7 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={primaryAction}
     >
-      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]):not([data-permission-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea, .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
+      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]):not([data-client-action="true"]):not([data-print-action="true"]):not([data-permission-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea, .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
@@ -1913,7 +1938,9 @@ export function AdminDashboard({
                           </button>
                           <button
                             type="button"
-                            onClick={() => setClientModal({ open: true, item: c })}
+                            onClick={() => canEditClients && setClientModal({ open: true, item: c })}
+                            data-client-action="true"
+                            disabled={!canEditClients}
                             className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                             title="Edit client"
                           >
@@ -1951,6 +1978,7 @@ export function AdminDashboard({
                             <button
                               type="button"
                               onClick={() => setConfirmDeleteId(c.id)}
+                              data-client-action="true"
                               className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
                               title="Delete client"
                             >
@@ -2031,7 +2059,9 @@ export function AdminDashboard({
                             </button>
                             <button
                               type="button"
-                              onClick={() => setClientModal({ open: true, item: c })}
+                              onClick={() => canEditClients && setClientModal({ open: true, item: c })}
+                              data-client-action="true"
+                              disabled={!canEditClients}
                               className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                               title="Edit client"
                             >
@@ -2069,6 +2099,7 @@ export function AdminDashboard({
                               <button
                                 type="button"
                                 onClick={() => setConfirmDeleteId(c.id)}
+                                data-client-action="true"
                                 className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
                                 title="Delete client"
                               >
@@ -2805,6 +2836,7 @@ export function AdminDashboard({
       {activeTab === 'team' && (
         <TeamProfilesPanel
           currentUser={data.user}
+          canSendMessages={!readOnly || userPermissions.includes('send_messages')}
           members={fullTeamRoster}
           onEditMember={canManageUserPermissions ? (member) => {
             if (readOnly && member.role !== 'staff') return;
@@ -3298,8 +3330,8 @@ export function AdminDashboard({
       {/* ====================================================================
           MODALS
          ==================================================================== */}
-      {clientDetails && <ClientDetailsModal client={clientDetails} staffName={getStaffLabel(clientDetails.staffId)} onClose={() => setClientDetails(null)} />}
-      {clientModal.open && (
+      {clientDetails && <ClientDetailsModal client={clientDetails} staffName={getStaffLabel(clientDetails.staffId)} canPrint={canPrintA4} onClose={() => setClientDetails(null)} />}
+      {clientModal.open && (!readOnly || (clientModal.item ? canEditClients : canAddClients)) && (
         <ClientModal
           initial={clientModal.item}
           isAdmin={true}
