@@ -690,6 +690,7 @@ export function AdminDashboard({
   })();
 
   const defaultStaffId = data.staffList[0]?.id || data.user.id;
+  const canManageUserPermissions = data.user.role === 'admin' || data.user.permissions?.includes('sub_admin') === true || data.user.permissions?.includes('manage_user_permissions') === true;
 
   return (
     <DashboardShell
@@ -705,7 +706,7 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={readOnly ? null : primaryAction}
     >
-      {readOnly && <style>{'.admin-readonly-content button { pointer-events: none !important; cursor: default !important; } .admin-readonly-content input, .admin-readonly-content select, .admin-readonly-content textarea { pointer-events: none !important; }'}</style>}
+      {readOnly && <style>{'.admin-readonly-content button:not([data-permission-action="true"]) { pointer-events: none !important; cursor: default !important; } .admin-readonly-content input, .admin-readonly-content select, .admin-readonly-content textarea { pointer-events: none !important; } .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; cursor: pointer !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
@@ -2796,14 +2797,16 @@ export function AdminDashboard({
         <TeamProfilesPanel
           currentUser={data.user}
           members={fullTeamRoster}
-          onEditMember={(member) =>
+          onEditMember={canManageUserPermissions ? (member) => {
+            if (readOnly && member.role !== 'staff') return;
             setStaffModal({
               open: true,
               item: member,
               defaultRole: member.role === 'accounts' ? 'accounts' : 'staff',
-            })
-          }
-          onEditOwnProfile={() => setActiveTab('settings')}
+            });
+          } : undefined}
+          editableMemberRoles={readOnly ? ['staff'] : undefined}
+          onEditOwnProfile={readOnly ? undefined : () => setActiveTab('settings')}
         />
       )}
 
@@ -3377,6 +3380,8 @@ export function AdminDashboard({
         <StaffAccountModal
           initial={staffModal.item}
           defaultRole={staffModal.defaultRole}
+          allowedRoles={readOnly ? ['staff'] : undefined}
+          canGrantElevatedPermissions={!readOnly}
           onClose={() => setStaffModal({ open: false, item: null, defaultRole: 'staff' })}
           onSave={async (payload) => {
             const label = payload.role === 'director' ? 'Director account' : payload.role === 'management' ? 'Management account' : 'Staff account';
@@ -3508,13 +3513,13 @@ export function AdminDashboard({
           member={profilePreviewUser}
           isSelf={profilePreviewUser.id === data.user.id}
           onClose={() => setProfilePreviewUser(null)}
-          onEdit={(member) =>
+          onEdit={canManageUserPermissions && (!readOnly || profilePreviewUser.role === 'staff') ? (member) =>
             setStaffModal({
               open: true,
               item: member,
               defaultRole: member.role === 'accounts' ? 'accounts' : 'staff',
             })
-          }
+          : undefined}
         />
       )}
       </div>
