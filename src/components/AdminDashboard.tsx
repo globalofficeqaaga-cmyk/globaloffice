@@ -126,6 +126,7 @@ export function AdminDashboard({
   const [clockNow, setClockNow] = useState(Date.now());
   const [dailyShowAll, setDailyShowAll] = useState(false);
   const [showAllFollowUps, setShowAllFollowUps] = useState(false);
+  const [followUpNameFilter, setFollowUpNameFilter] = useState('');
   useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
@@ -332,7 +333,14 @@ export function AdminDashboard({
   }, [data.teamProfiles, data.staffList, data.accountsList, data.user]);
 
   const upcomingFollowUps = useMemo(() => dailyLogs.filter((log) => !log.deletedAt && log.nextFollowUpDate && log.outcome !== 'Resolved' && log.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs]);
-  const visibleFollowUps = showAllFollowUps ? upcomingFollowUps : upcomingFollowUps.slice(0, 3);
+  const filteredFollowUps = useMemo(() => {
+    const term = followUpNameFilter.trim().toLowerCase();
+    if (!term) return upcomingFollowUps;
+    return upcomingFollowUps.filter((log) =>
+      [log.contactName, log.staffName, log.contactPhone].some((value) => (value || '').toLowerCase().includes(term))
+    );
+  }, [upcomingFollowUps, followUpNameFilter]);
+  const visibleFollowUps = showAllFollowUps ? filteredFollowUps : filteredFollowUps.slice(0, 3);
   const todaySummary = useMemo(() => {
     const presentCount = attendanceRecords.filter(
       (a) => a.attendanceDate === todayStr && a.status !== 'Leave'
@@ -820,7 +828,9 @@ export function AdminDashboard({
               {upcomingFollowUps.length > 3 && <button type="button" onClick={() => setShowAllFollowUps((value) => !value)} className="text-xs font-semibold text-blue-700 hover:underline">{showAllFollowUps ? 'Show Less' : `See All (${upcomingFollowUps.length})`}</button>}
             </div>
             {upcomingFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-up dates are scheduled.</p> : (
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              <>
+                <input type="search" value={followUpNameFilter} onChange={(event) => setFollowUpNameFilter(event.target.value)} placeholder="Filter by client or staff name..." aria-label="Filter follow-ups by client or staff name" className="mb-3 w-full sm:max-w-sm px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600" />
+                {filteredFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-ups match that name.</p> : <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleFollowUps.map((log) => {
                   const target = new Date(`${log.nextFollowUpDate}T${log.nextFollowUpTime || '23:59'}:00`).getTime();
                   const diff = target - clockNow;
@@ -834,7 +844,8 @@ export function AdminDashboard({
                     <p className="text-xs font-semibold mt-1">{expired ? 'Update required' : 'Open and update log'}</p>
                   </button>;
                 })}
-              </div>
+                </div>}
+              </>
             )}
           </section>
           {/* Top KPI Row */}
@@ -2470,7 +2481,7 @@ export function AdminDashboard({
                   All entries submitted from Admin or Accounts Dashboard. Admin can add, edit, and archive entries.
                 </p>
               </div>
-              <button
+              {canManageFinance && <button
                 type="button"
                 data-finance-action="true"
                 onClick={() => setLedgerModal({ open: true, item: null })}
@@ -2478,7 +2489,7 @@ export function AdminDashboard({
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Entry</span>
-              </button>
+              </button>}
             </div>
 
             {filteredLedgerEntries.length === 0 ? (
@@ -2543,15 +2554,16 @@ export function AdminDashboard({
                             </span>
                           </span>
                           <div className="flex items-center gap-1">
-                            <button
+                            {canManageFinance && <button
                               type="button"
+                              data-finance-action="true"
                               onClick={() => setLedgerModal({ open: true, item })}
                               className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                               title="Edit ledger entry"
                             >
                               <Pencil className="w-4 h-4" />
-                            </button>
-                            {confirmDeleteId === item.id ? (
+                            </button>}
+                            {canManageFinance && confirmDeleteId === item.id ? (
                               <span className="inline-flex items-center gap-1">
                                 <button
                                   type="button"
@@ -2583,16 +2595,9 @@ export function AdminDashboard({
                                   No
                                 </button>
                               </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDeleteId(item.id)}
-                                className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer"
-                                title="Remove ledger entry"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
+                            ) : canManageFinance ? (
+                              <button type="button" data-finance-action="true" onClick={() => setConfirmDeleteId(item.id)} className="p-2 text-slate-500 hover:text-red-600 rounded cursor-pointer" title="Remove ledger entry"><Trash2 className="w-4 h-4" /></button>
+                            ) : null}
                           </div>
                         </div>
                       </div>
@@ -2678,15 +2683,8 @@ export function AdminDashboard({
                               {formatBDT(item.amount)}
                             </td>
                             <td className="px-6 py-3.5 text-right whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => setLedgerModal({ open: true, item })}
-                                className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
-                                title="Edit ledger entry"
-                              >
-                                <Pencil className="w-4 h-4" />
-                              </button>
-                              {confirmDeleteId === item.id ? (
+                              {canManageFinance && <button type="button" data-finance-action="true" onClick={() => setLedgerModal({ open: true, item })} className="p-1.5 text-slate-500 hover:text-blue-700 rounded cursor-pointer" title="Edit ledger entry"><Pencil className="w-4 h-4" /></button>}
+                              {canManageFinance && confirmDeleteId === item.id ? (
                                 <span className="inline-flex items-center gap-1 ml-2">
                                   <button
                                     type="button"
@@ -2720,16 +2718,9 @@ export function AdminDashboard({
                                     No
                                   </button>
                                 </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDeleteId(item.id)}
-                                  className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer"
-                                  title="Remove ledger entry"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              )}
+                              ) : canManageFinance ? (
+                                <button type="button" data-finance-action="true" onClick={() => setConfirmDeleteId(item.id)} className="p-1.5 text-slate-500 hover:text-red-600 rounded ml-1 cursor-pointer" title="Remove ledger entry"><Trash2 className="w-4 h-4" /></button>
+                              ) : null}
                             </td>
                           </tr>
                         );
