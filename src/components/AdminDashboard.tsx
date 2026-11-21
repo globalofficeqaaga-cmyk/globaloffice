@@ -708,7 +708,7 @@ export function AdminDashboard({
       onLogout={onLogout}
       primaryAction={primaryAction}
     >
-      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
+      {readOnly && <style>{'.admin-readonly-content button:not([data-view-action="true"]):not([data-finance-action="true"]):not([data-permission-action="true"]) { pointer-events: none !important; opacity: .55 !important; cursor: not-allowed !important; } .admin-readonly-content .finance-permission-modal button, .admin-readonly-content .finance-permission-modal input, .admin-readonly-content .finance-permission-modal select, .admin-readonly-content .finance-permission-modal textarea, .admin-readonly-content .permission-manager-modal button, .admin-readonly-content .permission-manager-modal input, .admin-readonly-content .permission-manager-modal select, .admin-readonly-content .permission-manager-modal textarea { pointer-events: auto !important; opacity: 1 !important; cursor: pointer !important; }'}</style>}
       <div className={readOnly ? 'admin-readonly-content' : undefined}>
       {saveToast && (
         <div className="mb-5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between gap-3 text-sm text-emerald-900">
