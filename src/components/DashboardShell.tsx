@@ -246,9 +246,23 @@ export function DashboardShell({
     };
 
     vibrate();
-    const intervalId = window.setInterval(vibrate, 3000);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') vibrate();
+    }, 3000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') vibrate();
+      else {
+        try {
+          navigator.vibrate(0);
+        } catch {
+          // Ignore unsupported or blocked vibration.
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       try {
         navigator.vibrate(0);
       } catch {
