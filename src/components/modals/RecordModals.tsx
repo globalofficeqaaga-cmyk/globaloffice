@@ -963,6 +963,82 @@ export function ClientModal({
 /* ============================================================================
  * 2. MEETING CREATE / EDIT MODAL
  * ========================================================================== */
+export function ClientDetailsModal({
+  client,
+  staffName,
+  onClose,
+}: {
+  client: ClientProfile;
+  staffName: string;
+  onClose: () => void;
+}) {
+  const due = Math.max(0, (client.totalPayable || 0) - (client.totalPaid || 0));
+  const fields: Array<[string, string]> = [
+    ['Client name', client.name],
+    ['Phone', client.phone],
+    ['Address', client.address],
+    ['Passport number', client.passportNumber],
+    ['Assigned staff', staffName],
+    ['Trade', client.trade],
+    ['Destination country', client.destinationCountry],
+    ['Expected salary', client.expectedSalary],
+    ['Current stage', client.status],
+    ['Medical done', client.medicalDone ? 'Yes' : 'No'],
+    ['Medical status', client.medicalStatus],
+    ['Medical centre', client.medicalCenter],
+    ['Medical location', client.medicalLocation],
+    ['Total payable', formatBDT(client.totalPayable)],
+    ['Total paid', formatBDT(client.totalPaid)],
+    ['Due', formatBDT(due)],
+    ['Pending items', client.pendingItems],
+    ['Notes', client.notes],
+    ['Created', client.createdAt ? new Date(client.createdAt).toLocaleString() : '—'],
+    ['Last updated', client.updatedAt ? new Date(client.updatedAt).toLocaleString() : '—'],
+  ];
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 sm:p-6" role="dialog" aria-modal="true" aria-label="Client details">
+      <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Client Details</h2>
+            <p className="mt-0.5 text-xs text-slate-500">Read-only complete client profile</p>
+          </div>
+          <button type="button" data-view-action="true" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close client details"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="max-h-[calc(90vh-68px)] space-y-6 overflow-y-auto p-5">
+          <section>
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Profile information</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {fields.map(([label, value]) => (
+                <div key={label} className="min-w-0 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                  <p className="mt-1 break-words text-sm text-slate-900">{value || '—'}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+          <section>
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Documents ({client.documents?.length || 0})</h3>
+            {client.documents?.length ? <div className="space-y-2">{client.documents.map((doc) => (
+              <div key={doc.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3">
+                <div><p className="text-sm font-semibold text-slate-900">{doc.name}</p><p className="text-xs text-slate-500">{doc.note || 'No notes'}</p></div>
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{doc.status}</span>
+              </div>
+            ))}</div> : <p className="text-sm text-slate-500">No documents recorded.</p>}
+          </section>
+          <section>
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Payment history ({client.payments?.length || 0})</h3>
+            {client.payments?.length ? <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-500"><tr><th className="p-3">Date</th><th className="p-3">Purpose</th><th className="p-3">Notes</th><th className="p-3 text-right">Amount</th></tr></thead><tbody className="divide-y divide-slate-100">{client.payments.map((payment) => <tr key={payment.id}><td className="p-3 whitespace-nowrap">{payment.date || '—'}</td><td className="p-3">{payment.purpose || '—'}</td><td className="p-3">{payment.note || '—'}</td><td className="p-3 text-right font-mono">{formatBDT(payment.amount)}</td></tr>)}</tbody></table></div> : <p className="text-sm text-slate-500">No payment history recorded.</p>}
+          </section>
+          <div className="flex justify-end border-t border-slate-200 pt-4">
+            <button type="button" data-view-action="true" onClick={onClose} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface MeetingModalProps {
   initial?: MeetingRecord | null;
   isAdmin: boolean;
