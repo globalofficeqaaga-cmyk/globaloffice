@@ -2772,6 +2772,7 @@ const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'bKash', 'Nagad', 'Check / Car
 interface LedgerEntryModalProps {
   initial?: AccountLedgerEntry | null;
   ownerId: string;
+  permissionActions?: boolean;
   onClose: () => void;
   onSave: (
     payload: Partial<AccountLedgerEntry> & { expectedVersion?: number }
@@ -2781,6 +2782,7 @@ interface LedgerEntryModalProps {
 export function LedgerEntryModal({
   initial,
   ownerId,
+  permissionActions = false,
   onClose,
   onSave,
 }: LedgerEntryModalProps) {
@@ -2948,7 +2950,7 @@ export function LedgerEntryModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto">
+    <div className={`fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto ${permissionActions ? "finance-permission-modal" : ""}`}>
       <div className="w-full max-w-xl bg-white border border-slate-200 rounded-xl shadow-2xl my-8 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
