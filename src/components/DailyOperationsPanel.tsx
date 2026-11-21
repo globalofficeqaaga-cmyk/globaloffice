@@ -120,6 +120,8 @@ export function DailyOperationsPanel({
   const yesterday = getYesterdayLocalDateStr();
 
   const [dateFilter, setDateFilter] = useState<string>(today);
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setNowMs(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   useEffect(() => { if (showAllDates) setDateFilter('all'); }, [showAllDates]);
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -239,6 +241,8 @@ export function DailyOperationsPanel({
       .filter((a) => a.staffId === currentUser.id)
       .sort((a, b) => (b.attendanceDate || '').localeCompare(a.attendanceDate || ''));
   }, [attendanceRecords, currentUser.id]);
+
+  const allFollowUps = useMemo(() => dailyLogs.filter((l) => (mode !== 'personal' || l.staffId === currentUser.id) && l.nextFollowUpDate && l.outcome !== 'Resolved' && l.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs, mode, currentUser.id]);
 
   const pendingFollowUpsCount = useMemo(
     () =>
@@ -815,6 +819,37 @@ export function DailyOperationsPanel({
       {/* ====================================================================
           5. "KAR SATHE KI KI KOTHA HOLO" — DAILY CONVERSATION LOGS
          ==================================================================== */}
+      <div className="bg-white border border-amber-200 rounded-xl overflow-hidden">
+        <div className="px-4 sm:px-6 py-3 border-b border-amber-100 flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Call Outcome — Follow-Up Schedule</h3>
+            <p className="text-xs text-slate-500 mt-0.5">All pending follow-ups with live countdown and required next action</p>
+          </div>
+          <span className="text-xs font-semibold text-amber-700">{allFollowUps.length} pending</span>
+        </div>
+        {allFollowUps.length === 0 ? <p className="px-4 sm:px-6 py-4 text-xs text-slate-500">No follow-up schedule available.</p> : (
+          <div className="divide-y divide-slate-100">
+            {allFollowUps.map((log) => {
+              const dueAt = new Date(`${log.nextFollowUpDate}T${log.nextFollowUpTime || '23:59'}:00`).getTime();
+              const diff = dueAt - nowMs;
+              const expired = diff <= 0;
+              const seconds = Math.max(0, Math.floor(diff / 1000));
+              const countdown = expired ? 'TIME EXPIRED' : `${Math.floor(seconds / 86400)}d ${String(Math.floor((seconds % 86400) / 3600)).padStart(2,'0')}:${String(Math.floor((seconds % 3600) / 60)).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}`;
+              return <div key={log.id} className="px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">{log.contactName} · {log.outcome}</p>
+                  <p className="text-xs text-slate-500">{formatDateOnly(log.nextFollowUpDate)} · {log.nextFollowUpTime ? formatTime12h(log.nextFollowUpTime) : '11:59 PM'}{mode === 'team' ? ` · ${log.staffName}` : ''}</p>
+                  {log.topic && <p className="text-xs text-slate-600 mt-0.5 truncate">Next action: {log.topic}</p>}
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className={`font-mono text-lg sm:text-xl font-bold tabular-nums ${expired ? 'text-red-700' : 'text-amber-700'}`}>{countdown}</span>
+                  <button type="button" onClick={() => onOpenLogModal(log)} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-700 text-white hover:bg-blue-800">Update Log</button>
+                </div>
+              </div>;
+            })}
+          </div>
+        )}
+      </div>
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -902,7 +937,7 @@ export function DailyOperationsPanel({
                     <div className="flex items-center justify-between pt-1">
                       <span className="text-xs font-mono text-slate-500 tabular-nums">
                         {log.nextFollowUpDate
-                          ? `Follow-up: ${formatDateOnly(log.nextFollowUpDate)}`
+                          ? `Follow-up: ${formatDateOnly(log.nextFollowUpDate)}${log.nextFollowUpTime ? ` · ${formatTime12h(log.nextFollowUpTime)}` : ''}`
                           : 'No follow-up date'}
                       </span>
                       {canModify && (
@@ -987,7 +1022,7 @@ export function DailyOperationsPanel({
                           </span>
                           {log.nextFollowUpDate && (
                             <p className="text-xs font-mono text-slate-500 tabular-nums mt-0.5">
-                              Next: {formatDateOnly(log.nextFollowUpDate)}
+                              Next: {formatDateOnly(log.nextFollowUpDate)}{log.nextFollowUpTime ? ` · ${formatTime12h(log.nextFollowUpTime)}` : ''}
                             </p>
                           )}
                         </td>
