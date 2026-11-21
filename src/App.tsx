@@ -190,11 +190,7 @@ export default function App() {
         />
       );
     }
-    const permissionScopedAccess = currentUser.permissions?.some((permission) =>
-      ['view_team_profiles', 'add_clients', 'edit_clients', 'delete_clients', 'print_a4', 'send_messages',
-        'view_finance', 'manage_finance', 'create_staff_accounts', 'manage_user_permissions', 'view_all_reports'].includes(permission)
-    );
-    if (permissionScopedAccess) {
+    if (currentUser.permissions?.includes('view_all_reports')) {
       return (
         <AdminDashboard
           data={dashboardData}
@@ -207,12 +203,7 @@ export default function App() {
         />
       );
     }
-    if (
-      currentUser.role === 'accounts' ||
-      currentUser.permissions?.includes('view_finance') ||
-      currentUser.permissions?.includes('manage_finance') ||
-      currentUser.permissions?.includes('create_staff_accounts')
-    ) {
+    if (currentUser.role === 'accounts') {
       return (
         <AccountsDashboard
           data={dashboardData}
