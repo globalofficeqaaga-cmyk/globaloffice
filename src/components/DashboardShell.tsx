@@ -227,6 +227,36 @@ export function DashboardShell({
     return directTotal + unreadGroupCount;
   }, [unreadBySender, unreadGroupCount]);
 
+  // Keep reminding the user while any team message remains unread.
+  // Vibration is supported on many mobile browsers; unsupported devices safely ignore it.
+  useEffect(() => {
+    if (totalUnreadCount <= 0 || typeof navigator === 'undefined' || typeof navigator.vibrate !== 'function') {
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        navigator.vibrate(0);
+      }
+      return;
+    }
+
+    const vibrate = () => {
+      try {
+        navigator.vibrate([350, 180, 350]);
+      } catch {
+        // Some browsers expose the API but block vibration in the current context.
+      }
+    };
+
+    vibrate();
+    const intervalId = window.setInterval(vibrate, 3000);
+    return () => {
+      window.clearInterval(intervalId);
+      try {
+        navigator.vibrate(0);
+      } catch {
+        // Ignore unsupported or blocked vibration.
+      }
+    };
+  }, [totalUnreadCount]);
+
   const activeTabLabel = tabs.find((t) => t.id === activeTab)?.label || 'Overview';
 
   const openMessenger = () => {
