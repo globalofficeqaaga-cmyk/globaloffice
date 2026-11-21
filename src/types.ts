@@ -251,6 +251,8 @@ export interface StaffDailyLog {
   discussionSummary: string;
   outcome: LogOutcome;
   nextFollowUpDate: string;
+  nextFollowUpTime?: string;
+  editHistory?: Array<{ changedAt: string; logDate: string; logTime: string; outcome: LogOutcome; nextFollowUpDate: string; nextFollowUpTime?: string }>;
   version?: number;
   clientRequestId?: string;
   deletedAt?: string | null;
