@@ -136,8 +136,6 @@ export function ClientModal({
   const [clientRequestId] = useState(() => generateRequestId());
 
   const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
-  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'view_all_reports', 'sub_admin'].includes(item.value));
-
   const [name, setName] = useState(initial?.name || '');
   const [phone, setPhone] = useState(initial?.phone || '');
   const [address, setAddress] = useState(initial?.address || '');
@@ -2240,6 +2238,8 @@ export function StaffAccountModal({
     { value: 'sub_admin', label: 'Full Admin Management (Sub Admin)' },
   ];
 
+  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'view_all_reports', 'sub_admin'].includes(item.value));
+
   const [name, setName] = useState(initial?.name || '');
   const [designation, setDesignation] = useState(
     initial?.designation ||
@@ -2365,7 +2365,7 @@ export function StaffAccountModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto ${canGrantElevatedPermissions ? "" : "permission-manager-modal"}`}>
       <div className="w-full max-w-xl bg-white border border-slate-200 rounded-xl shadow-2xl my-8 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
