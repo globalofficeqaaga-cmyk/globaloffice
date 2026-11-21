@@ -136,6 +136,8 @@ export function ClientModal({
   const [clientRequestId] = useState(() => generateRequestId());
 
   const [staffId, setStaffId] = useState(initial?.staffId || defaultStaffId);
+  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'view_all_reports', 'sub_admin'].includes(item.value));
+
   const [name, setName] = useState(initial?.name || '');
   const [phone, setPhone] = useState(initial?.phone || '');
   const [address, setAddress] = useState(initial?.address || '');
@@ -2182,6 +2184,7 @@ interface StaffAccountModalProps {
   initial?: PublicUser | null;
   defaultRole?: UserRole;
   allowedRoles?: Exclude<UserRole, 'accounts'>[];
+  canGrantElevatedPermissions?: boolean;
   onClose: () => void;
   onSave: (payload: {
     userId: string;
@@ -2205,6 +2208,7 @@ export function StaffAccountModal({
   initial,
   defaultRole = 'staff',
   allowedRoles = ['staff', 'director', 'management'],
+  canGrantElevatedPermissions = true,
   onClose,
   onSave,
 }: StaffAccountModalProps) {
@@ -2409,7 +2413,7 @@ export function StaffAccountModal({
           <div className="pt-3 border-t border-slate-200">
             <p className="text-xs font-bold text-slate-800 mb-2">Additional permissions</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {permissionOptions.map((item) => (
+              {visiblePermissionOptions.map((item) => (
                 <label key={item.value} className="flex items-start gap-2 text-xs text-slate-700">
                   <input type="checkbox" checked={permissions.includes(item.value)} onChange={(e) => {
                     markDirty();
