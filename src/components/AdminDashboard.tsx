@@ -1970,6 +1970,7 @@ export function AdminDashboard({
                               </button>
                               <button
                                 type="button"
+                                data-client-action="true"
                                 onClick={() => setConfirmDeleteId(null)}
                                 className="px-2 py-1 text-xs text-slate-600 bg-slate-100 rounded cursor-pointer"
                               >
