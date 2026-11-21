@@ -8,6 +8,7 @@ import {
   Calendar,
   CalendarCheck,
   CheckCircle2,
+  Clock,
   ClipboardList,
   ImagePlus,
   Eye,
@@ -102,6 +103,9 @@ export function AdminDashboard({
   readOnly = false,
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [clockNow, setClockNow] = useState(Date.now());
+  const [dailyShowAll, setDailyShowAll] = useState(false);
+  useEffect(() => { const timer = window.setInterval(() => setClockNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('all');
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState<'all' | LedgerEntryType>('all');
@@ -305,6 +309,7 @@ export function AdminDashboard({
     return Array.from(map.values());
   }, [data.teamProfiles, data.staffList, data.accountsList, data.user]);
 
+  const upcomingFollowUps = useMemo(() => dailyLogs.filter((log) => log.nextFollowUpDate && log.outcome !== 'Resolved' && log.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs]);
   const todaySummary = useMemo(() => {
     const presentCount = attendanceRecords.filter(
       (a) => a.attendanceDate === todayStr && a.status !== 'Leave'
@@ -776,6 +781,32 @@ export function AdminDashboard({
          ==================================================================== */}
       {activeTab === 'overview' && (
         <div className="space-y-6 sm:space-y-8">
+          <section className="bg-white border border-amber-200 rounded-xl p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /> Call Outcome Follow-Up Timers</h3>
+                <p className="text-xs text-slate-500 mt-1">Upcoming follow-ups — update the log when the timer expires</p>
+              </div>
+              <button type="button" onClick={() => { setDailyShowAll(true); setActiveTab('daily'); }} className="text-xs font-semibold text-blue-700 hover:underline">See All ({upcomingFollowUps.length})</button>
+            </div>
+            {upcomingFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-up dates are scheduled.</p> : (
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {upcomingFollowUps.slice(0, 3).map((log) => {
+                  const target = new Date(`${log.nextFollowUpDate}T${log.nextFollowUpTime || '23:59'}:00`).getTime();
+                  const diff = target - clockNow;
+                  const expired = diff <= 0;
+                  const total = Math.max(0, Math.floor(diff / 1000));
+                  const countdown = expired ? 'TIME EXPIRED' : `${Math.floor(total / 86400)}d ${String(Math.floor((total % 86400) / 3600)).padStart(2,'0')}:${String(Math.floor((total % 3600) / 60)).padStart(2,'0')}:${String(total % 60).padStart(2,'0')}`;
+                  return <button key={log.id} type="button" onClick={() => setDailyLogModal({ open: true, item: log })} className={`text-left rounded-lg border p-3 ${expired ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <p className="text-sm font-semibold text-slate-900 truncate">{log.contactName} · {log.outcome}</p>
+                    <p className="text-xs text-slate-500 mt-1">{log.nextFollowUpDate} {log.nextFollowUpTime || '23:59'} · {log.staffName}</p>
+                    <p className={`font-mono text-xl sm:text-2xl font-bold tabular-nums mt-2 ${expired ? 'text-red-700' : 'text-amber-700'}`}>{countdown}</p>
+                    <p className="text-xs font-semibold mt-1">{expired ? 'Update required' : 'Open and update log'}</p>
+                  </button>;
+                })}
+              </div>
+            )}
+          </section>
           {/* Top KPI Row */}
           <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-5">
             <button
@@ -3362,6 +3393,7 @@ export function AdminDashboard({
           dailyLogs={dailyLogs}
           dailyClientSummaries={dailyClientSummaries}
           canManageAll={true}
+          showAllDates={dailyShowAll}
           onQuickCheckIn={handleAdminQuickCheckIn}
           onQuickCheckOut={handleAdminQuickCheckOut}
           onOpenAttendanceModal={(record, presetStaffId, presetDate) =>
