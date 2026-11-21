@@ -115,6 +115,7 @@ function UnsavedClosePrompt({
 interface ClientModalProps {
   initial?: ClientProfile | null;
   isAdmin: boolean;
+  permissionActions?: boolean;
   staffList: PublicUser[];
   defaultStaffId: string;
   onClose: () => void;
@@ -126,6 +127,7 @@ interface ClientModalProps {
 export function ClientModal({
   initial,
   isAdmin,
+  permissionActions = false,
   staffList,
   defaultStaffId,
   onClose,
@@ -353,7 +355,7 @@ export function ClientModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto">
+    <div className={`fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 overflow-y-auto ${permissionActions ? 'client-permission-modal' : ''}`}>
       <div className="w-full max-w-3xl bg-white border border-slate-200 rounded-xl shadow-2xl my-8 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
