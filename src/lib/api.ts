@@ -1229,10 +1229,10 @@ export const api = {
           .is('deleted_at', null)
           .order('log_date', { ascending: false })
           .order('created_at', { ascending: false }),
-        canViewAllReports || isAccounts
+        canViewAllClients
           ? supabase.rpc('get_daily_client_activity')
           : Promise.resolve({ data: [], error: null }),
-        isAdmin
+        canViewAllClients
           ? supabase
               .from('clients')
               .select('*')
@@ -1327,7 +1327,7 @@ export const api = {
       mappedTeamProfiles.forEach((s) => staffLookup.set(s.id, s.name));
 
       const mappedDailyClients: DailyClientSummary[] =
-        (isAdmin || isAccounts) && !dailyClientActivityRes.error && Array.isArray(dailyClientActivityRes.data)
+        canViewAllClients && !dailyClientActivityRes.error && Array.isArray(dailyClientActivityRes.data)
           ? (dailyClientActivityRes.data as DailyClientActivityRow[]).map(mapDailyClientSummaryRow)
           : mappedClients.map((c) => ({
               clientId: c.id,
