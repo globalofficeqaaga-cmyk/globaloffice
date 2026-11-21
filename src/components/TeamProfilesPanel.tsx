@@ -12,6 +12,8 @@ import {
   FileText,
   Pencil,
   Phone,
+  PhoneCall,
+  Video,
   Search,
   Smartphone,
   UserCheck,
@@ -21,6 +23,7 @@ import {
 import { api, buildWhatsAppUrl, formatDateOnly } from '../lib/api';
 import { APP_IMAGES } from '../lib/assets';
 import type { PublicUser, TeamDirectoryMember, TeamMessage, UserRole } from '../types';
+import { useTeamCalls, type TeamCallHistoryItem } from './TeamCallProvider';
 
 function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUser; member: PublicUser; onClose: () => void }) {
   const [messages, setMessages] = useState<TeamMessage[]>([]);
@@ -30,6 +33,8 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
+  const { startCall, getCallHistory, historyVersion } = useTeamCalls();
+  const [callHistory, setCallHistory] = useState<TeamCallHistoryItem[]>([]);
   const canVerifyAttachments = currentUser.role === 'admin' || currentUser.role === 'accounts' || currentUser.permissions?.includes('manage_finance') === true;
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -73,6 +78,16 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
     const poll = window.setInterval(() => { void refresh(); }, 5000);
     return () => { active = false; window.clearInterval(poll); unsubscribe(); };
   }, [currentUser.id, member.id]);
+
+  useEffect(() => {
+    let active = true;
+    void getCallHistory(member.id).then((rows) => {
+      if (active) setCallHistory(rows);
+    }).catch(() => {
+      if (active) setCallHistory([]);
+    });
+    return () => { active = false; };
+  }, [getCallHistory, member.id, historyVersion]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
@@ -126,8 +141,24 @@ function TeamChatModal({ currentUser, member, onClose }: { currentUser: PublicUs
             <img src={member.photoUrl || APP_IMAGES.staffAvatarDefault} alt="" className="w-10 h-10 rounded-full object-cover"/>
             <div className="min-w-0"><h3 className="font-bold text-slate-900 truncate">Chat with {member.name}</h3><p className="text-xs text-slate-500">{member.designation}</p></div>
           </div>
-          <button type="button" onClick={onClose} className="w-9 h-9 rounded-lg hover:bg-slate-100 text-slate-600"><X className="w-5 h-5"/></button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button type="button" onClick={() => void startCall({ id: member.id, name: member.name, photoUrl: member.photoUrl }, 'audio').catch((err) => setError(err instanceof Error ? err.message : 'Could not start audio call.'))} title="Audio call" aria-label="Start audio call" className="w-9 h-9 rounded-lg hover:bg-emerald-50 text-emerald-700 flex items-center justify-center"><PhoneCall className="w-4 h-4"/></button>
+            <button type="button" onClick={() => void startCall({ id: member.id, name: member.name, photoUrl: member.photoUrl }, 'video').catch((err) => setError(err instanceof Error ? err.message : 'Could not start video call.'))} title="Video call" aria-label="Start video call" className="w-9 h-9 rounded-lg hover:bg-blue-50 text-blue-700 flex items-center justify-center"><Video className="w-4 h-4"/></button>
+            <button type="button" onClick={onClose} aria-label="Close chat" className="w-9 h-9 rounded-lg hover:bg-slate-100 text-slate-600"><X className="w-5 h-5"/></button>
+          </div>
         </header>
+        {callHistory.length > 0 && (
+          <div className="px-4 py-2 border-b border-slate-100 bg-white">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1">Recent calls</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+              {callHistory.slice(0, 3).map((item) => (
+                <span key={item.id} className="text-[10px] text-slate-500">
+                  {item.media_type === 'video' ? 'Video' : 'Audio'} · {item.status} · {new Date(item.created_at).toLocaleString()}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50">
           {loading && <p className="text-center text-sm text-slate-500">Loading chat…</p>}
           {!loading && messages.length === 0 && <p className="text-center text-sm text-slate-500 py-10">No messages yet. Start your conversation.</p>}
