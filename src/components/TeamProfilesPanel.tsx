@@ -434,6 +434,7 @@ interface TeamProfilesPanelProps {
   members: PublicUser[];
   onEditMember?: (member: PublicUser) => void;
   onEditOwnProfile?: () => void;
+  editableMemberRoles?: UserRole[];
 }
 
 export function TeamProfilesPanel({
@@ -441,6 +442,7 @@ export function TeamProfilesPanel({
   members,
   onEditMember,
   onEditOwnProfile,
+  editableMemberRoles,
 }: TeamProfilesPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | UserRole>('all');
@@ -564,7 +566,7 @@ export function TeamProfilesPanel({
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredMembers.map((member) => {
             const isSelf = member.id === currentUser.id;
-            const canAdminEdit = Boolean(onEditMember && member.role !== 'admin');
+            const canAdminEdit = Boolean(onEditMember && member.role !== 'admin' && (!editableMemberRoles || editableMemberRoles.includes(member.role)));
             return (
               <div
                 key={member.id}
@@ -704,7 +706,7 @@ export function TeamProfilesPanel({
                       <button
                         type="button"
                         onClick={() => onEditMember?.(member)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md cursor-pointer"
+                        data-permission-action="true" className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-md cursor-pointer"
                       >
                         <Pencil className="w-3 h-3" />
                         <span>Edit</span>
