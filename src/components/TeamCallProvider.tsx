@@ -136,6 +136,8 @@ export function TeamCallProvider({ currentUser, children }: { currentUser: Publi
       await supabase.removeChannel(channel);
     }
     activeRef.current = null;
+    incomingRef.current = null;
+    setIncomingCall(null);
     setCall(null);
   }, []);
 
@@ -257,7 +259,13 @@ export function TeamCallProvider({ currentUser, children }: { currentUser: Publi
   const handleSignalRef = useRef<(signal: SignalPayload) => Promise<void>>(async () => undefined);
   handleSignalRef.current = async (signal: SignalPayload) => {
     const active = activeRef.current;
-    if (!active || signal.callId !== active.id) return;
+    if (!active || signal.callId !== active.id) {
+      const pending = incomingRef.current;
+      if (pending && signal.callId === pending.id && signal.type === 'hangup') {
+        await stopMediaAndConnection();
+      }
+      return;
+    }
     try {
       if (signal.type === 'accept' && active.direction === 'outgoing') {
         const pc = await createPeerConnection(active.mediaType);
@@ -436,8 +444,9 @@ export function TeamCallProvider({ currentUser, children }: { currentUser: Publi
       await sendRoomSignal(pending.id, 'reject', currentUser.id, pending.peerId);
       await updateSession(pending.id, { status: 'rejected', ended_at: new Date().toISOString(), duration_seconds: 0 });
     } catch { /* the caller will mark the invitation as missed if unreachable */ }
+    await stopMediaAndConnection();
     setHistoryVersion((v) => v + 1);
-  }, [currentUser.id, sendRoomSignal, updateSession]);
+  }, [currentUser.id, sendRoomSignal, stopMediaAndConnection, updateSession]);
 
   const handleIncomingInvite = useCallback(async (payload: Record<string, unknown>) => {
     const callId = typeof payload.callId === 'string' ? payload.callId : '';
@@ -462,7 +471,10 @@ export function TeamCallProvider({ currentUser, children }: { currentUser: Publi
     };
     incomingRef.current = pending;
     setIncomingCall(pending);
-  }, [currentUser.id, sendRoomSignal]);
+    void subscribeToRoom(callId).catch(() => {
+      setCallError('Unable to connect to the incoming call. Please ask the caller to try again.');
+    });
+  }, [currentUser.id, sendRoomSignal, subscribeToRoom]);
 
   useEffect(() => {
     if (!supabase) return;
