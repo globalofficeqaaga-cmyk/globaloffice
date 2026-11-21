@@ -1897,6 +1897,15 @@ export function AdminDashboard({
                           <button
                             type="button"
                             onClick={() => setClientModal({ open: true, item: c })}
+                            className="p-2 text-slate-500 hover:text-emerald-700 rounded cursor-pointer"
+                            title="View all client details and edit options"
+                            aria-label="View all client details"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setClientModal({ open: true, item: c })}
                             className="p-2 text-slate-500 hover:text-blue-700 rounded cursor-pointer"
                             title="Edit client"
                           >
@@ -2002,6 +2011,15 @@ export function AdminDashboard({
                             {c.status}
                           </td>
                           <td className="px-6 py-3.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setClientModal({ open: true, item: c })}
+                              className="p-1.5 text-slate-500 hover:text-emerald-700 rounded cursor-pointer"
+                              title="View all client details and edit options"
+                              aria-label="View all client details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
                             <button
                               type="button"
                               onClick={() => setClientModal({ open: true, item: c })}
