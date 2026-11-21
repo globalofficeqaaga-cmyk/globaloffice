@@ -1085,7 +1085,11 @@ async function startServer() {
     const db = loadDb();
     const current = req.currentUser!;
     const isAdmin = current.role === 'admin';
-    const isAccounts = current.role === 'accounts';
+    const canViewAllClients =
+      isAdmin ||
+      Boolean(current.permissions?.includes('view_all_clients') ||
+        current.permissions?.includes('view_all_reports') ||
+        current.permissions?.includes('sub_admin'));
 
     const activeClients = db.clients.filter((c) => !c.deletedAt);
     const activeMeetings = db.meetings.filter((m) => !m.deletedAt);
@@ -1101,10 +1105,9 @@ async function startServer() {
     const userNameById = new Map<string, string>();
     db.users.forEach((u) => userNameById.set(u.id, u.name));
 
-    const visibleClientsForDaily =
-      isAdmin || isAccounts
-        ? activeClients
-        : activeClients.filter((c) => c.staffId === current.id);
+    const visibleClientsForDaily = canViewAllClients
+      ? activeClients
+      : activeClients.filter((c) => c.staffId === current.id);
 
     const dailyClientSummaries: DailyClientSummary[] = visibleClientsForDaily.map((c) => ({
       clientId: c.id,
@@ -1124,11 +1127,7 @@ async function startServer() {
       staffList: db.users.filter((u) => u.role === 'staff').map(toPublicUser),
       accountsList: db.users.filter((u) => u.role === 'accounts').map(toPublicUser),
       teamProfiles: db.users.map(toPublicUser),
-      clients: isAdmin
-        ? activeClients
-        : current.role === 'staff'
-        ? activeClients.filter((c) => c.staffId === current.id)
-        : [],
+      clients: visibleClientsForDaily,
       meetings: isAdmin
         ? activeMeetings
         : current.role === 'staff'
@@ -1151,7 +1150,7 @@ async function startServer() {
           ? activeDailyLogs
           : activeDailyLogs.filter((l) => l.staffId === current.id),
       dailyClientSummaries,
-      archivedClients: isAdmin ? db.clients.filter((c) => Boolean(c.deletedAt)) : [],
+      archivedClients: canViewAllClients ? db.clients.filter((c) => Boolean(c.deletedAt)) : [],
       archivedMeetings: isAdmin ? db.meetings.filter((m) => Boolean(m.deletedAt)) : [],
       archivedMedicals: isAdmin ? db.medicals.filter((m) => Boolean(m.deletedAt)) : [],
       archivedInterviews: isAdmin ? db.interviews.filter((i) => Boolean(i.deletedAt)) : [],
