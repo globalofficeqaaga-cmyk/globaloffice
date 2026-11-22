@@ -42,6 +42,23 @@ function formatTime12h(hhmm: string): string {
   return `${String(hour12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${suffix}`;
 }
 
+const OFFICE_START_TIME = '09:30';
+
+function getFollowUpTimer(date: string, time: string | undefined, nowMs: number): string {
+  if (!date) return 'Time not set';
+  const dueTime = time || '23:59';
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = dueTime.split(':').map(Number);
+  const dueMs = new Date(year, month - 1, day, hour || 0, minute || 0, 0).getTime();
+  const diffMinutes = Math.ceil((dueMs - nowMs) / 60000);
+  if (diffMinutes < 0) {
+    const overdue = Math.abs(diffMinutes);
+    return `Overdue by ${Math.floor(overdue / 60) ? `${Math.floor(overdue / 60)}h ` : ''}${overdue % 60}m`;
+  }
+  if (diffMinutes === 0) return 'Due now';
+  return `Due in ${Math.floor(diffMinutes / 60) ? `${Math.floor(diffMinutes / 60)}h ` : ''}${diffMinutes % 60}m`;
+}
+
 function getYesterdayLocalDateStr(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
@@ -200,7 +217,7 @@ export function DailyOperationsPanel({
       .map((member) => {
         const att =
           attendanceRecords.find(
-            (a) => a.staffId === member.id && a.attendanceDate === effectiveAttendanceDate
+            (a) => a.staffId === member.id && a.attendanceDate === effectiveAttendanceDate && !a.deletedAt
           ) || null;
         const addedClients = dailyClientSummaries.filter(
           (c) =>
@@ -572,9 +589,9 @@ export function DailyOperationsPanel({
             <div className="flex gap-2"><button type="button" onClick={() => {setActivePopup(null); onOpenLogModal(null, isAllDates ? today : dateFilter);}} className={activePopup === 'talks' ? 'px-3 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg' : 'hidden'}><Plus className="inline w-3 h-3 mr-1"/>Log Conversation</button><button type="button" onClick={() => setActivePopup(null)} className="p-2 rounded-lg hover:bg-slate-100" aria-label="Close">×</button></div>
           </div>
           <div className="overflow-y-auto divide-y divide-slate-100">
-            {activePopup === 'attendance' && <><div className="p-4"><p className="font-semibold text-emerald-700 mb-2">Present ({presentMembers.length})</p>{presentMembers.map(({member,attendance}) => <div key={member.id} className="py-2 flex justify-between text-sm"><span>{member.name}</span><span className={getAttendanceStatusClass(attendance?.status)}>{attendance?.status}</span></div>)}</div><div className="p-4"><p className="font-semibold text-red-700 mb-2">Absent / Leave ({absentMembers.length})</p>{absentMembers.map(({member,attendance}) => <div key={member.id} className="py-2 flex justify-between text-sm"><span>{member.name}</span><span className="text-red-700">{attendance?.status === 'Leave' ? 'Leave' : 'Absent'}</span></div>)}</div></>}
+            {activePopup === 'attendance' && <><div className="p-4"><p className="text-xs font-semibold text-slate-600 mb-3">Office In Time: {formatTime12h(OFFICE_START_TIME)}</p><p className="font-semibold text-emerald-700 mb-2">Present ({presentMembers.length})</p>{presentMembers.map(({member,attendance}) => { const lateMinutes = attendance ? calculateLateMinutes(attendance, OFFICE_START_TIME) : 0; return <div key={member.id} className="py-3 border-b border-slate-100 last:border-0"><div className="flex flex-wrap justify-between gap-2 text-sm"><span className="font-semibold text-slate-800">{member.name}</span><span className={getAttendanceStatusClass(attendance?.status)}>{attendance?.status}</span></div><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500"><span>Office In Time: {formatTime12h(OFFICE_START_TIME)}</span><span>Check-in: {attendance?.checkInTime ? formatTime12h(attendance.checkInTime) : '—'}</span><span>Check-out: {attendance?.checkOutTime ? formatTime12h(attendance.checkOutTime) : 'Not checked out'}</span>{lateMinutes > 0 ? <span className="font-semibold text-amber-700">Late by {formatMinutesWithHours(lateMinutes)}</span> : attendance?.checkInTime ? <span className="font-semibold text-emerald-700">On time</span> : null}</div></div>; })}</div><div className="p-4"><p className="font-semibold text-red-700 mb-2">Absent / Leave ({absentMembers.length})</p>{absentMembers.map(({member,attendance}) => <div key={member.id} className="py-3 border-b border-slate-100 last:border-0"><div className="flex justify-between gap-2 text-sm"><span className="font-semibold text-slate-800">{member.name}</span><span className="text-red-700">{attendance?.status === 'Leave' ? 'Leave' : 'Absent'}</span></div>{attendance && attendance.status !== 'Leave' && <div className="mt-1 flex flex-wrap gap-x-4 text-xs text-slate-500"><span>Office In Time: {formatTime12h(OFFICE_START_TIME)}</span><span>Check-in: {attendance.checkInTime ? formatTime12h(attendance.checkInTime) : '—'}</span><span>Check-out: {attendance.checkOutTime ? formatTime12h(attendance.checkOutTime) : 'Not checked out'}</span>{calculateLateMinutes(attendance, OFFICE_START_TIME) > 0 && <span className="font-semibold text-amber-700">Late by {formatMinutesWithHours(calculateLateMinutes(attendance, OFFICE_START_TIME))}</span>}</div>}</div>)}</div></>}
             {activePopup === 'clients' && (showAllPopupItems ? filteredClientsForScope : filteredClientsForScope.slice(0,5)).map(c => <div key={c.clientId} className="p-4"><p className="font-semibold text-sm">{c.clientName}</p><p className="text-xs text-slate-500">{c.phone} · {c.trade} · {c.destinationCountry}</p><p className="text-xs text-slate-500">{c.staffName} · {formatDateOnly(c.createdDate)}</p></div>)}
-            {activePopup === 'followups' && (showAllPopupItems ? allFollowUps : allFollowUps.slice(0,5)).map(log => <div key={log.id} className="p-4 flex justify-between gap-3"><div><p className="font-semibold text-sm">{log.contactName} · {log.outcome}</p><p className="text-xs text-slate-500">{formatDateOnly(log.nextFollowUpDate)} · {log.staffName}</p><p className="text-xs">{log.topic || log.discussionSummary}</p></div><button type="button" onClick={() => {setActivePopup(null); onOpenLogModal(log);}} className="text-xs text-blue-700">Update</button></div>)}
+            {activePopup === 'followups' && (showAllPopupItems ? allFollowUps : allFollowUps.slice(0,5)).map(log => <div key={log.id} className="p-4 flex justify-between gap-3"><div><p className="font-semibold text-sm">{log.contactName} · {log.outcome}</p><p className="text-xs text-slate-500">{formatDateOnly(log.nextFollowUpDate)} · {log.nextFollowUpTime ? formatTime12h(log.nextFollowUpTime) : 'Time not set'} · {log.staffName}</p><p className={`text-xs font-semibold mt-1 ${getFollowUpTimer(log.nextFollowUpDate, log.nextFollowUpTime, nowMs).startsWith('Overdue') ? 'text-red-700' : 'text-amber-700'}`}>{getFollowUpTimer(log.nextFollowUpDate, log.nextFollowUpTime, nowMs)}</p><p className="text-xs mt-1">{log.topic || log.discussionSummary}</p></div><button type="button" onClick={() => {setActivePopup(null); onOpenLogModal(log);}} className="text-xs text-blue-700">Update</button></div>)}
             {activePopup === 'talks' && (showAllPopupItems ? filteredLogs : filteredLogs.slice(0,5)).map(log => <div key={log.id} className="p-4"><div className="flex justify-between gap-2"><p className="font-semibold text-sm">{log.contactName}</p><span className="text-xs">{log.outcome}</span></div><p className="text-xs text-slate-500">{log.staffName} · {formatDateOnly(log.logDate)} · {log.channel}</p><p className="text-sm mt-1">{log.topic}</p><p className="text-xs text-slate-600">{log.discussionSummary}</p></div>)}
             {((activePopup === 'clients' && filteredClientsForScope.length === 0) || (activePopup === 'followups' && allFollowUps.length === 0) || (activePopup === 'talks' && filteredLogs.length === 0)) && <p className="p-5 text-sm text-slate-500">No records found for this filter.</p>}
           </div>
