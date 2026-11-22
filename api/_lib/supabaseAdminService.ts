@@ -430,7 +430,7 @@ export async function handleListTeamProfiles(
   const canAccessTeamDirectory =
     caller?.role === 'admin' ||
     callerPermissions.some((permission) =>
-      ['view_team_profiles', 'view_all_reports', 'send_messages', 'manage_user_permissions', 'sub_admin'].includes(permission)
+      ['view_team_profiles', 'sub_admin_view_only', 'send_messages', 'manage_user_permissions', 'sub_admin'].includes(permission)
     );
   if (callerError || !caller || !canAccessTeamDirectory) {
     return { status: 403, body: { error: 'A team-profile, report-view, messaging, or user-permission permission is required.' } };
@@ -697,7 +697,7 @@ export async function createManagedUserRecord(
   const cleanPass = String(body.password || '').trim();
   const cleanName = String(body.name || '').trim();
   const targetRole = ['director', 'management', 'staff'].includes(String(body.role)) ? String(body.role) : 'staff';
-  const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','view_all_reports','sub_admin']);
+  const allowedPermissions = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','sub_admin_view_only','sub_admin']);
   const requestedPermissions = Array.isArray(body.permissions) ? body.permissions.filter((permission) => allowedPermissions.has(permission)) : [];
   if ((requestedPermissions.includes('create_staff_accounts') || requestedPermissions.includes('manage_user_permissions')) && !requestedPermissions.includes('view_team_profiles')) {
     requestedPermissions.push('view_team_profiles');
@@ -1035,8 +1035,8 @@ export async function handleUpdateManagedUser(
     updateBody.role = nextRole;
   }
   if (Array.isArray(body.permissions)) {
-    const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','view_all_reports','sub_admin']);
-    const delegatedAllowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','view_all_reports']);
+    const allowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts','manage_user_permissions','sub_admin_view_only','sub_admin']);
+    const delegatedAllowed = new Set(['view_team_profiles','add_clients','edit_clients','delete_clients','print_a4','send_messages','view_finance','manage_finance','create_staff_accounts' ]);
     const nextPermissions = body.permissions.filter((permission) =>
       allowed.has(permission) && (isAdminLike || delegatedAllowed.has(permission))
     );

@@ -105,18 +105,18 @@ export function AdminDashboard({
   readOnly = false,
 }: AdminDashboardProps) {
   const userPermissions = data.user.permissions || [];
-  const canViewAllReports = !readOnly || userPermissions.includes('view_all_reports');
+  const canViewAllReports = !readOnly || userPermissions.includes('sub_admin_view_only');
   const canViewClients = canViewAllReports || ['add_clients', 'edit_clients', 'delete_clients', 'print_a4'].some((p) => userPermissions.includes(p as UserPermission));
   const canAddClients = !readOnly || userPermissions.includes('add_clients');
   const canEditClients = !readOnly || userPermissions.includes('edit_clients');
   const canDeleteClients = !readOnly || userPermissions.includes('delete_clients');
-  const canViewFinance = !readOnly || userPermissions.includes('view_finance') || userPermissions.includes('manage_finance');
+  const canViewFinance = !readOnly || canViewAllReports || userPermissions.includes('view_finance') || userPermissions.includes('manage_finance');
   const canManageFinance = !readOnly || userPermissions.includes('manage_finance');
-  const canViewTeam = !readOnly || userPermissions.includes('view_team_profiles') || userPermissions.includes('send_messages');
-  const canManageStaff = !readOnly || userPermissions.includes('create_staff_accounts') || userPermissions.includes('manage_user_permissions');
+  const canViewTeam = !readOnly || canViewAllReports || userPermissions.includes('view_team_profiles') || userPermissions.includes('send_messages');
+  const canManageStaff = !readOnly || canViewAllReports || userPermissions.includes('create_staff_accounts') || userPermissions.includes('manage_user_permissions');
   const canPrintA4 = !readOnly || userPermissions.includes('print_a4');
   const [activeTab, setActiveTab] = useState<AdminTab>(() => {
-    if (!readOnly || userPermissions.includes('view_all_reports')) return 'overview';
+    if (!readOnly || userPermissions.includes('sub_admin_view_only')) return 'overview';
     if (userPermissions.includes('view_finance') || userPermissions.includes('manage_finance')) return 'accounts';
     if (['add_clients', 'edit_clients', 'delete_clients', 'print_a4'].some((p) => userPermissions.includes(p as UserPermission))) return 'clients';
     if (userPermissions.includes('view_team_profiles') || userPermissions.includes('send_messages')) return 'team';

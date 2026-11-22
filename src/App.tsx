@@ -190,7 +190,7 @@ export default function App() {
         />
       );
     }
-    if (currentUser.permissions?.includes('view_all_reports')) {
+    if (currentUser.permissions?.includes('sub_admin_view_only')) {
       return (
         <AdminDashboard
           data={dashboardData}

@@ -2322,11 +2322,11 @@ export function StaffAccountModal({
     { value: 'manage_finance', label: 'Add / verify financial entries and receipts' },
     { value: 'create_staff_accounts', label: 'Create Staff login accounts' },
     { value: 'manage_user_permissions', label: 'Assign user permissions' },
-    { value: 'view_all_reports', label: 'View all reports & dashboard overview (read-only)' },
+    { value: 'sub_admin_view_only', label: 'Subadmin – View Only' },
     { value: 'sub_admin', label: 'Full Admin Management (Sub Admin)' },
   ];
 
-  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'view_all_reports', 'view_all_clients', 'sub_admin'].includes(item.value));
+  const visiblePermissionOptions = canGrantElevatedPermissions ? permissionOptions : permissionOptions.filter((item) => !['manage_finance', 'view_finance', 'manage_user_permissions', 'sub_admin_view_only', 'view_all_clients', 'sub_admin'].includes(item.value));
 
   const [name, setName] = useState(initial?.name || '');
   const [designation, setDesignation] = useState(

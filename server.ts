@@ -1089,7 +1089,7 @@ async function startServer() {
     const canViewAllClients =
       isAdmin ||
       Boolean(current.permissions?.includes('view_all_clients') ||
-        current.permissions?.includes('view_all_reports') ||
+        current.permissions?.includes('sub_admin_view_only') ||
         current.permissions?.includes('sub_admin'));
 
     const activeClients = db.clients.filter((c) => !c.deletedAt);

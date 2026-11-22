@@ -1146,8 +1146,8 @@ export const api = {
     assertProductionBackend();
     if (supabase) {
       const user = await getCurrentSupabaseUser();
-      const isAdmin = user.role === 'admin' || Boolean(user.permissions?.includes('sub_admin') || user.permissions?.includes('view_all_reports'));
-      const canViewAllReports = isAdmin || Boolean(user.permissions?.includes('view_all_reports'));
+      const isAdmin = user.role === 'admin' || Boolean(user.permissions?.includes('sub_admin') || user.permissions?.includes('sub_admin_view_only'));
+      const canViewAllReports = isAdmin || Boolean(user.permissions?.includes('sub_admin_view_only'));
       const canViewAllClients = isAdmin || Boolean(user.permissions?.includes('view_all_clients'));
       const isAccounts = user.role === 'accounts' || Boolean(user.permissions?.includes('view_finance') || user.permissions?.includes('manage_finance'));
 
