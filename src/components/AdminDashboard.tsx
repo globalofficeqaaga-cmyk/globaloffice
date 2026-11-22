@@ -843,7 +843,7 @@ export function AdminDashboard({
                 <h3 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2"><Clock className="w-4 h-4 text-amber-600" /> Call Outcome Follow-Up Timers</h3>
                 <p className="text-xs text-slate-500 mt-1">Upcoming follow-ups — update the log when the timer expires</p>
               </div>
-              {upcomingFollowUps.length > 3 && <button type="button" onClick={() => setShowAllFollowUps((value) => !value)} className="text-xs font-semibold text-blue-700 hover:underline">{showAllFollowUps ? 'Show Less' : `See All (${upcomingFollowUps.length})`}</button>}
+              {filteredFollowUps.length > 3 && <button type="button" onClick={() => setShowAllFollowUps((value) => !value)} className="text-xs font-semibold text-blue-700 hover:underline">{showAllFollowUps ? 'Show Less' : `See All (${filteredFollowUps.length})`}</button>}
             </div>
             {upcomingFollowUps.length === 0 ? <p className="text-xs text-slate-500 py-3">No follow-up dates are scheduled.</p> : (
               <>

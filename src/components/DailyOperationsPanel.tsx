@@ -242,7 +242,18 @@ export function DailyOperationsPanel({
       .sort((a, b) => (b.attendanceDate || '').localeCompare(a.attendanceDate || ''));
   }, [attendanceRecords, currentUser.id]);
 
-  const allFollowUps = useMemo(() => dailyLogs.filter((l) => (mode !== 'personal' || l.staffId === currentUser.id) && l.nextFollowUpDate && l.outcome !== 'Resolved' && l.outcome !== 'Not Interested').sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)), [dailyLogs, mode, currentUser.id]);
+  const allFollowUps = useMemo(() => dailyLogs
+    .filter((log) => {
+      if (log.deletedAt || !log.nextFollowUpDate || log.outcome === 'Resolved' || log.outcome === 'Not Interested') return false;
+      if (mode === 'personal' && log.staffId !== currentUser.id) return false;
+      if (staffFilter !== 'all' && log.staffId !== staffFilter) return false;
+      if (!isAllDates && log.nextFollowUpDate !== dateFilter) return false;
+      if (!q) return true;
+      return [log.contactName, log.contactPhone, log.staffName, log.topic, log.discussionSummary]
+        .some((value) => (value || '').toLowerCase().includes(q));
+    })
+    .sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)),
+    [dailyLogs, mode, currentUser.id, staffFilter, isAllDates, dateFilter, q]);
 
   const pendingFollowUpsCount = useMemo(
     () =>
