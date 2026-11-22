@@ -230,8 +230,9 @@ export function DailyOperationsPanel({
     dailyLogs,
   ]);
 
-  const presentMembers = teamScorecard.filter((row) => row.attendance && row.attendance.status !== 'Leave');
-  const absentMembers = teamScorecard.filter((row) => !row.attendance || row.attendance.status === 'Leave');
+  const attendanceRowsForSearch = teamScorecard.filter((row) => !q || row.member.name.toLowerCase().includes(q) || row.member.userId.toLowerCase().includes(q));
+  const presentMembers = attendanceRowsForSearch.filter((row) => row.attendance && row.attendance.status !== 'Leave');
+  const absentMembers = attendanceRowsForSearch.filter((row) => !row.attendance || row.attendance.status === 'Leave');
   const presentCount = presentMembers.length;
 
   const myAttendanceHistory = useMemo(() => {
@@ -253,17 +254,7 @@ export function DailyOperationsPanel({
     .sort((a, b) => `${a.nextFollowUpDate}T${a.nextFollowUpTime || '23:59'}`.localeCompare(`${b.nextFollowUpDate}T${b.nextFollowUpTime || '23:59'}`)),
     [dailyLogs, mode, currentUser.id, staffFilter, isAllDates, dateFilter, q]);
 
-  const pendingFollowUpsCount = useMemo(
-    () =>
-      filteredLogs.filter(
-        (l) =>
-          l.outcome === 'Follow Up Needed' ||
-          l.outcome === 'Document Promised' ||
-          l.outcome === 'Payment Promised' ||
-          (l.nextFollowUpDate && l.nextFollowUpDate >= today)
-      ).length,
-    [filteredLogs, today]
-  );
+  const pendingFollowUpsCount = allFollowUps.length;
 
   async function handleCheckInClick() {
     setCheckingBusy(true);
