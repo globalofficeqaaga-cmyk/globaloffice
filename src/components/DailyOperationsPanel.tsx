@@ -128,6 +128,8 @@ export function DailyOperationsPanel({
   const [checkingBusy, setCheckingBusy] = useState(false);
   const [pendingDeleteLog, setPendingDeleteLog] = useState<StaffDailyLog | null>(null);
   const [expandedStaffClientsId, setExpandedStaffClientsId] = useState<string | null>(null);
+  const [activePopup, setActivePopup] = useState<'attendance' | 'clients' | 'followups' | 'talks' | null>(null);
+  const [showAllPopupItems, setShowAllPopupItems] = useState(false);
 
   const isAllDates = dateFilter === 'all';
   const effectiveAttendanceDate = isAllDates ? today : dateFilter;
@@ -228,13 +230,9 @@ export function DailyOperationsPanel({
     dailyLogs,
   ]);
 
-  const presentCount = useMemo(
-    () =>
-      teamScorecard.filter(
-        (row) => row.attendance && row.attendance.status !== 'Leave'
-      ).length,
-    [teamScorecard]
-  );
+  const presentMembers = teamScorecard.filter((row) => row.attendance && row.attendance.status !== 'Leave');
+  const absentMembers = teamScorecard.filter((row) => !row.attendance || row.attendance.status === 'Leave');
+  const presentCount = presentMembers.length;
 
   const myAttendanceHistory = useMemo(() => {
     return attendanceRecords
@@ -476,43 +474,34 @@ export function DailyOperationsPanel({
           3. KPI SUMMARY STRIP
          ==================================================================== */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+        <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('clients'); }} className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5 cursor-pointer">
           <p className="text-[11px] sm:text-xs font-medium text-slate-500">
             Clients Added ({scopeLabel})
           </p>
           <p className="font-mono text-2xl sm:text-3xl font-bold text-blue-700 tabular-nums mt-1 sm:mt-2">
             {filteredClientsForScope.length}
           </p>
-          <p className="hidden sm:block text-xs text-slate-500 mt-1.5">
-            New client files opened
-          </p>
-        </div>
+          <p className="text-xs text-blue-700 mt-1.5">View List</p>
+        </button>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+        <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('talks'); }} className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5 cursor-pointer">
           <p className="text-[11px] sm:text-xs font-medium text-slate-500">
             Talks Logged ({scopeLabel})
           </p>
           <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
             {filteredLogs.length}
           </p>
-          <p className="hidden sm:block text-xs text-slate-500 mt-1.5">
-            Calls, WhatsApp &amp; office visits
-          </p>
-        </div>
+          <p className="text-xs text-blue-700 mt-1.5">View List</p>
+        </button>
 
         {mode === 'team' ? (
-          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+          <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('attendance'); }} className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5 cursor-pointer">
             <p className="text-[11px] sm:text-xs font-medium text-slate-500">
               Team Attendance ({isAllDates ? 'Today' : scopeLabel})
             </p>
-            <p className="font-mono text-2xl sm:text-3xl font-bold text-emerald-700 tabular-nums mt-1 sm:mt-2">
-              {presentCount}
-              <span className="text-sm font-normal text-slate-500"> / {teamScorecard.length}</span>
-            </p>
-            <p className="hidden sm:block text-xs text-slate-500 mt-1.5">
-              Checked in / active on duty
-            </p>
-          </div>
+            <p className="font-mono text-2xl sm:text-3xl font-bold text-emerald-700 tabular-nums mt-1 sm:mt-2">{presentCount} Present <span className="text-sm font-normal text-slate-500">/ {absentMembers.length} Absent</span></p>
+            <p className="text-xs text-blue-700 mt-1.5">View Present &amp; Absent List</p>
+          </button>
         ) : (
           <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
             <p className="text-[11px] sm:text-xs font-medium text-slate-500">My Present Days</p>
@@ -525,15 +514,13 @@ export function DailyOperationsPanel({
           </div>
         )}
 
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-5">
+        <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('followups'); }} className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5 cursor-pointer">
           <p className="text-[11px] sm:text-xs font-medium text-slate-500">Follow-Ups Active</p>
           <p className="font-mono text-2xl sm:text-3xl font-bold text-amber-700 tabular-nums mt-1 sm:mt-2">
             {pendingFollowUpsCount}
           </p>
-          <p className="hidden sm:block text-xs text-slate-500 mt-1.5">
-            Pending callback or document/payment
-          </p>
-        </div>
+          <p className="text-xs text-blue-700 mt-1.5">View List</p>
+        </button>
       </div>
 
       {/* ====================================================================
@@ -1122,6 +1109,22 @@ export function DailyOperationsPanel({
         </div>
       )}
 
+
+      {activePopup && <div className="fixed inset-0 z-50 bg-slate-950/50 p-3 sm:p-6 flex items-center justify-center" role="dialog" aria-modal="true">
+        <div className="bg-white w-full max-w-3xl max-h-[85vh] rounded-xl shadow-2xl overflow-hidden flex flex-col">
+          <div className="px-4 py-3 border-b flex items-center justify-between gap-3"><h3 className="font-bold text-slate-900">{activePopup === 'attendance' ? 'Team Attendance — Present & Absent' : activePopup === 'clients' ? 'Clients Added (' + scopeLabel + ')' : activePopup === 'followups' ? 'Active Follow-Ups' : 'Daily Conversations & Call Logs (' + filteredLogs.length + ')'}</h3>
+            <div className="flex gap-2"><button type="button" onClick={() => {setActivePopup(null); onOpenLogModal(null, isAllDates ? today : dateFilter);}} className={activePopup === 'talks' ? 'px-3 py-2 text-xs font-semibold text-white bg-blue-700 rounded-lg' : 'hidden'}><Plus className="inline w-3 h-3 mr-1"/>Log Conversation</button><button type="button" onClick={() => setActivePopup(null)} className="p-2 rounded-lg hover:bg-slate-100" aria-label="Close">×</button></div>
+          </div>
+          <div className="overflow-y-auto divide-y divide-slate-100">
+            {activePopup === 'attendance' && <><div className="p-4"><p className="font-semibold text-emerald-700 mb-2">Present ({presentMembers.length})</p>{presentMembers.map(({member,attendance}) => <div key={member.id} className="py-2 flex justify-between text-sm"><span>{member.name}</span><span className={getAttendanceStatusClass(attendance?.status)}>{attendance?.status}</span></div>)}</div><div className="p-4"><p className="font-semibold text-red-700 mb-2">Absent / Leave ({absentMembers.length})</p>{absentMembers.map(({member,attendance}) => <div key={member.id} className="py-2 flex justify-between text-sm"><span>{member.name}</span><span className="text-red-700">{attendance?.status === 'Leave' ? 'Leave' : 'Absent'}</span></div>)}</div></>}
+            {activePopup === 'clients' && (showAllPopupItems ? filteredClientsForScope : filteredClientsForScope.slice(0,5)).map(c => <div key={c.clientId} className="p-4"><p className="font-semibold text-sm">{c.clientName}</p><p className="text-xs text-slate-500">{c.phone} · {c.trade} · {c.destinationCountry}</p><p className="text-xs text-slate-500">{c.staffName} · {formatDateOnly(c.createdDate)}</p></div>)}
+            {activePopup === 'followups' && (showAllPopupItems ? allFollowUps : allFollowUps.slice(0,5)).map(log => <div key={log.id} className="p-4 flex justify-between gap-3"><div><p className="font-semibold text-sm">{log.contactName} · {log.outcome}</p><p className="text-xs text-slate-500">{formatDateOnly(log.nextFollowUpDate)} · {log.staffName}</p><p className="text-xs">{log.topic || log.discussionSummary}</p></div><button type="button" onClick={() => {setActivePopup(null); onOpenLogModal(log);}} className="text-xs text-blue-700">Update</button></div>)}
+            {activePopup === 'talks' && (showAllPopupItems ? filteredLogs : filteredLogs.slice(0,5)).map(log => <div key={log.id} className="p-4"><div className="flex justify-between gap-2"><p className="font-semibold text-sm">{log.contactName}</p><span className="text-xs">{log.outcome}</span></div><p className="text-xs text-slate-500">{log.staffName} · {formatDateOnly(log.logDate)} · {log.channel}</p><p className="text-sm mt-1">{log.topic}</p><p className="text-xs text-slate-600">{log.discussionSummary}</p></div>)}
+            {((activePopup === 'clients' && filteredClientsForScope.length === 0) || (activePopup === 'followups' && allFollowUps.length === 0) || (activePopup === 'talks' && filteredLogs.length === 0)) && <p className="p-5 text-sm text-slate-500">No records found for this filter.</p>}
+          </div>
+          {((activePopup === 'clients' && filteredClientsForScope.length > 5) || (activePopup === 'followups' && allFollowUps.length > 5) || (activePopup === 'talks' && filteredLogs.length > 5)) && <div className="p-3 border-t text-center"><button type="button" onClick={() => setShowAllPopupItems(v => !v)} className="text-xs font-semibold text-blue-700">{showAllPopupItems ? 'See Less' : 'See More'}</button></div>}
+        </div>
+      </div>}
       <PasswordConfirmModal
         open={pendingDeleteLog !== null}
         title="Confirm Remove Conversation Log"
