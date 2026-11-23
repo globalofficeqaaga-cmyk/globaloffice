@@ -301,17 +301,15 @@ export function AttendanceOverviewPanel({
 
           <div className="flex items-center gap-1.5">
             <Clock className="w-3.5 h-3.5 text-slate-500" />
-            <select
+            <label className="text-xs font-semibold text-slate-600 whitespace-nowrap" htmlFor="office-start-time">Office In Time</label>
+            <input
+              id="office-start-time"
+              type="time"
               value={officeStartTime}
-              onChange={(e) => setOfficeStartTime(e.target.value)}
+              onChange={(e) => setOfficeStartTime(e.target.value || '09:30')}
               aria-label="Office start time for late minutes calculation"
               className="px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-200 rounded-lg text-slate-800"
-            >
-              <option value="09:00">Start 09:00 AM</option>
-              <option value="09:30">Start 09:30 AM</option>
-              <option value="10:00">Start 10:00 AM</option>
-              <option value="10:30">Start 10:30 AM</option>
-            </select>
+            />
           </div>
 
           <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg cursor-pointer select-none">
