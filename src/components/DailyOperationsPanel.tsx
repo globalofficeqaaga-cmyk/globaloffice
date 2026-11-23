@@ -47,7 +47,7 @@ const OFFICE_START_TIME_KEY = 'gp_office_start_time';
 function readOfficeStartTime(): string {
   try {
     const saved = localStorage.getItem(OFFICE_START_TIME_KEY) || '09:30';
-    return /^([01]\\d|2[0-3]):[0-5]\\d$/.test(saved) ? saved : '09:30';
+    return /^([01]\d|2[0-3]):[0-5]\d$/.test(saved) ? saved : '09:30';
   } catch {
     return '09:30';
   }
@@ -155,7 +155,7 @@ export function DailyOperationsPanel({
   useEffect(() => {
     const syncOfficeTime = (event?: Event) => {
       const detail = (event as CustomEvent<string> | undefined)?.detail;
-      setOfficeStartTime(typeof detail === 'string' && /^([01]\\d|2[0-3]):[0-5]\\d$/.test(detail) ? detail : readOfficeStartTime());
+      setOfficeStartTime(typeof detail === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(detail) ? detail : readOfficeStartTime());
     };
     window.addEventListener('gp-office-start-time-change', syncOfficeTime);
     window.addEventListener('storage', syncOfficeTime);
