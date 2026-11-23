@@ -74,6 +74,7 @@ export function AttendanceOverviewPanel({
     } catch {
       // Ignore storage quota errors
     }
+    window.dispatchEvent(new CustomEvent('gp-office-start-time-change', { detail: officeStartTime }));
   }, [officeStartTime]);
 
   useEffect(() => {
