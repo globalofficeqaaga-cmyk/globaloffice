@@ -42,11 +42,11 @@ function formatTime12h(hhmm: string): string {
   return `${String(hour12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${suffix}`;
 }
 
-const officeStartTime_KEY = 'gp_office_start_time';
+const OFFICE_START_TIME_KEY = 'gp_office_start_time';
 
 function readOfficeStartTime(): string {
   try {
-    const saved = localStorage.getItem(officeStartTime_KEY) || '09:30';
+    const saved = localStorage.getItem(OFFICE_START_TIME_KEY) || '09:30';
     return /^([01]\d|2[0-3]):[0-5]\d$/.test(saved) ? saved : '09:30';
   } catch {
     return '09:30';
