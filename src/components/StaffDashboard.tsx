@@ -81,6 +81,9 @@ export function StaffDashboard({
   onLogout,
 }: StaffDashboardProps) {
   const [activeTab, setActiveTab] = useState<StaffTab>('overview');
+  const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({});
+  const getVisibleItems = <T,>(key: string, items: T[]) => expandedLists[key] ? items : items.slice(0, 5);
+  const renderListToggle = (key: string, count: number) => count > 5 ? <div className="py-3 text-center border-t border-slate-100"><button type="button" onClick={() => setExpandedLists((current) => ({ ...current, [key]: !current[key] }))} className="text-xs font-semibold text-blue-700 hover:underline">{expandedLists[key] ? 'See Less' : `See More (${count - 5} more)`}</button></div> : null;
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState('');
@@ -784,7 +787,7 @@ export function StaffDashboard({
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
             <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-              My Client Profiles ({filteredClients.length})
+              My Client Profiles ({filteredClients.length}) {renderListToggle('clients', filteredClients.length)}
             </h2>
             <p className="hidden sm:block text-xs text-slate-500">
               Only clients created under your staff account are shown here
@@ -799,7 +802,7 @@ export function StaffDashboard({
             <>
               {/* Mobile Client Cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {filteredClients.map((c) => {
+                {getVisibleItems('clients', filteredClients).map((c) => {
                   const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
                   return (
                     <div key={c.id} className="p-4 space-y-2">
@@ -894,7 +897,7 @@ export function StaffDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredClients.map((c) => {
+                    {getVisibleItems('clients', filteredClients).map((c) => {
                       const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
                       return (
                         <tr key={c.id} className="hover:bg-slate-50/70">
@@ -1003,7 +1006,7 @@ export function StaffDashboard({
             <>
               {/* Mobile Meeting Cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {filteredMeetings.map((m) => (
+                {getVisibleItems('meetings', filteredMeetings).map((m) => (
                   <div key={m.id} className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1095,7 +1098,7 @@ export function StaffDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredMeetings.map((m) => (
+                    {getVisibleItems('meetings', filteredMeetings).map((m) => (
                       <tr key={m.id} className="hover:bg-slate-50/70">
                         <td className="px-6 py-3.5">
                           <p className="font-semibold text-slate-900">{m.clientName}</p>
@@ -1175,7 +1178,7 @@ export function StaffDashboard({
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-                My Medical Candidates ({filteredMedicals.length})
+                My Medical Candidates ({filteredMedicals.length}) {renderListToggle('medicals', filteredMedicals.length)}
               </h2>
               <p className="text-xs font-mono text-slate-500 tabular-nums mt-0.5">
                 Paid {formatBDT(medicalPaid)} · Due {formatBDT(medicalDue)}
@@ -1191,7 +1194,7 @@ export function StaffDashboard({
             <>
               {/* Mobile Medical Cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {filteredMedicals.map((m) => (
+                {getVisibleItems('medicals', filteredMedicals).map((m) => (
                   <div key={m.id} className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1288,7 +1291,7 @@ export function StaffDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredMedicals.map((m) => (
+                    {getVisibleItems('medicals', filteredMedicals).map((m) => (
                       <tr key={m.id} className="hover:bg-slate-50/70">
                         <td className="px-6 py-3.5">
                           <p className="font-semibold text-slate-900">{m.candidateName}</p>
@@ -1373,7 +1376,7 @@ export function StaffDashboard({
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
             <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-              My Interview Schedules ({filteredInterviews.length})
+              My Interview Schedules ({filteredInterviews.length}) {renderListToggle('interviews', filteredInterviews.length)}
             </h2>
           </div>
 
@@ -1385,7 +1388,7 @@ export function StaffDashboard({
             <>
               {/* Mobile Interview Cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {filteredInterviews.map((iv) => (
+                {getVisibleItems('interviews', filteredInterviews).map((iv) => (
                   <div key={iv.id} className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1481,7 +1484,7 @@ export function StaffDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredInterviews.map((iv) => (
+                    {getVisibleItems('interviews', filteredInterviews).map((iv) => (
                       <tr key={iv.id} className="hover:bg-slate-50/70">
                         <td className="px-6 py-3.5">
                           <p className="font-semibold text-slate-900">{iv.candidateNames}</p>
