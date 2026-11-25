@@ -575,6 +575,13 @@ export function StaffDashboard({
          ==================================================================== */}
       {activeTab === 'overview' && (
         <div className="space-y-6 sm:space-y-8">
+          <AttendanceOverviewPanel
+            currentUser={data.user}
+            roster={[data.user]}
+            attendanceRecords={attendanceRecords}
+            title="My Daily Work & Attendance"
+            subtitle="Your date-wise attendance, late arrival and working-time report"
+          />
           {/* Quick Daily Attendance & Today Productivity Banner */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div className="grid grid-cols-3 gap-3 sm:gap-6 flex-1">
