@@ -247,6 +247,8 @@ export interface StaffDailyLog {
   logTime: string;
   contactName: string;
   contactPhone: string;
+  contactAddress?: string;
+  contactAge?: number | null;
   channel: LogChannel;
   topic: string;
   discussionSummary: string;
