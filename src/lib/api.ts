@@ -443,6 +443,7 @@ interface StaffDailyLogRow {
   contact_name: string;
   contact_phone: string;
   contact_address?: string;
+  contact_country?: string;
   contact_age?: number | null;
   channel: LogChannel;
   topic: string;
@@ -721,6 +722,7 @@ function mapDailyLogRow(row: StaffDailyLogRow): StaffDailyLog {
     contactName: row.contact_name,
     contactPhone: row.contact_phone || '',
     contactAddress: row.contact_address || '',
+    contactCountry: row.contact_country || '',
     contactAge: row.contact_age ?? null,
     channel: row.channel || 'Phone Call',
     topic: row.topic || '',
@@ -2512,6 +2514,7 @@ export const api = {
             contact_name: payload.contactName || '',
             contact_phone: payload.contactPhone || '',
             contact_address: payload.contactAddress || '',
+            contact_country: payload.contactCountry || '',
             contact_age: payload.contactAge ?? null,
             channel: payload.channel || 'Phone Call',
             topic: payload.topic || '',
@@ -2573,6 +2576,7 @@ export const api = {
       if (payload.contactName !== undefined) updateBody.contact_name = payload.contactName;
       if (payload.contactPhone !== undefined) updateBody.contact_phone = payload.contactPhone;
       if (payload.contactAddress !== undefined) updateBody.contact_address = payload.contactAddress;
+      if (payload.contactCountry !== undefined) updateBody.contact_country = payload.contactCountry;
       if (payload.contactAge !== undefined) updateBody.contact_age = payload.contactAge;
       if (payload.channel !== undefined) updateBody.channel = payload.channel;
       if (payload.topic !== undefined) updateBody.topic = payload.topic;
