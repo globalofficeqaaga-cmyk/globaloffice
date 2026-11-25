@@ -3672,6 +3672,8 @@ export function DailyLogModal({
   const [logTime, setLogTime] = useState(initial?.logTime || getCurrentLocalTimeStr());
   const [contactName, setContactName] = useState(initial?.contactName || '');
   const [contactPhone, setContactPhone] = useState(initial?.contactPhone || '');
+  const [contactAddress, setContactAddress] = useState(initial?.contactAddress || '');
+  const [contactAge, setContactAge] = useState(initial?.contactAge != null ? String(initial.contactAge) : '');
   const [channel, setChannel] = useState<LogChannel>(initial?.channel || 'Phone Call');
   const [topic, setTopic] = useState(initial?.topic || '');
   const [discussionSummary, setDiscussionSummary] = useState(initial?.discussionSummary || '');
@@ -3726,6 +3728,8 @@ export function DailyLogModal({
         logTime: logTime.trim(),
         contactName: contactName.trim(),
         contactPhone: contactPhone.trim(),
+        contactAddress: contactAddress.trim(),
+        contactAge: contactAge.trim() ? Number(contactAge) : null,
         channel,
         topic: topic.trim(),
         discussionSummary: discussionSummary.trim(),
@@ -3924,9 +3928,20 @@ export function DailyLogModal({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Address</label>
+              <input type="text" value={contactAddress} onChange={(e) => { setDirty(true); setContactAddress(e.target.value); }} placeholder="Enter full address" className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Age</label>
+              <input type="number" min="1" max="120" step="1" value={contactAge} onChange={(e) => { setDirty(true); setContactAge(e.target.value); }} placeholder="Enter age" className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700" />
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Subject / Topic
+              Trade
             </label>
             <input
               type="text"
@@ -3935,7 +3950,7 @@ export function DailyLogModal({
                 setDirty(true);
                 setTopic(e.target.value);
               }}
-              placeholder="e.g. Passport submission, Medical fee, Saudi Electrician visa"
+              placeholder="Enter trade (e.g. Electrician, Welder, Driver)"
               className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700"
             />
           </div>
