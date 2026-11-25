@@ -44,6 +44,7 @@ import type {
   StaffDailyLog,
 } from '../types';
 import { DailyOperationsPanel } from './DailyOperationsPanel';
+import { AttendanceOverviewPanel } from './AttendanceOverviewPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
 import { TeamProfilesPanel } from './TeamProfilesPanel';
@@ -556,6 +557,15 @@ export function StaffDashboard({
             }
           }}
         />
+        <div className="mt-6">
+          <AttendanceOverviewPanel
+            currentUser={data.user}
+            roster={[data.user]}
+            attendanceRecords={attendanceRecords}
+            title="My Attendance Overview"
+            subtitle="Your date-wise attendance, late arrival and working-time report"
+          />
+        </div>
       )}
 
       {/* ====================================================================
