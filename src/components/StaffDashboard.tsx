@@ -530,6 +530,7 @@ export function StaffDashboard({
           DAILY ATTENDANCE, CLIENTS ADDED & CONVERSATION LOGS TAB
          ==================================================================== */}
       {activeTab === 'daily' && (
+        <>
         <DailyOperationsPanel
           mode="personal"
           currentUser={data.user}
@@ -566,6 +567,7 @@ export function StaffDashboard({
             subtitle="Your date-wise attendance, late arrival and working-time report"
           />
         </div>
+        </>
       )}
 
       {/* ====================================================================
