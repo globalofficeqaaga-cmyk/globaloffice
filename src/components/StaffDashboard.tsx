@@ -83,7 +83,7 @@ export function StaffDashboard({
   const [activeTab, setActiveTab] = useState<StaffTab>('overview');
   const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({});
   const getVisibleItems = <T,>(key: string, items: T[]) => expandedLists[key] ? items : items.slice(0, 5);
-  const renderListToggle = (key: string, count: number) => count > 5 ? <div className="py-3 text-center border-t border-slate-100"><button type="button" onClick={() => setExpandedLists((current) => ({ ...current, [key]: !current[key] }))} className="text-xs font-semibold text-blue-700 hover:underline">{expandedLists[key] ? 'See Less' : `See More (${count - 5} more)`}</button></div> : null;
+  const renderListToggle = (key: string, count: number) => count > 5 ? <button type="button" onClick={() => setExpandedLists((current) => ({ ...current, [key]: !current[key] }))} className="ml-2 text-xs font-semibold text-blue-700 hover:underline whitespace-nowrap">{expandedLists[key] ? 'See Less' : `See More (${count - 5} more)`}</button> : null;
   const [searchQuery, setSearchQuery] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [saveToast, setSaveToast] = useState('');
@@ -994,7 +994,7 @@ export function StaffDashboard({
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
             <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-              My Scheduled Meetings ({filteredMeetings.length})
+              My Scheduled Meetings ({filteredMeetings.length}) {renderListToggle('meetings', filteredMeetings.length)}
             </h2>
           </div>
 
