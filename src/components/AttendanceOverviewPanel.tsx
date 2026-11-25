@@ -194,7 +194,7 @@ export function AttendanceOverviewPanel({
             </p>
             <p>
               Office Start: <span className="font-semibold">{formatTime12h(officeStartTime)}</span> ·{' '}
-              {includeFridays ? 'All Days' : 'Fri Off'}
+              {'Fri Off'}
             </p>
             <p>
               Printed By: <span className="font-semibold">{currentUser.name}</span> ({currentUser.role})
