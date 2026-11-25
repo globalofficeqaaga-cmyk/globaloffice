@@ -3515,11 +3515,11 @@ export function AdminDashboard({
         />
       )}
 
-      {activeTab === 'daily' && canViewAllReports && (
+      {activeTab === 'daily' && (
         <div className="mt-6">
           <AttendanceOverviewPanel
             currentUser={data.user}
-            roster={fullTeamRoster}
+            roster={canViewAllReports ? fullTeamRoster : [data.user]}
             attendanceRecords={attendanceRecords}
             title="Daily Work & Attendance"
             subtitle="Date-wise attendance, late arrival and working-time report"
