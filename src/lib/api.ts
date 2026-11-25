@@ -442,6 +442,8 @@ interface StaffDailyLogRow {
   log_time: string;
   contact_name: string;
   contact_phone: string;
+  contact_address?: string;
+  contact_age?: number | null;
   channel: LogChannel;
   topic: string;
   discussion_summary: string;
@@ -718,6 +720,8 @@ function mapDailyLogRow(row: StaffDailyLogRow): StaffDailyLog {
     logTime: row.log_time || '',
     contactName: row.contact_name,
     contactPhone: row.contact_phone || '',
+    contactAddress: row.contact_address || '',
+    contactAge: row.contact_age ?? null,
     channel: row.channel || 'Phone Call',
     topic: row.topic || '',
     discussionSummary: row.discussion_summary || '',
@@ -2507,6 +2511,8 @@ export const api = {
             log_time: payload.logTime || getCurrentLocalTimeStr(),
             contact_name: payload.contactName || '',
             contact_phone: payload.contactPhone || '',
+            contact_address: payload.contactAddress || '',
+            contact_age: payload.contactAge ?? null,
             channel: payload.channel || 'Phone Call',
             topic: payload.topic || '',
             discussion_summary: payload.discussionSummary || '',
@@ -2566,6 +2572,8 @@ export const api = {
       if (payload.logTime !== undefined) updateBody.log_time = payload.logTime;
       if (payload.contactName !== undefined) updateBody.contact_name = payload.contactName;
       if (payload.contactPhone !== undefined) updateBody.contact_phone = payload.contactPhone;
+      if (payload.contactAddress !== undefined) updateBody.contact_address = payload.contactAddress;
+      if (payload.contactAge !== undefined) updateBody.contact_age = payload.contactAge;
       if (payload.channel !== undefined) updateBody.channel = payload.channel;
       if (payload.topic !== undefined) updateBody.topic = payload.topic;
       if (payload.discussionSummary !== undefined) {
