@@ -66,6 +66,8 @@ export function AttendanceOverviewPanel({
     }
   });
   const [showDailyLog, setShowDailyLog] = useState<boolean>(defaultOpenDailyLog);
+  const [showAllMembers, setShowAllMembers] = useState(false);
+  const [showAllDailyRows, setShowAllDailyRows] = useState(false);
 
   useEffect(() => {
     try {
@@ -397,7 +399,7 @@ export function AttendanceOverviewPanel({
 
         {/* Mobile Cards (Hidden on A4 Print) */}
         <div className="sm:hidden divide-y divide-slate-100 print-mobile-cards">
-          {report.perMember.map((row) => (
+          {(showAllMembers ? report.perMember : report.perMember.slice(0, 5)).map((row) => (
             <div key={row.member.id} className="p-4 space-y-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -446,6 +448,8 @@ export function AttendanceOverviewPanel({
             </div>
           ))}
         </div>
+
+        {report.perMember.length > 5 && <div className="py-3 text-center border-t border-slate-100 no-print"><button type="button" onClick={() => setShowAllMembers((value) => !value)} className="text-xs font-semibold text-blue-700 hover:underline">{showAllMembers ? 'See Less' : `See More (${report.perMember.length - 5} more)`}</button></div>}
 
         {/* Desktop & Print-Ready Table */}
         <div className="hidden sm:block overflow-x-auto print-desktop-table">
@@ -582,7 +586,7 @@ export function AttendanceOverviewPanel({
             <>
               {/* Mobile Log Cards */}
               <div className="sm:hidden divide-y divide-slate-100 print-mobile-cards">
-                {report.dailyRows.map((rec) => (
+                {(showAllDailyRows ? report.dailyRows : report.dailyRows.slice(0, 5)).map((rec) => (
                   <div key={rec.id} className="p-4 space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -613,6 +617,8 @@ export function AttendanceOverviewPanel({
                   </div>
                 ))}
               </div>
+
+              {report.dailyRows.length > 5 && <div className="py-3 text-center border-t border-slate-100 no-print"><button type="button" onClick={() => setShowAllDailyRows((value) => !value)} className="text-xs font-semibold text-blue-700 hover:underline">{showAllDailyRows ? 'See Less' : `See More (${report.dailyRows.length - 5} more)`}</button></div>}
 
               {/* Desktop & Print Daily Log Table */}
               <div className="hidden sm:block overflow-x-auto print-desktop-table">
