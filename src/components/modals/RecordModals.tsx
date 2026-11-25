@@ -3673,6 +3673,7 @@ export function DailyLogModal({
   const [contactName, setContactName] = useState(initial?.contactName || '');
   const [contactPhone, setContactPhone] = useState(initial?.contactPhone || '');
   const [contactAddress, setContactAddress] = useState(initial?.contactAddress || '');
+  const [contactCountry, setContactCountry] = useState(initial?.contactCountry || '');
   const [contactAge, setContactAge] = useState(initial?.contactAge != null ? String(initial.contactAge) : '');
   const [channel, setChannel] = useState<LogChannel>(initial?.channel || 'Phone Call');
   const [topic, setTopic] = useState(initial?.topic || '');
@@ -3706,9 +3707,8 @@ export function DailyLogModal({
     if (found) {
       setContactName(found.name);
       setContactPhone(found.phone);
-      if (!topic.trim()) {
-        setTopic([found.trade, found.destinationCountry].filter(Boolean).join(' · '));
-      }
+      if (!topic.trim()) setTopic(found.trade || '');
+      if (!contactCountry.trim()) setContactCountry(found.destinationCountry || '');
     }
   }
 
@@ -3729,6 +3729,7 @@ export function DailyLogModal({
         contactName: contactName.trim(),
         contactPhone: contactPhone.trim(),
         contactAddress: contactAddress.trim(),
+        contactCountry: contactCountry.trim(),
         contactAge: contactAge.trim() ? Number(contactAge) : null,
         channel,
         topic: topic.trim(),
@@ -3932,6 +3933,10 @@ export function DailyLogModal({
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Address</label>
               <input type="text" value={contactAddress} onChange={(e) => { setDirty(true); setContactAddress(e.target.value); }} placeholder="Enter full address" className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Country</label>
+              <input type="text" value={contactCountry} onChange={(e) => { setDirty(true); setContactCountry(e.target.value); }} placeholder="Enter destination country" className="w-full px-3.5 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-700" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Age</label>
