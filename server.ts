@@ -2286,6 +2286,8 @@ async function startServer() {
       logTime: String(body.logTime || '').trim(),
       contactName,
       contactPhone: String(body.contactPhone || '').trim(),
+      contactAddress: String(body.contactAddress || '').trim(),
+      contactAge: body.contactAge === null || body.contactAge === undefined || body.contactAge === '' ? null : Number(body.contactAge),
       channel: body.channel || 'Phone Call',
       topic: String(body.topic || '').trim(),
       discussionSummary,
@@ -2356,6 +2358,9 @@ async function startServer() {
           : existing.contactName,
       contactPhone:
         typeof body.contactPhone === 'string' ? body.contactPhone.trim() : existing.contactPhone,
+      contactAddress:
+        typeof body.contactAddress === 'string' ? body.contactAddress.trim() : existing.contactAddress || '',
+      contactAge: body.contactAge !== undefined ? (body.contactAge === null || body.contactAge === '' ? null : Number(body.contactAge)) : existing.contactAge ?? null,
       channel: body.channel || existing.channel,
       topic: typeof body.topic === 'string' ? body.topic.trim() : existing.topic,
       discussionSummary:
