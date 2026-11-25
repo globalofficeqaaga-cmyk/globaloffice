@@ -838,6 +838,13 @@ export function AdminDashboard({
          ==================================================================== */}
       {activeTab === 'overview' && (
         <div className="space-y-6 sm:space-y-8">
+          <AttendanceOverviewPanel
+            currentUser={data.user}
+            roster={canViewAllReports ? fullTeamRoster : [data.user]}
+            attendanceRecords={attendanceRecords}
+            title="Daily Work & Attendance"
+            subtitle="Date-wise attendance, late arrival and working-time report"
+          />
           <section className="bg-white border border-amber-200 rounded-xl p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3 mb-3">
               <div>
