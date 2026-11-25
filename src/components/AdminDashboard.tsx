@@ -55,6 +55,7 @@ import type {
   UserPermission,
 } from '../types';
 import { DailyOperationsPanel } from './DailyOperationsPanel';
+import { AttendanceOverviewPanel } from './AttendanceOverviewPanel';
 import { DashboardShell, type NavTab } from './DashboardShell';
 import { StaffContactCard } from './StaffContactCard';
 import { TeamProfilesPanel, UserProfileModal } from './TeamProfilesPanel';
@@ -3512,6 +3513,18 @@ export function AdminDashboard({
             }
           }}
         />
+      )}
+
+      {activeTab === 'daily' && canViewAllReports && (
+        <div className="mt-6">
+          <AttendanceOverviewPanel
+            currentUser={data.user}
+            roster={fullTeamRoster}
+            attendanceRecords={attendanceRecords}
+            title="Daily Work & Attendance"
+            subtitle="Date-wise attendance, late arrival and working-time report"
+          />
+        </div>
       )}
 
       {ledgerModal.open && (!readOnly || canManageFinance) && (
