@@ -18,7 +18,7 @@ import {
 } from '../lib/attendanceUtils';
 import type { AttendanceStatus, PublicUser, StaffAttendanceRecord } from '../types';
 
-type PeriodPreset = 'this_month' | 'last_month' | 'last_7' | 'today' | 'custom';
+type PeriodPreset = 'this_month' | 'last_month' | 'last_7' | 'today' | 'yesterday' | 'all' | 'custom';
 
 interface AttendanceOverviewPanelProps {
   currentUser: PublicUser;
@@ -65,7 +65,6 @@ export function AttendanceOverviewPanel({
       return '09:30';
     }
   });
-  const [includeFridays, setIncludeFridays] = useState<boolean>(false);
   const [showDailyLog, setShowDailyLog] = useState<boolean>(defaultOpenDailyLog);
 
   useEffect(() => {
@@ -92,6 +91,14 @@ export function AttendanceOverviewPanel({
     if (periodPreset === 'today') {
       return { startDate: todayStr, endDate: todayStr };
     }
+    if (periodPreset === 'yesterday') {
+      const yesterday = shiftDateStr(todayStr, -1);
+      return { startDate: yesterday, endDate: yesterday };
+    }
+    if (periodPreset === 'all') {
+      const dates = attendanceRecords.map((r) => r.date).filter(Boolean).sort();
+      return { startDate: dates[0] || todayStr, endDate: todayStr };
+    }
     if (periodPreset === 'last_7') {
       return { startDate: shiftDateStr(todayStr, -6), endDate: todayStr };
     }
@@ -104,7 +111,7 @@ export function AttendanceOverviewPanel({
       return { startDate: s, endDate: e };
     }
     return { startDate: getMonthStartDateStr(todayStr), endDate: todayStr };
-  }, [periodPreset, todayStr, customStart, customEnd]);
+  }, [periodPreset, todayStr, customStart, customEnd, attendanceRecords]);
 
   const sortedRoster = useMemo(() => {
     const map = new Map<string, PublicUser>();
@@ -128,9 +135,9 @@ export function AttendanceOverviewPanel({
         endDate,
         todayStr,
         officeStartTime,
-        includeFridays,
+        includeFridays: false,
       }),
-    [scopedMembers, attendanceRecords, startDate, endDate, todayStr, officeStartTime, includeFridays]
+    [scopedMembers, attendanceRecords, startDate, endDate, todayStr, officeStartTime]
   );
 
   const selectedMemberObj =
@@ -243,7 +250,9 @@ export function AttendanceOverviewPanel({
               { id: 'last_month' as const, label: 'Last Month' },
               { id: 'last_7' as const, label: '7 Days' },
               { id: 'today' as const, label: 'Today' },
-              { id: 'custom' as const, label: 'Custom' },
+              { id: 'yesterday' as const, label: 'Yesterday' },
+              { id: 'all' as const, label: 'All Date' },
+              { id: 'custom' as const, label: 'Calendar' },
             ].map((p) => (
               <button
                 key={p.id}
@@ -312,15 +321,7 @@ export function AttendanceOverviewPanel({
             />
           </div>
 
-          <label className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={includeFridays}
-              onChange={(e) => setIncludeFridays(e.target.checked)}
-              className="rounded border-slate-300 text-blue-700"
-            />
-            <span className="text-slate-700 font-medium">Count Fridays</span>
-          </label>
+
         </div>
       </div>
 
