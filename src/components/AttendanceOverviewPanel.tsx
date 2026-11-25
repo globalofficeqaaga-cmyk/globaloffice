@@ -96,7 +96,7 @@ export function AttendanceOverviewPanel({
       return { startDate: yesterday, endDate: yesterday };
     }
     if (periodPreset === 'all') {
-      const dates = attendanceRecords.map((r) => r.date).filter(Boolean).sort();
+      const dates = attendanceRecords.map((r) => r.attendanceDate).filter(Boolean).sort();
       return { startDate: dates[0] || todayStr, endDate: todayStr };
     }
     if (periodPreset === 'last_7') {
