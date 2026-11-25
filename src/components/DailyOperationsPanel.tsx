@@ -524,15 +524,14 @@ export function DailyOperationsPanel({
           <p className="text-xs text-blue-700 mt-1.5">View List</p>
         </button>
 
-        <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('talks'); }} className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5 cursor-pointer">
-          <p className="text-[11px] sm:text-xs font-medium text-slate-500">
-            Talks Logged ({scopeLabel})
-          </p>
-          <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">
-            {filteredLogs.length}
-          </p>
-          <p className="text-xs text-blue-700 mt-1.5">View List</p>
-        </button>
+        <div className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] sm:text-xs font-medium text-slate-500">Daily Conversations &amp; Call Logs ({scopeLabel})</p>
+            <button type="button" onClick={() => { setShowAllPopupItems(true); setActivePopup('talks'); }} className="shrink-0 p-1.5 rounded-md text-blue-700 hover:bg-blue-50" aria-label="View all saved conversation and call logs" title="View all logs"><Eye className="w-4 h-4"/></button>
+          </div>
+          <p className="font-mono text-2xl sm:text-3xl font-bold text-slate-900 tabular-nums mt-1 sm:mt-2">{filteredLogs.length}</p>
+          <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('talks'); }} className="text-xs text-blue-700 mt-1.5 hover:underline">View List</button>
+        </div>
 
         {mode === 'team' ? (
           <button type="button" onClick={() => { setShowAllPopupItems(false); setActivePopup('attendance'); }} className="text-left bg-white border border-slate-200 hover:border-blue-300 rounded-xl p-3.5 sm:p-5 cursor-pointer">
