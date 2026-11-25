@@ -248,6 +248,7 @@ export interface StaffDailyLog {
   contactName: string;
   contactPhone: string;
   contactAddress?: string;
+  contactCountry?: string;
   contactAge?: number | null;
   channel: LogChannel;
   topic: string;
