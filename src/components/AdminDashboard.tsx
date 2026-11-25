@@ -125,6 +125,9 @@ export function AdminDashboard({
     return 'overview';
   });
   const [clockNow, setClockNow] = useState(Date.now());
+  const [expandedLists, setExpandedLists] = useState<Record<string, boolean>>({});
+  const getVisibleItems = <T,>(key: string, items: T[]) => expandedLists[key] ? items : items.slice(0, 5);
+  const renderListToggle = (key: string, count: number) => count > 5 ? <div className="py-3 text-center border-t border-slate-100"><button type="button" onClick={() => setExpandedLists((current) => ({ ...current, [key]: !current[key] }))} className="text-xs font-semibold text-blue-700 hover:underline">{expandedLists[key] ? 'See Less' : `See More (${count - 5} more)`}</button></div> : null;
   const [dailyShowAll, setDailyShowAll] = useState(false);
   const [showAllFollowUps, setShowAllFollowUps] = useState(false);
   const [followUpNameFilter, setFollowUpNameFilter] = useState('');
@@ -1249,7 +1252,7 @@ export function AdminDashboard({
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-                All Meetings ({filteredMeetings.length})
+                All Meetings ({filteredMeetings.length}) {renderListToggle('meetings', filteredMeetings.length)}
               </h2>
               <p className="hidden sm:block text-xs text-slate-500">
                 Who is meeting whom, which staff&apos;s client, location, and exact time
@@ -1265,7 +1268,7 @@ export function AdminDashboard({
             <>
               {/* Mobile Meeting Cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {filteredMeetings.map((m) => (
+                {getVisibleItems('meetings', filteredMeetings).map((m) => (
                   <div key={m.id} className="p-4 space-y-2">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -1356,7 +1359,7 @@ export function AdminDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredMeetings.map((m) => (
+                    {getVisibleItems('meetings', filteredMeetings).map((m) => (
                       <tr key={m.id} className="hover:bg-slate-50/70">
                         <td className="px-6 py-3.5 text-slate-700 font-medium">
                           {getStaffLabel(m.staffId)}
@@ -1491,7 +1494,7 @@ export function AdminDashboard({
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
               <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-                Medical Screening & Payment Ledger
+                Medical Screening & Payment Ledger {renderListToggle('medicals', filteredMedicals.length)}
               </h2>
               <p className="hidden sm:block text-xs text-slate-500">
                 Center, location, staff owner, paid amount, receivable due, and payment purpose
@@ -1506,7 +1509,7 @@ export function AdminDashboard({
               <>
                 {/* Mobile Medical Cards */}
                 <div className="sm:hidden divide-y divide-slate-100">
-                  {filteredMedicals.map((m) => (
+                  {getVisibleItems('medicals', filteredMedicals).map((m) => (
                     <div key={m.id} className="p-4 space-y-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -1607,7 +1610,7 @@ export function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredMedicals.map((m) => (
+                      {getVisibleItems('medicals', filteredMedicals).map((m) => (
                         <tr key={m.id} className="hover:bg-slate-50/70">
                           <td className="px-6 py-3.5 text-slate-700 font-medium">
                             {getStaffLabel(m.staffId)}
@@ -1738,7 +1741,7 @@ export function AdminDashboard({
               <>
                 {/* Mobile Interview Cards */}
                 <div className="sm:hidden divide-y divide-slate-100">
-                  {filteredInterviews.map((iv) => (
+                  {getVisibleItems('interviews', filteredInterviews).map((iv) => (
                     <div key={iv.id} className="p-4 space-y-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -1832,7 +1835,7 @@ export function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredInterviews.map((iv) => (
+                      {getVisibleItems('interviews', filteredInterviews).map((iv) => (
                         <tr key={iv.id} className="hover:bg-slate-50/70">
                           <td className="px-6 py-3.5 text-slate-700 font-medium">
                             {getStaffLabel(iv.staffId)}
@@ -1931,7 +1934,7 @@ export function AdminDashboard({
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
           <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-200">
             <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
-              All Client Profiles ({filteredClients.length})
+              All Client Profiles ({filteredClients.length}) {renderListToggle('clients', filteredClients.length)}
             </h2>
             <p className="hidden sm:block text-xs text-slate-500">
               Full document, medical, salary, payment, and remaining requirement records
@@ -1946,7 +1949,7 @@ export function AdminDashboard({
             <>
               {/* Mobile Client Cards */}
               <div className="sm:hidden divide-y divide-slate-100">
-                {filteredClients.map((c) => {
+                {getVisibleItems('clients', filteredClients).map((c) => {
                   const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
                   return (
                     <div key={c.id} className="p-4 space-y-2">
@@ -2058,7 +2061,7 @@ export function AdminDashboard({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filteredClients.map((c) => {
+                    {getVisibleItems('clients', filteredClients).map((c) => {
                       const due = Math.max(0, (c.totalPayable || 0) - (c.totalPaid || 0));
                       return (
                         <tr key={c.id} className="hover:bg-slate-50/70">
@@ -2274,7 +2277,7 @@ export function AdminDashboard({
               <>
                 {/* Mobile Accounts Logins Cards */}
                 <div className="sm:hidden divide-y divide-slate-100">
-                  {(data.accountsList || []).map((acc) => (
+                  {getVisibleItems('accounts', data.accountsList || []).map((acc) => (
                     <div key={acc.id} className="p-4 flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <p className="font-semibold text-slate-900 truncate">{acc.name}</p>
@@ -2368,7 +2371,7 @@ export function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {(data.accountsList || []).map((acc) => (
+                      {getVisibleItems('accounts', data.accountsList || []).map((acc) => (
                         <tr key={acc.id} className="hover:bg-slate-50/70">
                           <td className="px-6 py-3.5">
                             <p className="font-semibold text-slate-900">{acc.name}</p>
@@ -2538,7 +2541,7 @@ export function AdminDashboard({
               <>
                 {/* Mobile Ledger Cards */}
                 <div className="sm:hidden divide-y divide-slate-100">
-                  {filteredLedgerEntries.map((item) => {
+                  {getVisibleItems('ledger', filteredLedgerEntries).map((item) => {
                     const isCredit = item.entryType === 'credit';
                     return (
                       <div key={item.id} className="p-4 space-y-2">
@@ -2658,7 +2661,7 @@ export function AdminDashboard({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {filteredLedgerEntries.map((item) => {
+                      {getVisibleItems('ledger', filteredLedgerEntries).map((item) => {
                         const isCredit = item.entryType === 'credit';
                         return (
                           <tr key={item.id} className="hover:bg-slate-50/70 align-top">
